@@ -252,6 +252,7 @@ struct LibraryView: View {
                     .frame(maxHeight: .infinity)
                 }
             }
+            .background(AppBackground().ignoresSafeArea())
             .navigationTitle("NexPlay")
             .searchable(text: $search, prompt: "Search games")
             .toolbar { toolbar }
@@ -271,7 +272,9 @@ struct LibraryView: View {
                 .environmentObject(privacy)
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView().environmentObject(store)
+            SettingsView()
+                .environmentObject(store)
+                .environmentObject(privacy)
         }
         .sheet(isPresented: $showCollections) {
             CollectionsManagerView().environmentObject(collections)
@@ -482,8 +485,8 @@ struct LibraryView: View {
             } label: { Image(systemName: "arrow.up.arrow.down") }
                 .accessibilityLabel("Sort and view")
             Menu {
-                Button { importFiles() } label: { Label("Files or ZIP…", systemImage: "doc.zipper") }
-                Button { importFolders() } label: { Label("Folder…", systemImage: "folder") }
+                Button { importFiles() } label: { Label("ZIP, 7z, RAR or HTML File…", systemImage: "doc.zipper") }
+                Button { importFolders() } label: { Label("Game Folder…", systemImage: "folder") }
             } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add games")
         }
@@ -495,11 +498,13 @@ struct LibraryView: View {
                 .font(.system(size: 54))
                 .foregroundStyle(.secondary)
             Text("No games yet").font(.title2.bold())
-            Text("Add an RPG Maker MV/MZ or HTML5 game as a ZIP or a folder. XP/VX/Ace games can be added too; they need a build with the mkxp core to start. Tip: open a ZIP from the Files app with NexPlay.")
+            Text("Add an RPG Maker MV/MZ or HTML5 game as a ZIP, 7z or RAR archive, or as a folder. XP/VX/Ace games can be added too; they need a build with the mkxp core to start. Tip: open an archive from the Files app with NexPlay.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Button { importFiles() } label: { Label("Add a Game", systemImage: "plus") }
                 .buttonStyle(.borderedProminent)
+            Button { importFolders() } label: { Label("Add a Game Folder", systemImage: "folder") }
+                .buttonStyle(.bordered)
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

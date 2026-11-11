@@ -25,8 +25,13 @@ enum OrientationManager {
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: mode.mask)) { _ in }
     }
 
+    /// The orientation outside games: free with Auto-rotate Outside Games, else portrait.
+    static var outsideMode: OrientationMode {
+        UserDefaults.standard.bool(forKey: SettingsKey.autoRotateOutside) ? .auto : .portrait
+    }
+
     @MainActor
-    static func unlock() { lock(.auto) }
+    static func unlock() { lock(outsideMode) }
 }
 
 @main
@@ -41,6 +46,7 @@ struct NexPlayApp: App {
 
     init() {
         UserDefaults.standard.register(defaults: NexPlayApp.defaultSettings)
+        AppDelegate.orientationMask = OrientationManager.outsideMode.mask
         AppLog.noteLaunch()
     }
 
@@ -60,6 +66,26 @@ struct NexPlayApp: App {
         SettingsKey.theme: "dark",
         SettingsKey.autoBackup: true,
         SettingsKey.backupRetention: 10,
+        SettingsKey.barOpacity: 0.85,
+        SettingsKey.barScale: 1.0,
+        SettingsKey.barDrawer: "horizontal",
+        SettingsKey.barGlass: true,
+        SettingsKey.barAutoHide: true,
+        SettingsKey.barShowFastForward: true,
+        SettingsKey.barShowScreenshot: true,
+        SettingsKey.barShowKeyboard: true,
+        SettingsKey.touchPadScale: 1.0,
+        SettingsKey.touchPadOpacity: 1.0,
+        SettingsKey.touchDirectionalType: "layout",
+        SettingsKey.physicalControllerEnabled: true,
+        SettingsKey.hidePadWithController: true,
+        SettingsKey.barWithController: false,
+        SettingsKey.autoRotateInGames: false,
+        SettingsKey.newGameOrientation: "landscape",
+        SettingsKey.autoRotateOutside: false,
+        SettingsKey.portraitGameOffset: 0.0,
+        SettingsKey.animatedBackground: true,
+        SettingsKey.backgroundTheme: "nebula",
     ]
 
     private var colorScheme: ColorScheme? {
@@ -80,6 +106,7 @@ struct NexPlayApp: App {
                 .preferredColorScheme(colorScheme)
                 .onOpenURL { url in open(url) }
                 .task {
+                    OrientationManager.unlock()
                     // A backup pass 30 seconds after launch, like Empo.
                     try? await Task.sleep(nanoseconds: 30_000_000_000)
                     backUpAll()
