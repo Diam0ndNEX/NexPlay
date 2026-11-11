@@ -1,9 +1,11 @@
 import Foundation
 import WebKit
 
-// The RPG Maker runtime script is adapted from mvmz-apple-mobile's runtime.js (speed, pause and resume,
-// focus handling). Copyright (C) 2026 Mateo M., https://github.com/mateo-m/mvmz-apple-mobile
+// The RPG Maker runtime script and the NW.js shim are adapted from mvmz-apple-mobile's runtime.js (speed, pause and
+// resume, focus handling, require/process/nw, fs over synchronous requests).
+// Copyright (C) 2026 Mateo M., https://github.com/mateo-m/mvmz-apple-mobile
 // and https://github.com/mateo-m/empo-app (GPL-3.0-only with additional terms).
+// NexPlay keeps the Gamepad API untouched (Empo disables it): physical controllers reach games through it.
 
 /// JavaScript NexPlay injects into game pages.
 enum PageScripts {
@@ -11,6 +13,21 @@ enum PageScripts {
     /// MV drops its fixed update rate, and MZ uses only 90% of the screen height.
     static let desktopUserAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
+
+    /// A JavaScript string literal for `text` (quotes and backslashes escaped).
+    static func jsString(_ text: String) -> String {
+        if let data = try? JSONEncoder().encode([text]),
+           let array = String(data: data, encoding: .utf8),
+           array.count >= 2 {
+            return String(array.dropFirst().dropLast())
+        }
+        return "\"\""
+    }
+
+    /// Lets games know they run in NexPlay: window.nexplay.version.
+    static func identity(version: String) -> String {
+        "window.nexplay = Object.freeze({ version: \(jsString(version)), platform: 'ios' });"
+    }
 
     /// Stops the long-press magnifier, text selection and tap flash that make games feel like web pages.
     static let noSelect = #"""
@@ -105,6 +122,7 @@ enum PageScripts {
         var waiting = new Map();
         var nextId = 1, scheduled = false, paused = false;
         var speed = 1, speedApplied = false;
+        var size = '';
 
         function rethrow(e) { setTimeout(function () { throw e; }, 0); }
 
@@ -126,6 +144,15 @@ enum PageScripts {
             speedApplied = true;
         }
 
+        function reportSize() {
+            // A game or a plugin can change the resolution from any script, and no event reports it.
+            if (typeof Graphics === 'undefined' || !Graphics.width) return;
+            var next = Graphics.width + 'x' + Graphics.height;
+            if (next === size) return;
+            size = next;
+            try { window.webkit.messageHandlers.nexSize.postMessage({ width: Graphics.width, height: Graphics.height }); } catch (e) {}
+        }
+
         function runFrame(time) {
             scheduled = false;
             if (paused) return;
@@ -135,6 +162,7 @@ enum PageScripts {
             for (var i = 0; i < callbacks.length; i++) {
                 try { callbacks[i](time); } catch (e) { rethrow(e); }
             }
+            reportSize();
         }
 
         function schedule() {
@@ -196,6 +224,208 @@ enum PageScripts {
     static func rpgRuntime(pixelated: Bool) -> String {
         "window.__nexSettings = { pixelated: \(pixelated ? "true" : "false") };\n" + rpgRuntimeBody
     }
+
+    /// NW.js shim for RPG Maker games: window.require (fs, path, os, nw.gui), window.nw, window.process.
+    /// With it Utils.isNwjs() is true and MV/MZ keep saves as files in save/ next to index.html.
+    /// fs calls become synchronous requests to NexSchemeHandler. "/" is the folder of the entry page.
+    private static let nwShimBody = #"""
+    (function () {
+        'use strict';
+        var base = String(window.__nexBase || '').split('/').map(encodeURIComponent).join('/');
+        var origin = location.protocol + '//' + location.host;
+        function exit() {
+            try { window.webkit.messageHandlers.nexExit.postMessage('exit'); } catch (e) {}
+        }
+        function noop() {}
+
+        var proc = {
+            platform: 'linux',
+            env: {},
+            argv: [],
+            execPath: '/',
+            versions: { node: '16.0.0', nw: '0.60.0', chromium: '100.0.0' },
+            cwd: function () { return '/'; },
+            exit: exit,
+            on: noop,
+            once: noop,
+            nextTick: function (fn) { setTimeout(fn, 0); },
+            // MZ's main.js stops when this starts with /private/var, so it stays relative to the game folder.
+            mainModule: { filename: '/index.html' }
+        };
+
+        // MARK: path
+        function normalize(p) {
+            var parts = [];
+            String(p).split('/').forEach(function (part) {
+                if (part === '..') parts.pop();
+                else if (part && part !== '.') parts.push(part);
+            });
+            var tail = String(p).slice(-1) === '/' && parts.length ? '/' : '';
+            return ((String(p).charAt(0) === '/' ? '/' : '') + parts.join('/') + tail) || '.';
+        }
+        var path = {
+            sep: '/',
+            delimiter: ':',
+            normalize: normalize,
+            join: function () { return normalize(Array.prototype.filter.call(arguments, Boolean).join('/')); },
+            resolve: function () {
+                var out = proc.cwd();
+                Array.prototype.forEach.call(arguments, function (part) {
+                    part = String(part);
+                    out = part.charAt(0) === '/' ? part : out + '/' + part;
+                });
+                return normalize(out).replace(/(.)\/$/, '$1');
+            },
+            isAbsolute: function (p) { return String(p).charAt(0) === '/'; },
+            dirname: function (p) {
+                var trimmed = String(p).replace(/\/+$/, '');
+                var i = trimmed.lastIndexOf('/');
+                return i < 0 ? '.' : i === 0 ? '/' : trimmed.slice(0, i);
+            },
+            basename: function (p, ext) {
+                var b = String(p).replace(/\/+$/, '').split('/').pop();
+                return ext && b.slice(-ext.length) === ext ? b.slice(0, -ext.length) : b;
+            },
+            extname: function (p) {
+                var b = path.basename(p);
+                var i = b.lastIndexOf('.');
+                return i > 0 ? b.slice(i) : '';
+            },
+            relative: function (from, to) {
+                var a = path.resolve(from).split('/').filter(Boolean);
+                var b = path.resolve(to).split('/').filter(Boolean);
+                while (a.length && b.length && a[0] === b[0]) { a.shift(); b.shift(); }
+                return a.map(function () { return '..'; }).concat(b).join('/');
+            }
+        };
+        path.posix = path;
+
+        // MARK: fs
+        function urlFor(p) {
+            return origin + base + path.resolve(String(p)).split('/').map(encodeURIComponent).join('/');
+        }
+        function send(method, p, body, binary, list) {
+            var xhr = new XMLHttpRequest();
+            xhr.open(method, urlFor(p), false);
+            if (binary) xhr.overrideMimeType('text/plain; charset=x-user-defined');
+            if (list) xhr.setRequestHeader('X-Nex-List', '1');
+            xhr.send(body === undefined ? null : body);
+            return xhr;
+        }
+        function fail(xhr, op, p) {
+            var code = xhr.status === 404 ? 'ENOENT' : xhr.status === 403 ? 'EPERM' : 'EIO';
+            var error = new Error(code + ': ' + op + " '" + p + "' (" + xhr.status + ')');
+            error.code = code;
+            throw error;
+        }
+        function ok(xhr, op, p) {
+            if (xhr.status === 0 || xhr.status >= 300) fail(xhr, op, p);
+            return xhr;
+        }
+        function decodeUTF8(bytes) {
+            try { return new TextDecoder('utf-8').decode(bytes); } catch (e) { return ''; }
+        }
+        function stat(p) {
+            var xhr = ok(send('HEAD', p), 'stat', p);
+            var directory = xhr.getResponseHeader('X-Nex-Kind') === 'directory';
+            var mtime = new Date(Number(xhr.getResponseHeader('X-Nex-Mtime')) || 0);
+            return {
+                size: Number(xhr.getResponseHeader('Content-Length')) || 0,
+                mtime: mtime, mtimeMs: mtime.getTime(), ctime: mtime, birthtime: mtime,
+                isFile: function () { return !directory; },
+                isDirectory: function () { return directory; },
+                isSymbolicLink: function () { return false; }
+            };
+        }
+        function bodyFor(data) {
+            if (data === undefined || data === null) return '';
+            if (typeof data === 'string') return data;
+            if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return data;
+            return String(data);
+        }
+
+        var fs = {
+            existsSync: function (p) { try { return send('HEAD', p).status === 200; } catch (e) { return false; } },
+            statSync: stat,
+            lstatSync: stat,
+            readFileSync: function (p, options) {
+                var encoding = typeof options === 'string' ? options : options && options.encoding;
+                var xhr = ok(send('GET', p, null, !encoding), 'open', p);
+                if (encoding) return xhr.responseText;
+                var text = xhr.responseText;
+                var bytes = new Uint8Array(text.length);
+                for (var i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 0xff;
+                bytes.toString = function () { return decodeUTF8(this); };
+                return bytes;
+            },
+            writeFileSync: function (p, data) { ok(send('PUT', p, bodyFor(data)), 'open', p); },
+            appendFileSync: function (p, data) {
+                var old = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+                fs.writeFileSync(p, old + String(data));
+            },
+            copyFileSync: function (from, to) { fs.writeFileSync(to, fs.readFileSync(from)); },
+            unlinkSync: function (p) { ok(send('DELETE', p), 'unlink', p); },
+            rmdirSync: function (p) { ok(send('DELETE', p), 'rmdir', p); },
+            rmSync: function (p) { if (fs.existsSync(p)) ok(send('DELETE', p), 'rm', p); },
+            mkdirSync: function (p) { ok(send('MKCOL', p), 'mkdir', p); },
+            readdirSync: function (p) { return JSON.parse(ok(send('GET', p, null, false, true), 'scandir', p).responseText); },
+            renameSync: function (from, to) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('MOVE', urlFor(from), false);
+                xhr.setRequestHeader('Destination', urlFor(to));
+                xhr.send(null);
+                ok(xhr, 'rename', from);
+            }
+        };
+        // Some plugins use the callback forms. They run the same requests one tick later.
+        ['readFile', 'writeFile', 'appendFile', 'copyFile', 'unlink', 'mkdir', 'readdir', 'stat', 'lstat', 'rename', 'rmdir'].forEach(function (name) {
+            fs[name] = function () {
+                var args = Array.prototype.slice.call(arguments);
+                var callback = typeof args[args.length - 1] === 'function' ? args.pop() : noop;
+                setTimeout(function () {
+                    var result;
+                    try { result = fs[name + 'Sync'].apply(null, args); } catch (error) { callback(error); return; }
+                    callback(null, result);
+                }, 0);
+            };
+        });
+        fs.exists = function (p, callback) { setTimeout(function () { callback(fs.existsSync(p)); }, 0); };
+
+        // MARK: NW.js
+        var nwWindow = new Proxy({}, { get: function (target, key) { return key in target ? target[key] : noop; } });
+        var nwApp = { argv: [], manifest: {}, dataPath: '/', quit: exit, closeAllWindows: exit };
+        function NwMenu() {}
+        NwMenu.prototype.createMacBuiltin = noop;
+        NwMenu.prototype.append = noop;
+        var nwGui = { App: nwApp, Window: { get: function () { return nwWindow; } }, Menu: NwMenu, Shell: { openExternal: noop } };
+        var os = {
+            platform: function () { return 'linux'; },
+            type: function () { return 'Linux'; },
+            homedir: function () { return '/'; },
+            tmpdir: function () { return '/'; },
+            EOL: '\n'
+        };
+        var modules = { fs: fs, path: path, os: os, 'nw.gui': nwGui };
+
+        window.nw = nwGui;
+        window.require = function (name) {
+            var found = modules[String(name).replace(/^node:/, '')];
+            if (found) return found;
+            var error = new Error("Cannot find module '" + name + "'");
+            error.code = 'MODULE_NOT_FOUND';
+            throw error;
+        };
+        window.process = proc;
+        window.chrome = Object.assign(window.chrome || {}, { runtime: { reload: function () { location.reload(); } } });
+        window.close = exit;
+    })();
+    """#
+
+    /// `entryFolder` is the folder of the entry page relative to the game folder ("" or "www").
+    static func nwShim(entryFolder: String) -> String {
+        let base = entryFolder.isEmpty ? "" : "/" + entryFolder
+        return "window.__nexBase = \(jsString(base));\n" + nwShimBody
+    }
 }
 
 /// Receives the frame rate the stats script reports.
@@ -206,5 +436,14 @@ final class StatsReceiver: NSObject, WKScriptMessageHandler {
         if let number = message.body as? NSNumber {
             onFPS?(number.intValue)
         }
+    }
+}
+
+/// Receives simple messages from a game page (exit requests, size reports).
+final class MessageReceiver: NSObject, WKScriptMessageHandler {
+    var onMessage: ((Any) -> Void)?
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        onMessage?(message.body)
     }
 }

@@ -30,13 +30,19 @@ struct RestoreResult: Decodable {
     let skipped: [String]
 }
 
+struct MigrationResult: Decodable {
+    let ok: Bool
+    let written: [String]
+    let log: [String]
+}
+
 enum SaveToolsError: LocalizedError {
     case badResult
     var errorDescription: String? { "The page returned something unexpected." }
 }
 
 /// Backs up, restores and clears a game's localStorage and IndexedDB by running JavaScript in its web view.
-/// RPG Maker MV keeps saves in localStorage; MZ keeps them in IndexedDB.
+/// RPG Maker MV keeps saves in localStorage; MZ keeps them in IndexedDB. (In NW.js mode they are files: see SaveArchive.)
 enum SaveTools {
     private static let helpers = #"""
     const wrap = (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
@@ -117,6 +123,58 @@ enum SaveTools {
     return 'ok';
     """#
 
+    /// Copies browser-mode saves into save/ files through the NW.js shim's fs. Never deletes the old data and never
+    /// replaces a save file that already exists. MV: localStorage "RPG Global", "RPG Config", "RPG File<N>" →
+    /// save/global.rpgsave, config.rpgsave, file<N>.rpgsave. MZ: localforage keys "rmmzsave.<gameId>.<name>" in
+    /// IndexedDB → save/<name>.rmmzsave. The stored strings are written unchanged (same format as the files).
+    private static let migrationScript = helpers + #"""
+    const out = { ok: false, written: [], log: [] };
+    if (typeof window.require !== 'function') { out.log.push('no NW.js shim on this page'); return JSON.stringify(out); }
+    const fs = window.require('fs');
+    const ext = engine === 'mz' ? '.rmmzsave' : '.rpgsave';
+    const write = (name, value) => {
+        const file = name + ext;
+        if (typeof value !== 'string') { out.log.push('skipped ' + file + ': not text'); return; }
+        try {
+            if (fs.existsSync('/save/' + file)) { out.log.push('kept existing ' + file); return; }
+            fs.writeFileSync('/save/' + file, value);
+            out.written.push(file);
+            out.log.push('migrated ' + file);
+        } catch (e) {
+            out.log.push('failed ' + file + ': ' + e.message);
+        }
+    };
+    if (engine === 'mv') {
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            let m;
+            if (k === 'RPG Global') write('global', localStorage.getItem(k));
+            else if (k === 'RPG Config') write('config', localStorage.getItem(k));
+            else if ((m = /^RPG File(\d+)$/.exec(k))) write('file' + m[1], localStorage.getItem(k));
+        }
+    } else {
+        for (const info of await listDBs()) {
+            try {
+                const db = await openDB(info.name);
+                for (const storeName of Array.from(db.objectStoreNames)) {
+                    const store = db.transaction(storeName, 'readonly').objectStore(storeName);
+                    const keys = await wrap(store.getAllKeys());
+                    const values = await wrap(store.getAll());
+                    for (let i = 0; i < keys.length; i++) {
+                        const m = /^rmmzsave\.[^.]*\.(.+)$/.exec(String(keys[i]));
+                        if (m) write(m[1], values[i]);
+                    }
+                }
+                db.close();
+            } catch (e) {
+                out.log.push('could not read database ' + info.name + ': ' + e);
+            }
+        }
+    }
+    out.ok = true;
+    return JSON.stringify(out);
+    """#
+
     @MainActor
     private static func run(_ script: String, arguments: [String: Any] = [:], in webView: WKWebView) async throws -> String {
         let value = try await webView.callAsyncJavaScript(script, arguments: arguments, in: nil, contentWorld: .page)
@@ -144,13 +202,19 @@ enum SaveTools {
         _ = try await run(clearScript, in: webView)
     }
 
+    /// Copies browser-mode saves into save/ files. `isMZ` picks the MZ (IndexedDB) or MV (localStorage) source.
+    @MainActor
+    static func migrateBrowserSaves(isMZ: Bool, in webView: WKWebView) async throws -> MigrationResult {
+        let json = try await run(migrationScript, arguments: ["engine": isMZ ? "mz" : "mv"], in: webView)
+        return try JSONDecoder().decode(MigrationResult.self, from: Data(json.utf8))
+    }
+
     /// Writes backup data to a temp file with a readable name, ready for the share sheet.
     static func writeBackupFile(_ data: Data, gameName: String) throws -> URL {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        let safe = gameName.components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>")).joined(separator: "-")
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(safe)-saves-\(formatter.string(from: Date())).json")
+            .appendingPathComponent("\(Paths.safeName(gameName))-saves-\(formatter.string(from: Date())).json")
         try data.write(to: url, options: .atomic)
         return url
     }

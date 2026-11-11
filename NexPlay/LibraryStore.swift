@@ -6,6 +6,8 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var games: [Game] = []
     @Published var isImporting = false
     @Published var importMessage: String?
+    /// Saves rescued from a deleted game with the same title, offered after an import.
+    @Published var rescueOffer: RescueOffer?
 
     private let fileURL = Paths.support.appendingPathComponent("library.json")
 
@@ -55,13 +57,31 @@ final class LibraryStore: ObservableObject {
         mutate(game.id) { $0.isFavorite.toggle() }
     }
 
-    /// Removes the game's files and its web data.
+    /// Removes the game's files, web data and backups. Save files are moved to Rescued Saves first,
+    /// so re-importing the same game can put them back.
     func delete(_ game: Game) async {
+        let target = game
+        _ = await Task.detached(priority: .userInitiated) { SaveArchive.rescue(target) }.value
         await DataStores.wipe(for: game)
         try? FileManager.default.removeItem(at: Paths.folder(for: game))
+        try? FileManager.default.removeItem(at: Paths.backupFolder(for: game))
         games.removeAll { $0.id == game.id }
         save()
         AppLog.log("deleted \(game.name)")
+    }
+
+    /// Puts rescued saves back into the game the offer names.
+    func acceptRescue(_ offer: RescueOffer) async {
+        guard let game = self.game(id: offer.gameID) else { return }
+        let folder = offer.folder
+        do {
+            let count = try await Task.detached(priority: .userInitiated) {
+                try SaveArchive.putBackRescued(folder, into: game)
+            }.value
+            importMessage = "Put back \(count) save file(s) for \(game.name)."
+        } catch {
+            importMessage = "Could not put the saves back: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Import
@@ -80,6 +100,9 @@ final class LibraryStore: ObservableObject {
                 games.append(game)
                 save()
                 AppLog.log("imported \(game.name) (\(game.engine.badge)) from \(url.lastPathComponent)")
+                if game.engine.isRPGMaker, let folder = SaveArchive.rescued(forTitle: game.name) {
+                    rescueOffer = RescueOffer(gameID: game.id, gameName: game.name, folder: folder)
+                }
             } catch {
                 problems.append("\(url.lastPathComponent): \(error.localizedDescription)")
                 AppLog.log("import failed for \(url.lastPathComponent): \(error.localizedDescription)")
@@ -138,4 +161,11 @@ final class LibraryStore: ObservableObject {
             throw error
         }
     }
+}
+
+struct RescueOffer: Identifiable {
+    let id = UUID()
+    let gameID: UUID
+    let gameName: String
+    let folder: URL
 }
