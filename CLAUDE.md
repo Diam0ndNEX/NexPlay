@@ -1,7 +1,7 @@
 # NexPlay
 
 Personal iPhone game player for RPG Maker MV/MZ and HTML5 games (SwiftUI + WKWebView, iOS 16+), with RPG Maker XP/VX/Ace through the mkxp-z core in builds that turn on `NEXPLAY_MKXP`.
-Not a general web browser: everything in here is treated as a game. Version 2.2.0 (build 17).
+Not a general web browser: everything in here is treated as a game. Version 3.0.0 (build 18). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
 
 **Read `docs/SPEC.md` for the plan, `docs/RESEARCH.md` for what the reference apps do. Paste-ready prompt for new chats: `docs/PROMPT.md`.**
 
@@ -46,7 +46,13 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
   - `SettingsView.swift`: settings home (page tiles, About, Reset, search over `NexSettingsPage.rows`) and the pages: Appearance, Controls, Gameplay & Performance, Translation, Privacy, Import & Backup, Advanced; Credits, App Log.
   - `LibraryView.swift`, `ImportPicker.swift`: screens.
   - `DesignKit.swift` (2.2): `NexStyle` colours, `ProgressRing`, `ImportProgressCard` (floating import card, folds into a pill), `ActionTile`, `StatChip`, button styles, `Gallery` (screenshots in `Gallery/<game-uuid>/`), `CoverStore` (custom covers in `Covers/<game-uuid>.png`, candidates from the game folder), `PhotoPicker`.
-  - `GameDetailView.swift` (2.2): the pre-launch game page (blurred cover backdrop, cover card, title, engine/status/favorite pills, stat chips, Play/Continue, tiles: Saves, Gallery, Plugins). `GameSettingsView.swift`: Game Settings (details, cover from Files/Photos/game folder, status, collections, colour tag, hidden, controls, controller mapping, orientation, screen scaling, fast forward, FPS, block internet, NW.js, notes, delete), `GameSavesView`, `GalleryView`, `GameFolderCoverPicker`, `Thumbnail`.
+  - `GameDetailView.swift` (3.0): the game page, opened by tapping a game (setting `tapOpensGamePage`): nebula background, X and gear glass buttons, hero art in a glass frame (`GameArt.hero`), pixel title, engine pill, save profile cards + New Profile, Play, tiles Manage Saves / Gallery / Mods. `GlassCircleButton`, `BottomTile`, `ProfileCard`.
+  - `GamePages.swift` (3.0): `GameSavesView` (Backup/Import/Share/Delete tiles, profile card, Local Saves/Backups, save cards with Newest, select mode), `MediaBrowserView` (tabs Pictures/Portraits/Titles/Backgrounds/Battlers/Videos/Screenshots with counts, search, select + share, `MediaViewer` with zoom, set cover, save to Photos, MP4 playback), `ModsView` (game and global mods, Use Global Mods, add folder/ZIP/.js). `PageHeader`, `CapsuleButton`.
+  - `GameExtras.swift` (3.0): `RPGMakerCrypto` (MV/MZ encrypted images: skip 16-byte header, XOR first 16 bytes with System.json encryptionKey), `GameArt`, `MediaIndex`, `SaveProfiles` (active profile in save/, others parked in `Profiles/<game>/<profile>/`; switch = backup, copy out, then clear and copy in), `ModStore` (`Mods/Games/<game>/<mod>/`, `Mods/Global/<mod>/`, `Mods/<game>.json` config; overlay map built at game start; plugin .js mods appended to plugins.js or injected into web games).
+  - `GameSettingsView.swift`: Game Settings (details, cover from Files/Photos/game folder, status, collections, colour tag, hidden, controls, controller mapping, orientation, screen scaling, fast forward, FPS, block internet, NW.js, Plugin Manager, notes, delete), `GameFolderCoverPicker`, `Thumbnail`.
+  - `ControlEditor.swift` (3.0): Edit Button page (name, colour, size, opacity, key mapping or joystick/D-pad + 8 directions, delete) and Select Key page (game actions, mouse wheel, letters, numbers, navigation, control keys, F-keys, symbols).
+  - `LocalGameServer.swift` (3.0): loopback HTTP server (Network.framework) for Godot: GET/HEAD, ranges, COOP/COEP/CORP headers, fixed port per game (20000+FNV hash) so IndexedDB saves keep their origin.
+  - `Fonts/DepartureMono-Regular.otf` (OFL): pixel font, registered at launch by `NexFont.setUp()`; `Font.pixel(size)`, `NexFont.ui(size)`; setting `pixelFont`.
 
 ## Rules
 - Codable fields added to `Game` must be optional or have a default, so old libraries still load. An unreadable `library.json` is copied aside before anything overwrites it.
@@ -79,6 +85,13 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 - 2.2.0: screen scaling Fit/Fill/Stretch for MV/MZ (`screenScaling` setting, `Game.screenScaling` override). Fill/Stretch replace `Graphics._centerElement` and map touches with `pageToCanvasX/Y` through the canvas rect. HTML5 games are not scaled.
 - 2.2.0: screenshots always go to the game's Gallery; also to Photos unless `screenshotsToPhotos` is off. New optional `Game` fields: `screenScaling`, `status`, `colorTag`, `notes`, `version`, `developer`. Deleting a game removes its custom cover and gallery.
 - 2.2.0: app icon is a glowing rounded play triangle with four face buttons on a violet nebula (`tools/make_icon.py`, signed distance fields, ~10 s in CI).
+- 3.0.0: tapping a game opens the game page (full screen); Play there closes it and opens the player 0.45 s later (two presentations can't overlap).
+- 3.0.0: engines `godot`, `construct`, `twine`, `tyrano` are web games (`isWebGame`). Detection (GameScanner.detect, 4 levels deep): MV/MZ, then Godot (html + .pck + .wasm in one folder; page named like the .pck, else index.html), Construct (c2runtime.js / scripts/c3runtime.js / c3main.js / main.js + data.json/js), Tyrano (tyrano/ + data/scenario/), Twine (`<tw-storydata` in the page), else any page (index.html, else named like the folder/game/main/play/start/story, else the largest). A Godot desktop build (.pck without a page) gets a clear error (`PipelineError.desktopGodot`).
+- 3.0.0: Godot games load from `http://127.0.0.1:<port>/` (secure context + cross-origin isolation for Godot 4 threads); the game log records `secure/isolated/sab` after load. Block Internet keeps 127.0.0.1 reachable (`ignore-previous-rules`). Non-RPG-Maker games get a built-in layout with Enter/Esc/Space/Shift and a joystick.
+- 3.0.0: key presses are real KeyboardEvents dispatched to the focused element or the first canvas (bubbling to document/window), with keyCode/which/key/code defined, plus keypress for characters; `__nexWheel(dy)` sends wheel events (Scroll Up/Down actions repeat every 0.14 s while held).
+- 3.0.0: controls edit mode (RPGPlayer style): dashed yellow frames + move arrows, green + (Button/Joystick/D-Pad/game actions) and orange reset (confirm) at the top, red delete badge and resize grip on the selected control, tap the selected control for the Edit Button page; the control bar stays open, its pencil becomes a green check (Done = save), the other buttons rest behind dashed rings. `ControlItem.color` (ControlColor). The old EditBar (sliders, undo, grid toggle) is gone.
+- 3.0.0: Mods overlay the game's files in NexSchemeHandler (`overlay` wins over `fileOverride`) and in LocalGameServer; plugin mods are listed in the generated plugins.js after the game's own plugins.
+- 3.0.0: save profiles only for NW.js-mode RPG Maker games. Deleting a game moves parked profiles to Rescued Saves.
 - Control bar (2.1.0) replaces the old menu button: handle position is saved normalized (`barPosition`); the X asks before exiting; the gear opens the full game menu; auto-hide after 5 s, a tap on the game (not on a control) wakes it; hidden while a controller is connected unless "Show Control Bar With Controller". Typed keys go down and up 80 ms apart so RPG Maker sees them.
 - Global pad size/opacity/type are applied when a layout is shown and undone before it is saved, so saved layouts stay at 1×.
 - Orientation: "Auto-rotate In Games" forces auto for every game; "Game Orientation" is the lock for new RPG Maker games (button applies it to all); outside games the app is portrait unless "Auto-rotate Outside Games".
@@ -88,7 +101,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 ## Not built (reasons: time, can't test without a device, or needs entitlements)
 - B: per-file recovery list for displaced copies; Show in Files.
 - C: soft keyboard for non-letter keys, screen scaling for HTML5 games, fill colour, device skin; P2 pause snapshot, game `controls.json`/JoiPlay `gamepad.json`, game screen drag/resize.
-- D: drag-to-reorder games; accent colour, library background image, alternate app icons, "Changed by you" markers, save profiles (RPGPlayer "Profile 1"), storage manager, invalidate missing games, gamepad navigation of the library, What's New/Tips, WebDAV, iCloud sync (needs an iCloud entitlement the owner's certificate likely lacks), localization, widgets, landscape console menu.
+- D: drag-to-reorder games; accent colour, library background image, alternate app icons, "Changed by you" markers,  storage manager, invalidate missing games, gamepad navigation of the library, What's New/Tips, WebDAV, iCloud sync (needs an iCloud entitlement the owner's certificate likely lacks), localization, widgets, landscape console menu.
 - E: multi-part RAR/7z (part1, part2), password-protected archives, CAB-based RPG Maker installers (Empo uses libmspack); multi-root picker; media conversion; `.jgp` metadata, EXE icons, Enigma.
 - F: Apple on-device translation (iOS 18 Translation framework); translation button on the control bar; global mods.
 - G: per-game Ruby-core settings (upscaler, font hinting, VSync, compatibility estimate), MIDI SoundFont import, pause/resume and quit from inside a Ruby game, game rect/viewport handling. The mkxp build path is untested.
@@ -96,6 +109,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 ## Roadmap
 - 1.1.4 base check, AppLog. 1.2.0 NW.js saves. 1.3.0 controls. 1.4.0 library/backups/settings/plugins/cheats. 1.5.0 import pipeline. 1.6.0 translation. 1.9.0 mkxp scaffolding. 2.0.0 finish. 2.1.0 control bar, settings pages, 7z/RAR, black-screen fix.
 - Next: device test of 2.1.0 (black screen gone? banner text if not), then the first mkxp build (Actions > Run workflow > mkxp) and fixes from its log.
+- 3.0.0: RPGPlayer-style game page, profiles, Manage Saves, Media Browser, Mods, pixel font, new control look and edit mode, Godot/Construct/Twine/Tyrano, local server.
 - 2.2.0: UI/UX update: new icon, floating import progress card, game page + Game Settings redesign, cover picker, colour tags, status, notes, gallery, screen scaling, cover in the control-bar bubble, cheat engine.
 - Engines the owner wants next (see docs/SPEC.md "Engines roadmap"): RPG Maker XP/VX/Ace (mkxp-z, in progress), Godot, Ren'Py: definitely. Construct, Twine, TyranoBuilder: maybe (they are HTML5 already).
 - 3.0: RPG Maker 2000/2003 (EasyRPG), back burner.

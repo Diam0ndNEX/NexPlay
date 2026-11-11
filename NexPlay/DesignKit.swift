@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import PhotosUI
+import CoreText
 
 // Shared look for NexPlay 2.2: the progress ring and floating import card, glass tiles, the gallery store and the
 // cover/photo pickers. Layout ideas (ring with percent, pre-launch page, tiles) come from RPGPlayer screenshots;
@@ -345,5 +346,47 @@ struct PhotoPicker: UIViewControllerRepresentable {
                 DispatchQueue.main.async { done(image) }
             }
         }
+    }
+}
+
+// MARK: - Pixel font
+
+/// Departure Mono (Helena Zhang, SIL Open Font License 1.1, NexPlay/Fonts/DepartureMono-LICENSE.txt): the pixel
+/// font the app uses for titles, buttons and controls when "Pixel Font" is on (default).
+enum NexFont {
+    static let name = "DepartureMono-Regular"
+    private static var registered = false
+
+    static var enabled: Bool {
+        UserDefaults.standard.object(forKey: SettingsKey.pixelFont) as? Bool ?? true
+    }
+
+    /// Registers the bundled font with the process and styles UIKit bars. Call once at launch.
+    static func setUp() {
+        if !registered, let url = Bundle.main.url(forResource: "DepartureMono-Regular", withExtension: "otf") {
+            registered = true
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+        guard enabled, UIFont(name: name, size: 12) != nil else { return }
+        let bar = UINavigationBar.appearance()
+        bar.titleTextAttributes = [.font: ui(17)]
+        bar.largeTitleTextAttributes = [.font: ui(32)]
+        UIBarButtonItem.appearance().setTitleTextAttributes([.font: ui(16)], for: .normal)
+        UISegmentedControl.appearance().setTitleTextAttributes([.font: ui(13)], for: .normal)
+    }
+
+    static func ui(_ size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
+        if enabled, let font = UIFont(name: name, size: size) { return font }
+        return .systemFont(ofSize: size, weight: weight)
+    }
+}
+
+extension Font {
+    /// The pixel font at `size`, scaled with Dynamic Type; the rounded system font when Pixel Font is off.
+    static func pixel(_ size: CGFloat, relativeTo style: Font.TextStyle = .body, weight: Font.Weight = .regular) -> Font {
+        if NexFont.enabled, UIFont(name: NexFont.name, size: size) != nil {
+            return .custom(NexFont.name, size: size, relativeTo: style)
+        }
+        return .system(size: size, weight: weight, design: .rounded)
     }
 }

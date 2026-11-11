@@ -12,7 +12,12 @@ enum CoverCache {
         if let image = cached(for: game) { return image }
         let target = game
         let image = await Task.detached(priority: .utility) { () -> UIImage? in
-            guard let url = Paths.coverURL(for: target), let image = UIImage(contentsOfFile: url.path) else { return nil }
+            guard let image = GameArt.hero(for: target) else { return nil }
+            let side = max(image.size.width, image.size.height)
+            if side > 600, let small = image.preparingThumbnail(of: CGSize(width: image.size.width * 600 / side,
+                                                                          height: image.size.height * 600 / side)) {
+                return small
+            }
             return image.preparingForDisplay() ?? image
         }.value
         if let image { cache.setObject(image, forKey: game.id.uuidString as NSString) }
@@ -276,10 +281,16 @@ struct LibraryView: View {
             })
             .ignoresSafeArea()
         }
-        .sheet(item: $detail) { game in
-            GameDetailView(gameID: game.id) { detail = nil; playing = $0 }
-                .environmentObject(collections)
-                .environmentObject(privacy)
+        .fullScreenCover(item: $detail) { game in
+            GameDetailView(gameID: game.id) { chosen in
+                detail = nil
+                // Let the game page finish closing before the player opens.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { playing = chosen }
+            }
+            .font(.pixel(16))
+            .environmentObject(store)
+            .environmentObject(collections)
+            .environmentObject(privacy)
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
@@ -525,6 +536,8 @@ struct LibraryView: View {
     private func tap(_ game: Game) {
         if selecting {
             if selection.contains(game.id) { selection.remove(game.id) } else { selection.insert(game.id) }
+        } else if UserDefaults.standard.object(forKey: SettingsKey.tapOpensGamePage) as? Bool ?? true {
+            detail = game
         } else {
             playing = game
         }

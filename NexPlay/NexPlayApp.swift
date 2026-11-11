@@ -46,6 +46,7 @@ struct NexPlayApp: App {
 
     init() {
         UserDefaults.standard.register(defaults: NexPlayApp.defaultSettings)
+        NexFont.setUp()
         AppDelegate.orientationMask = OrientationManager.outsideMode.mask
         AppLog.noteLaunch()
     }
@@ -77,6 +78,8 @@ struct NexPlayApp: App {
         SettingsKey.barShowCheats: true,
         SettingsKey.screenScaling: "fit",
         SettingsKey.screenshotsToPhotos: true,
+        SettingsKey.pixelFont: true,
+        SettingsKey.tapOpensGamePage: true,
         SettingsKey.touchPadScale: 1.0,
         SettingsKey.touchPadOpacity: 1.0,
         SettingsKey.touchDirectionalType: "layout",
@@ -102,6 +105,7 @@ struct NexPlayApp: App {
     var body: some Scene {
         WindowGroup {
             LibraryView()
+                .font(.pixel(16))
                 .environmentObject(store)
                 .environmentObject(collections)
                 .environmentObject(privacy)

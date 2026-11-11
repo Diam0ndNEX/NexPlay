@@ -22,6 +22,7 @@ extension SettingsKey {
         librarySort, silentModeAudio, showMenuButton, keepScreenAwake, desktopMode, pixelatedScaling, nwMode,
         hapticsEnabled, hapticStrength, controllerMode, librarySortOrder, libraryLayout, titleUnderCard,
         showContinueCard, theme, autoBackup, backupRetention, defaultFastForward, screenScaling, screenshotsToPhotos,
+        pixelFont, tapOpensGamePage,
     ]
 }
 

@@ -68,6 +68,13 @@ final class LibraryStore: ObservableObject {
         try? FileManager.default.removeItem(at: Paths.backupFolder(for: game))
         try? FileManager.default.removeItem(at: Paths.customCoverURL(for: game))
         Gallery.removeAll(for: game)
+        ModStore.removeAll(for: game)
+        let parkedProfiles = SaveProfiles.root.appendingPathComponent(game.id.uuidString, isDirectory: true)
+        if FileManager.default.fileExists(atPath: parkedProfiles.path) {
+            // Saves of other profiles are rescued too, never thrown away.
+            let target = Paths.rescuedSaves.appendingPathComponent("\(Paths.safeName(game.name))-profiles-\(game.id.uuidString)", isDirectory: true)
+            try? FileManager.default.moveItem(at: parkedProfiles, to: target)
+        }
         CoverCache.forget(game)
         games.removeAll { $0.id == game.id }
         save()

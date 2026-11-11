@@ -148,6 +148,9 @@ final class ControlBarView: UIView {
     private var position = CGPoint(x: 0.97, y: 0.12)
     private var gamepadOn = true
     private var fastForwardOn = false
+    /// Controls are being edited: the bar stays open, the pencil turns into a green check mark (Done) and the
+    /// other buttons rest behind dashed rings.
+    private var editing = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -207,6 +210,21 @@ final class ControlBarView: UIView {
         setNeedsLayout()
     }
 
+    func setEditing(_ value: Bool) {
+        editing = value
+        if value {
+            stopTimer()
+            asleep = false
+            expanded = true
+            drawer.isHidden = false
+        }
+        refreshButtons()
+        setNeedsLayout()
+        layoutIfNeeded()
+        applyAlpha(animated: true)
+        if !value { restartTimer() }
+    }
+
     func setState(gamepadOn: Bool, fastForwardOn: Bool) {
         self.gamepadOn = gamepadOn
         self.fastForwardOn = fastForwardOn
@@ -232,6 +250,7 @@ final class ControlBarView: UIView {
     }
 
     func sleep() {
+        if editing { return }
         stopTimer()
         asleep = true
         if expanded {
@@ -308,7 +327,7 @@ final class ControlBarView: UIView {
         case .gamepad: return gamepadOn ? "gamecontroller.fill" : "gamecontroller"
         case .settings: return "gearshape.fill"
         case .screenshot: return "camera.fill"
-        case .edit: return "pencil"
+        case .edit: return editing ? "checkmark" : "pencil"
         case .fastForward: return "forward.fill"
         case .cheats: return "wand.and.stars"
         }
@@ -324,8 +343,15 @@ final class ControlBarView: UIView {
                     ? UIColor.systemIndigo.withAlphaComponent(0.85) : UIColor(white: 1, alpha: 0.12)
             }
             if pair.item == .gamepad {
-                pair.button.backgroundColor = gamepadOn ? UIColor(white: 1, alpha: 0.28) : UIColor(white: 1, alpha: 0.12)
+                pair.button.backgroundColor = gamepadOn ? UIColor(red: 0.36, green: 0.25, blue: 0.6, alpha: 0.9) : UIColor(white: 1, alpha: 0.12)
             }
+            if pair.item == .edit {
+                pair.button.backgroundColor = editing ? UIColor(red: 0.2, green: 0.62, blue: 0.3, alpha: 0.95) : UIColor(white: 1, alpha: 0.12)
+            }
+            let resting = editing && pair.item != .edit
+            pair.button.isEnabled = !resting
+            pair.button.alpha = resting ? 0.55 : 1
+            setDashedRing(on: pair.button, visible: resting)
         }
         let handleConfig = UIImage.SymbolConfiguration(pointSize: 18 * scale, weight: .bold)
         if iconView.image != nil {
@@ -338,6 +364,23 @@ final class ControlBarView: UIView {
             let handleSymbol = expanded ? "minus" : "square.grid.2x2.fill"
             handle.setImage(UIImage(systemName: handleSymbol, withConfiguration: handleConfig), for: .normal)
         }
+    }
+
+    private func setDashedRing(on button: UIButton, visible: Bool) {
+        let name = "nexDash"
+        let existing = button.layer.sublayers?.first { $0.name == name } as? CAShapeLayer
+        if !visible {
+            existing?.removeFromSuperlayer()
+            return
+        }
+        let ring = existing ?? CAShapeLayer()
+        ring.name = name
+        ring.fillColor = UIColor.clear.cgColor
+        ring.strokeColor = UIColor(red: 0.62, green: 0.48, blue: 1, alpha: 1).cgColor
+        ring.lineWidth = 2
+        ring.lineDashPattern = [5, 4]
+        ring.path = UIBezierPath(ovalIn: button.bounds.insetBy(dx: 1, dy: 1)).cgPath
+        if existing == nil { button.layer.addSublayer(ring) }
     }
 
     // MARK: - Layout
@@ -408,6 +451,7 @@ final class ControlBarView: UIView {
                 ? CGRect(x: pad, y: offset, width: size, height: size)
                 : CGRect(x: offset, y: pad, width: size, height: size)
             pair.button.layer.cornerRadius = size / 2
+            setDashedRing(on: pair.button, visible: editing && pair.item != .edit)
         }
     }
 
@@ -415,7 +459,7 @@ final class ControlBarView: UIView {
 
     private func tapped(_ item: Item) {
         onItem?(item)
-        if item == .close || item == .edit {
+        if item == .close || item == .edit || editing {
             stopTimer()
         } else {
             restartTimer()
@@ -427,6 +471,7 @@ final class ControlBarView: UIView {
             wake()
             return
         }
+        if editing { return }
         expanded.toggle()
         refreshButtons()
         setNeedsLayout()
@@ -474,7 +519,7 @@ final class ControlBarView: UIView {
 
     private func restartTimer() {
         stopTimer()
-        guard prefs.autoHide, !controllerConnected else { return }
+        guard prefs.autoHide, !controllerConnected, !editing else { return }
         hideTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
             Task { @MainActor in self?.sleep() }
         }

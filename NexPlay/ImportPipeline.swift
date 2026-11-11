@@ -110,6 +110,7 @@ enum PipelineError: LocalizedError {
     case archiveFailed(String, String)
     case unknownType(String)
     case emptyFolder
+    case desktopGodot
 
     var errorDescription: String? {
         switch self {
@@ -123,6 +124,8 @@ enum PipelineError: LocalizedError {
         case .unknownType(let ext):
             let kind = ext.isEmpty ? "This file" : "A .\(ext) file"
             return "\(kind) can't be imported. Import a ZIP, 7z or RAR archive, a game folder, or an HTML file."
+        case .desktopGodot:
+            return "This is a Godot desktop build (.pck/.exe). iPhone can only run Godot Web exports: look for the game's Web/HTML5 version (itch.io \"Run in browser\" builds), or export it with Godot's Web preset, and import that folder or ZIP."
         case .emptyFolder:
             return "The folder is empty or its files couldn't be read. If it's in iCloud Drive, long-press it in the Files app, tap Download Now, then import it again."
         }
@@ -209,7 +212,10 @@ enum ImportPipeline {
             status("Looking for the game…")
             cancel.report(.scanning, "Detecting the engine…", 0, force: true)
             GameScanner.tidy(folder)
-            guard let found = detect(in: folder) else { throw ImportError.noGame }
+            guard let found = detect(in: folder) else {
+                if GameScanner.isDesktopGodot(folder) { throw PipelineError.desktopGodot }
+                throw ImportError.noGame
+            }
             let title = gameTitle(found, in: folder) ?? fallbackName
             return StagedImport(folder: folder, found: found, title: title,
                                 warnings: warnings(for: found, in: folder), encodingNote: encodingNote)
@@ -456,9 +462,17 @@ enum ImportPipeline {
         let dir = root.appendingPathComponent(found.entry).deletingLastPathComponent()
         let names = children(dir).map { $0.lastPathComponent.lowercased() }
         switch found.engine {
-        case .web:
+        case .web, .construct, .twine, .tyrano:
             if !found.entry.lowercased().hasSuffix("index.html") {
                 notes.append("No index.html: the game starts from \(found.entry).")
+            }
+        case .godot:
+            if !names.contains(where: { $0.hasSuffix(".pck") }) {
+                notes.append("No .pck file next to the page: the Godot game may not start.")
+            }
+            if let html = try? String(contentsOf: root.appendingPathComponent(found.entry), encoding: .utf8),
+               html.contains("GDExtension") || html.contains("gdextensionLibs\":[\"") {
+                notes.append("Uses GDExtension libraries: they only run if they were built for the web.")
             }
         case .rpgMV, .rpgMZ:
             if FileManager.default.fileExists(atPath: dir.appendingPathComponent("js/plugins/Greenworks.js").path)
@@ -478,7 +492,7 @@ enum ImportPipeline {
             }
         }
         let dlls = names.filter { $0.hasSuffix(".dll") && !$0.hasPrefix("rgss") && !$0.contains("steam") }
-        if !dlls.isEmpty && found.engine != .web {
+        if !dlls.isEmpty && !found.engine.isWebGame {
             notes.append("Contains Windows DLLs (\(dlls.prefix(3).joined(separator: ", "))): features that need them may not work.")
         }
         return notes
@@ -489,10 +503,17 @@ enum ImportPipeline {
     /// Moves a staged game into Games/<uuid> in one step and returns its library entry.
     static func install(_ staged: StagedImport) throws -> Game {
         var game = Game(name: staged.title, engine: staged.found.engine, entry: staged.found.entry)
-        if staged.found.engine == .web {
+        switch staged.found.engine {
+        case .web, .twine, .tyrano:
+            game.orientation = staged.found.engine == .twine ? .portrait : .auto
+            game.gamepad = false
+        case .construct:
             game.orientation = .auto
             game.gamepad = false
-        } else {
+        case .godot:
+            game.orientation = .landscape
+            game.gamepad = true
+        case .rpgMV, .rpgMZ, .rpgXP, .rpgVX, .rpgVXAce:
             let raw = UserDefaults.standard.string(forKey: SettingsKey.newGameOrientation) ?? "landscape"
             game.orientation = OrientationMode(rawValue: raw) ?? .landscape
             game.gamepad = true

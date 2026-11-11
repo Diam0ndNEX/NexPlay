@@ -3,6 +3,23 @@ import UIKit
 // Touch handling ideas (press on touch-down, eight sectors for sticks, shared-key refcount in the player's KeyRouter)
 // follow Empo's ControlTouchCapture.swift and GameControls.swift.
 // Empo, Copyright (C) 2026 Mateo M., https://github.com/mateo-m/empo-app (GPL-3.0-only with additional terms).
+// The look and the edit mode (dashed yellow frames with move arrows, green add and orange reset buttons, a red
+// delete badge and a resize grip on the selected control, a full Edit Button page) follow RPGPlayer's screenshots;
+// the code is NexPlay's own.
+
+enum PadStyle {
+    static let fill = UIColor(white: 0.1, alpha: 0.78)
+    static let border = UIColor(white: 1, alpha: 0.22)
+    static let knob = UIColor(red: 0.36, green: 0.25, blue: 0.6, alpha: 1)
+    static let knobRing = UIColor(red: 0.6, green: 0.48, blue: 0.9, alpha: 1)
+    static let editYellow = UIColor(red: 0.98, green: 0.8, blue: 0.12, alpha: 1)
+
+    static func color(_ raw: String?) -> UIColor? {
+        guard let raw, let tint = ControlColor(rawValue: raw) else { return nil }
+        let rgb = tint.rgb
+        return UIColor(red: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1)
+    }
+}
 
 /// One on-screen control: a button, a D-pad or a joystick. Each control handles its own touches,
 /// so several fingers can press several controls at once.
@@ -12,7 +29,10 @@ final class ControlView: UIView {
     var onAction: ((ControlAction, Bool) -> Void)?
     var onPress: (() -> Void)?
     var isEditing = false {
-        didSet { if isEditing { release() } }
+        didSet {
+            if isEditing { release() }
+            updateLook()
+        }
     }
     var isSelected = false {
         didSet { updateLook() }
@@ -20,6 +40,9 @@ final class ControlView: UIView {
 
     private let label = UILabel()
     private let knob = UIView()
+    private let ticks = CAShapeLayer()
+    private let dash = CAShapeLayer()
+    private let moveIcon = UIImageView()
     private var arrows: [Int: UILabel] = [:]
     private var pressed = false
     private var activeDirections: Set<Int> = []
@@ -29,18 +52,21 @@ final class ControlView: UIView {
         self.item = item
         super.init(frame: .zero)
         isMultipleTouchEnabled = false
-        backgroundColor = UIColor(white: 1, alpha: 0.14)
         layer.borderWidth = 1.5
-        layer.borderColor = UIColor(white: 1, alpha: 0.5).cgColor
+        layer.borderColor = PadStyle.border.cgColor
         isAccessibilityElement = true
-        accessibilityLabel = item.action.isDirectional ? item.action.title : item.displayLabel
 
         label.textColor = .white
         label.textAlignment = .center
-        label.font = .systemFont(ofSize: 17, weight: .bold)
         label.adjustsFontSizeToFitWidth = true
-        label.minimumScaleFactor = 0.5
+        label.minimumScaleFactor = 0.4
+        label.isUserInteractionEnabled = false
         addSubview(label)
+
+        ticks.strokeColor = UIColor(white: 1, alpha: 0.28).cgColor
+        ticks.lineWidth = 2
+        ticks.lineCap = .round
+        layer.addSublayer(ticks)
 
         if item.action == .dpad {
             let symbols: [(Int, String)] = [(38, "▲"), (40, "▼"), (37, "◀"), (39, "▶")]
@@ -55,10 +81,26 @@ final class ControlView: UIView {
             }
         }
         if item.action == .joystick {
-            knob.backgroundColor = UIColor(white: 1, alpha: 0.45)
+            knob.backgroundColor = PadStyle.knob
+            knob.layer.borderColor = PadStyle.knobRing.cgColor
+            knob.layer.borderWidth = 3
             knob.isUserInteractionEnabled = false
             addSubview(knob)
         }
+
+        dash.fillColor = UIColor(red: 0.98, green: 0.8, blue: 0.12, alpha: 0.07).cgColor
+        dash.strokeColor = PadStyle.editYellow.cgColor
+        dash.lineWidth = 3
+        dash.lineDashPattern = [10, 7]
+        dash.isHidden = true
+        layer.addSublayer(dash)
+        moveIcon.image = UIImage(systemName: "arrow.up.and.down.and.arrow.left.and.right",
+                                 withConfiguration: UIImage.SymbolConfiguration(weight: .heavy))
+        moveIcon.tintColor = PadStyle.editYellow
+        moveIcon.contentMode = .scaleAspectFit
+        moveIcon.isHidden = true
+        moveIcon.isUserInteractionEnabled = false
+        addSubview(moveIcon)
         apply(item)
     }
 
@@ -67,34 +109,66 @@ final class ControlView: UIView {
     func apply(_ newItem: ControlItem) {
         item = newItem
         label.text = item.action.isDirectional ? "" : item.displayLabel
+        accessibilityLabel = item.action.isDirectional ? item.action.title : item.displayLabel
         alpha = CGFloat(item.opacity)
         isHidden = item.hidden
+        updateLook()
         setNeedsLayout()
+    }
+
+    private var baseFill: UIColor {
+        PadStyle.color(item.color)?.withAlphaComponent(0.82) ?? PadStyle.fill
+    }
+
+    private func updateLook() {
+        let editingFrame = isEditing && !isSelected
+        dash.isHidden = !editingFrame
+        moveIcon.isHidden = !editingFrame
+        label.alpha = editingFrame ? 0.45 : 1
+        knob.alpha = editingFrame ? 0.5 : 1
+        backgroundColor = pressed ? baseFill.withAlphaComponent(1).blended(with: .white, amount: 0.25) : baseFill
+        layer.borderColor = (isEditing && isSelected) ? UIColor.white.cgColor : PadStyle.border.cgColor
+        layer.borderWidth = (isEditing && isSelected) ? 2.5 : 1.5
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        layer.cornerRadius = bounds.width / 2
-        label.frame = bounds.insetBy(dx: 6, dy: 6)
+        let side = bounds.width
+        layer.cornerRadius = side / 2
+        label.frame = bounds.insetBy(dx: side * 0.12, dy: side * 0.12)
+        label.font = NexFont.ui(max(12, min(26, side * 0.3)))
         let c = CGPoint(x: bounds.midX, y: bounds.midY)
         if item.action == .dpad {
             let size: CGFloat = 36
-            let r = bounds.width / 2 - 26
+            let r = side / 2 - 26
             arrows[38]?.frame = CGRect(x: c.x - size / 2, y: c.y - r - size / 2, width: size, height: size)
             arrows[40]?.frame = CGRect(x: c.x - size / 2, y: c.y + r - size / 2, width: size, height: size)
             arrows[37]?.frame = CGRect(x: c.x - r - size / 2, y: c.y - size / 2, width: size, height: size)
             arrows[39]?.frame = CGRect(x: c.x + r - size / 2, y: c.y - size / 2, width: size, height: size)
         }
-        if item.action == .joystick && trackedTouch == nil {
-            let k = bounds.width * 0.42
-            knob.frame = CGRect(x: c.x - k / 2, y: c.y - k / 2, width: k, height: k)
-            knob.layer.cornerRadius = k / 2
+        if item.action == .joystick {
+            let path = UIBezierPath()
+            let outer = side / 2 - 8
+            let inner = outer - side * 0.1
+            for angle in [0.0, Double.pi / 2, Double.pi, Double.pi * 1.5] {
+                let dx = CGFloat(cos(angle)), dy = CGFloat(sin(angle))
+                path.move(to: CGPoint(x: c.x + dx * inner, y: c.y + dy * inner))
+                path.addLine(to: CGPoint(x: c.x + dx * outer, y: c.y + dy * outer))
+            }
+            ticks.path = path.cgPath
+            if trackedTouch == nil {
+                let k = side * 0.44
+                knob.frame = CGRect(x: c.x - k / 2, y: c.y - k / 2, width: k, height: k)
+                knob.layer.cornerRadius = k / 2
+            }
+        } else {
+            ticks.path = nil
         }
-    }
-
-    private func updateLook() {
-        layer.borderColor = isSelected ? UIColor.systemYellow.cgColor : UIColor(white: 1, alpha: 0.5).cgColor
-        layer.borderWidth = isSelected ? 3 : 1.5
+        let inset: CGFloat = -6
+        dash.frame = bounds
+        dash.path = UIBezierPath(roundedRect: bounds.insetBy(dx: inset, dy: inset), cornerRadius: side * 0.28).cgPath
+        let icon = side * 0.36
+        moveIcon.frame = CGRect(x: c.x - icon / 2, y: c.y - icon / 2, width: icon, height: icon)
     }
 
     // MARK: - Play touches
@@ -127,7 +201,7 @@ final class ControlView: UIView {
         trackedTouch = nil
         if item.action.isDirectional {
             updateDirections(nil)
-            setNeedsLayout()
+            UIView.animate(withDuration: 0.12) { self.setNeedsLayout(); self.layoutIfNeeded() }
         } else {
             setPressed(false)
         }
@@ -136,12 +210,16 @@ final class ControlView: UIView {
     private func setPressed(_ value: Bool) {
         guard value != pressed else { return }
         pressed = value
-        backgroundColor = UIColor(white: 1, alpha: value ? 0.45 : 0.14)
+        updateLook()
+        UIView.animate(withDuration: 0.08) {
+            self.transform = value ? CGAffineTransform(scaleX: 0.93, y: 0.93) : .identity
+        }
         if value { onPress?() }
-        if item.action == .fastForward {
-            onAction?(.fastForward, value)
-        } else if let key = item.padKey {
-            onKey?(key, value)
+        switch item.action {
+        case .fastForward, .scrollUp, .scrollDown:
+            onAction?(item.action, value)
+        default:
+            if let key = item.padKey { onKey?(key, value) }
         }
     }
 
@@ -189,36 +267,58 @@ final class ControlView: UIView {
     }
 }
 
+private extension UIColor {
+    func blended(with other: UIColor, amount: CGFloat) -> UIColor {
+        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
+        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+        getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        other.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+        return UIColor(red: r1 + (r2 - r1) * amount, green: g1 + (g2 - g1) * amount,
+                       blue: b1 + (b2 - b1) * amount, alpha: a1)
+    }
+}
+
 /// Transparent layer over the game with the on-screen controls. Touches outside the controls reach the game.
 /// Layouts come from a `LayoutProfile`; portrait and landscape have their own lists.
+///
+/// Edit mode: every control shows a dashed yellow frame with move arrows; drag to move. Tap one to select it (red
+/// delete badge, resize grip), tap it again to open the Edit Button page. The green + adds a control, the orange
+/// arrow resets the layout. The control bar's check mark (in the player) ends editing and saves.
 final class GamepadOverlayView: UIView {
     var onKey: ((PadKey, Bool) -> Void)?
     var onAction: ((ControlAction, Bool) -> Void)?
-    /// Called with the edited profile when the user taps Done in edit mode.
+    /// Called with the edited profile when editing ends with saving.
     var onSave: ((LayoutProfile) -> Void)?
     /// Called when the user resets the layout in edit mode; returns the profile to show.
     var onReset: (() -> LayoutProfile)?
     var onEditingChanged: ((Bool) -> Void)?
+    /// Opens the Edit Button page for a control; the completion gets the changed control, or nil to delete it.
+    var onEditItem: ((ControlItem, @escaping (ControlItem?) -> Void) -> Void)?
+    /// Asks the player to confirm the reset (shows an alert); the closure resets.
+    var onConfirmReset: ((@escaping () -> Void) -> Void)?
 
     private(set) var profile: LayoutProfile = .builtIn
     private var views: [UUID: ControlView] = [:]
     private var shownLandscape: Bool?
     private var haptic: UIImpactFeedbackGenerator?
+    private let selection = UISelectionFeedbackGenerator()
 
     // Edit mode
     private(set) var isEditing = false
     private var selectedID: UUID?
-    private var undoStack: [LayoutProfile] = []
-    private var gridSnap = true
-    private let editBar = EditBar()
+    private var startProfile: LayoutProfile?
+    private let addButton = UIButton(type: .system)
+    private let resetButton = UIButton(type: .system)
+    private let deleteBadge = UIButton(type: .system)
+    private let resizeGrip = UIButton(type: .system)
+    private let hint = UILabel()
+    private var resizeStart: Double = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isMultipleTouchEnabled = true
         backgroundColor = .clear
-        editBar.isHidden = true
-        addSubview(editBar)
-        wireEditBar()
+        buildEditChrome()
         configureHaptics()
     }
 
@@ -267,9 +367,10 @@ final class GamepadOverlayView: UIView {
             control.isEditing = isEditing
             control.isSelected = item.id == selectedID
             if isEditing { addEditGestures(to: control) }
-            insertSubview(control, belowSubview: editBar)
+            insertSubview(control, belowSubview: hint)
             views[item.id] = control
         }
+        bringEditChromeToFront()
     }
 
     override func layoutSubviews() {
@@ -283,12 +384,14 @@ final class GamepadOverlayView: UIView {
         for item in currentItems {
             guard let control = views[item.id] else { continue }
             let size = CGFloat(item.size)
+            let transform = control.transform
+            control.transform = .identity
             control.frame = CGRect(x: rect.minX + CGFloat(item.x) * rect.width - size / 2,
                                    y: rect.minY + CGFloat(item.y) * rect.height - size / 2,
                                    width: size, height: size)
+            control.transform = transform
         }
-        let barHeight = editBar.preferredHeight(hasSelection: selectedID != nil)
-        editBar.frame = CGRect(x: rect.minX + 8, y: rect.minY + 8, width: rect.width - 16, height: barHeight)
+        layoutEditChrome()
     }
 
     func releaseAll() {
@@ -301,18 +404,93 @@ final class GamepadOverlayView: UIView {
         return view === self ? nil : view
     }
 
+    // MARK: - Edit chrome
+
+    private func circle(_ button: UIButton, symbol: String, color: UIColor, size: CGFloat) {
+        let config = UIImage.SymbolConfiguration(pointSize: size * 0.42, weight: .heavy)
+        button.setImage(UIImage(systemName: symbol, withConfiguration: config), for: .normal)
+        button.tintColor = .white
+        button.backgroundColor = color
+        button.layer.cornerRadius = size / 2
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOpacity = 0.35
+        button.layer.shadowRadius = 6
+        button.layer.shadowOffset = CGSize(width: 0, height: 3)
+        button.isHidden = true
+    }
+
+    private func buildEditChrome() {
+        circle(addButton, symbol: "plus", color: UIColor(red: 0.2, green: 0.72, blue: 0.33, alpha: 1), size: 56)
+        addButton.accessibilityLabel = "Add a button"
+        addButton.showsMenuAsPrimaryAction = true
+        circle(resetButton, symbol: "arrow.counterclockwise", color: UIColor(red: 0.95, green: 0.55, blue: 0.2, alpha: 1), size: 56)
+        resetButton.accessibilityLabel = "Reset layout"
+        resetButton.addTarget(self, action: #selector(resetTapped), for: .touchUpInside)
+        circle(deleteBadge, symbol: "xmark", color: UIColor(red: 0.9, green: 0.22, blue: 0.24, alpha: 1), size: 30)
+        deleteBadge.layer.borderColor = UIColor.white.cgColor
+        deleteBadge.layer.borderWidth = 2
+        deleteBadge.accessibilityLabel = "Delete this button"
+        deleteBadge.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
+        circle(resizeGrip, symbol: "arrow.up.left.and.arrow.down.right", color: UIColor(white: 0.15, alpha: 0.9), size: 30)
+        resizeGrip.layer.borderColor = UIColor.white.cgColor
+        resizeGrip.layer.borderWidth = 2
+        resizeGrip.accessibilityLabel = "Drag to resize"
+        resizeGrip.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(resizeDrag(_:))))
+
+        hint.font = NexFont.ui(12)
+        hint.textColor = UIColor(white: 1, alpha: 0.85)
+        hint.textAlignment = .center
+        hint.numberOfLines = 2
+        hint.isHidden = true
+        hint.isUserInteractionEnabled = false
+        hint.text = "Drag to move · tap to select · tap again to edit"
+
+        [hint, addButton, resetButton, deleteBadge, resizeGrip].forEach { addSubview($0) }
+        let tap = UITapGestureRecognizer(target: self, action: #selector(backgroundTapped(_:)))
+        tap.cancelsTouchesInView = false
+        addGestureRecognizer(tap)
+    }
+
+    private func bringEditChromeToFront() {
+        [hint, addButton, resetButton, deleteBadge, resizeGrip].forEach { bringSubviewToFront($0) }
+    }
+
+    private func layoutEditChrome() {
+        let rect = area
+        let size: CGFloat = 56
+        let gap: CGFloat = 16
+        let top = rect.minY + 10
+        addButton.frame = CGRect(x: rect.midX - size - gap / 2, y: top, width: size, height: size)
+        resetButton.frame = CGRect(x: rect.midX + gap / 2, y: top, width: size, height: size)
+        hint.frame = CGRect(x: rect.midX - 180, y: top + size + 6, width: 360, height: 32)
+
+        if isEditing, let id = selectedID, let control = views[id] {
+            let frame = control.frame
+            deleteBadge.isHidden = false
+            resizeGrip.isHidden = false
+            deleteBadge.frame = CGRect(x: frame.minX - 10, y: frame.minY - 10, width: 30, height: 30)
+            resizeGrip.frame = CGRect(x: frame.maxX - 20, y: frame.minY - 10, width: 30, height: 30)
+        } else {
+            deleteBadge.isHidden = true
+            resizeGrip.isHidden = true
+        }
+    }
+
     // MARK: - Edit mode
 
     func beginEditing() {
         guard !isEditing else { return }
         isEditing = true
         isHidden = false
-        undoStack = []
+        startProfile = profile
         selectedID = nil
-        editBar.isHidden = false
-        backgroundColor = UIColor(white: 0, alpha: 0.25)
+        backgroundColor = UIColor(white: 0, alpha: 0.28)
+        addButton.isHidden = false
+        resetButton.isHidden = false
+        hint.isHidden = false
+        addButton.menu = addMenu()
         rebuild()
-        refreshEditBar()
+        setNeedsLayout()
         onEditingChanged?(true)
     }
 
@@ -320,9 +498,16 @@ final class GamepadOverlayView: UIView {
         guard isEditing else { return }
         isEditing = false
         selectedID = nil
-        editBar.isHidden = true
         backgroundColor = .clear
+        addButton.isHidden = true
+        resetButton.isHidden = true
+        deleteBadge.isHidden = true
+        resizeGrip.isHidden = true
+        hint.isHidden = true
+        if !save, let start = startProfile { profile = start }
+        startProfile = nil
         rebuild()
+        setNeedsLayout()
         if save { onSave?(profile) }
         onEditingChanged?(false)
     }
@@ -332,11 +517,6 @@ final class GamepadOverlayView: UIView {
         control.addGestureRecognizer(pan)
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapControl(_:)))
         control.addGestureRecognizer(tap)
-    }
-
-    private func pushUndo() {
-        undoStack.append(profile)
-        if undoStack.count > 50 { undoStack.removeFirst() }
     }
 
     private func change(_ id: UUID, _ edit: (inout ControlItem) -> Void) {
@@ -349,274 +529,136 @@ final class GamepadOverlayView: UIView {
     }
 
     private func select(_ id: UUID?) {
+        if id != selectedID { selection.selectionChanged() }
         selectedID = id
         for (key, control) in views { control.isSelected = key == id }
-        refreshEditBar()
         setNeedsLayout()
+    }
+
+    @objc private func backgroundTapped(_ gesture: UITapGestureRecognizer) {
+        guard isEditing else { return }
+        let point = gesture.location(in: self)
+        if views.values.contains(where: { $0.frame.insetBy(dx: -8, dy: -8).contains(point) }) { return }
+        if deleteBadge.frame.contains(point) || resizeGrip.frame.contains(point) { return }
+        select(nil)
     }
 
     @objc private func tapControl(_ gesture: UITapGestureRecognizer) {
         guard let control = gesture.view as? ControlView else { return }
-        select(control.item.id)
+        let id = control.item.id
+        if selectedID == id {
+            openEditor(id)
+        } else {
+            select(id)
+        }
+    }
+
+    private func openEditor(_ id: UUID) {
+        guard let item = currentItems.first(where: { $0.id == id }) else { return }
+        onEditItem?(item) { [weak self] result in
+            guard let self else { return }
+            if let result {
+                self.change(id) { $0 = result }
+                self.views[id]?.removeFromSuperview()
+                self.rebuild()
+            } else {
+                self.remove(id)
+            }
+            self.setNeedsLayout()
+        }
     }
 
     @objc private func dragControl(_ gesture: UIPanGestureRecognizer) {
         guard let control = gesture.view as? ControlView else { return }
         let id = control.item.id
-        if gesture.state == .began {
-            pushUndo()
-            select(id)
-        }
+        if gesture.state == .began { select(id) }
         let rect = area
         guard rect.width > 0, rect.height > 0 else { return }
         let point = gesture.location(in: self)
         var x = Double((point.x - rect.minX) / rect.width)
         var y = Double((point.y - rect.minY) / rect.height)
-        if gridSnap && (gesture.state == .ended || gesture.state == .cancelled) {
-            x = (x * 40).rounded() / 40
-            y = (y * 40).rounded() / 40
+        if gesture.state == .ended || gesture.state == .cancelled {
+            x = (x * 80).rounded() / 80
+            y = (y * 80).rounded() / 80
         }
         x = min(max(x, 0), 1)
         y = min(max(y, 0), 1)
         change(id) { $0.x = x; $0.y = y }
     }
 
-    private var selectedItem: ControlItem? {
-        guard let id = selectedID else { return nil }
-        return currentItems.first { $0.id == id }
+    @objc private func resizeDrag(_ gesture: UIPanGestureRecognizer) {
+        guard let id = selectedID, let control = views[id] else { return }
+        if gesture.state == .began { resizeStart = control.item.size }
+        let point = gesture.location(in: self)
+        let center = CGPoint(x: control.frame.midX, y: control.frame.midY)
+        let distance = Double(max(abs(point.x - center.x), abs(point.y - center.y)))
+        let size = min(max(distance * 2, 36), 260)
+        change(id) { $0.size = size.rounded() }
     }
 
-    private func refreshEditBar() {
-        editBar.update(selected: selectedItem, canUndo: !undoStack.isEmpty, gridSnap: gridSnap,
-                       count: currentItems.count)
-        editBar.addButton.menu = addMenu()
+    @objc private func deleteTapped() {
+        guard let id = selectedID else { return }
+        remove(id)
+    }
+
+    private func remove(_ id: UUID) {
+        var items = currentItems
+        items.removeAll { $0.id == id }
+        profile.setItems(items, landscape: isLandscape)
+        selectedID = nil
+        rebuild()
+        setNeedsLayout()
+        addButton.menu = addMenu()
+    }
+
+    @objc private func resetTapped() {
+        let reset = { [weak self] in
+            guard let self, let fresh = self.onReset?() else { return }
+            self.profile = fresh
+            self.selectedID = nil
+            self.rebuild()
+            self.setNeedsLayout()
+        }
+        if let confirm = onConfirmReset { confirm(reset) } else { reset() }
     }
 
     private func addMenu() -> UIMenu {
-        let actions: [ControlAction] = [.dpad, .joystick, .confirm, .cancel, .menu, .dash, .pageUp, .pageDown, .fastForward]
-        var children: [UIMenuElement] = actions.map { action in
-            UIAction(title: action.title) { [weak self] _ in self?.add(action, keyCode: nil) }
+        let full = currentItems.count >= LayoutProfile.maxControls
+        func entry(_ title: String, _ symbol: String, _ action: ControlAction, _ keyCode: Int? = nil, _ label: String? = nil) -> UIAction {
+            UIAction(title: title, image: UIImage(systemName: symbol), attributes: full ? .disabled : []) { [weak self] _ in
+                self?.add(action, keyCode: keyCode, label: label)
+            }
         }
-        let keys = PadKey.choosable.map { key in
-            UIAction(title: key.title) { [weak self] _ in self?.add(.key, keyCode: key.keyCode) }
-        }
-        children.append(UIMenu(title: "Keyboard Key", children: keys))
-        return UIMenu(title: "Add Control", children: children)
+        let main: [UIMenuElement] = [
+            entry("Button", "circle.fill", .key, 13, "Btn"),
+            entry("Joystick", "circle.circle", .joystick),
+            entry("D-Pad", "dpad", .dpad),
+        ]
+        let actions: [UIMenuElement] = [
+            entry("OK", "checkmark.circle", .confirm),
+            entry("Cancel", "xmark.circle", .cancel),
+            entry("Menu", "line.3.horizontal", .menu),
+            entry("Dash", "hare", .dash),
+            entry("Fast Forward", "forward", .fastForward),
+            entry("Scroll Up", "arrow.up.to.line", .scrollUp),
+            entry("Scroll Down", "arrow.down.to.line", .scrollDown),
+        ]
+        return UIMenu(title: full ? "Up to \(LayoutProfile.maxControls) controls" : "Add",
+                      children: [UIMenu(options: .displayInline, children: main), UIMenu(title: "Game Action", children: actions)])
     }
 
-    private func add(_ action: ControlAction, keyCode: Int?) {
+    private func add(_ action: ControlAction, keyCode: Int?, label: String?) {
         guard currentItems.count < LayoutProfile.maxControls else { return }
-        pushUndo()
-        let size: Double = action.isDirectional ? 150 : 58
-        let item = ControlItem(action: action, keyCode: keyCode, x: 0.5, y: 0.5, size: size)
+        let size: Double = action.isDirectional ? 150 : 62
+        var item = ControlItem(action: action, keyCode: keyCode, x: 0.5, y: 0.5, size: size, label: label)
+        if action == .key { item.color = ControlColor.red.rawValue }
         var items = currentItems
         items.append(item)
         profile.setItems(items, landscape: isLandscape)
         selectedID = item.id
         rebuild()
-        refreshEditBar()
         setNeedsLayout()
+        addButton.menu = addMenu()
+        haptic?.impactOccurred()
     }
-
-    private func wireEditBar() {
-        editBar.onDone = { [weak self] in self?.endEditing(save: true) }
-        editBar.onCancel = { [weak self] in
-            guard let self else { return }
-            if let first = self.undoStack.first { self.profile = first }
-            self.endEditing(save: false)
-        }
-        editBar.onUndo = { [weak self] in
-            guard let self, let last = self.undoStack.popLast() else { return }
-            self.profile = last
-            self.selectedID = nil
-            self.rebuild()
-            self.refreshEditBar()
-            self.setNeedsLayout()
-        }
-        editBar.onReset = { [weak self] in
-            guard let self, let fresh = self.onReset?() else { return }
-            self.pushUndo()
-            self.profile = fresh
-            self.selectedID = nil
-            self.rebuild()
-            self.refreshEditBar()
-            self.setNeedsLayout()
-        }
-        editBar.onSnap = { [weak self] value in
-            self?.gridSnap = value
-            self?.refreshEditBar()
-        }
-        editBar.onSizeBegan = { [weak self] in self?.pushUndo() }
-        editBar.onSize = { [weak self] value in
-            guard let self, let id = self.selectedID else { return }
-            self.change(id) { $0.size = value }
-        }
-        editBar.onOpacityBegan = { [weak self] in self?.pushUndo() }
-        editBar.onOpacity = { [weak self] value in
-            guard let self, let id = self.selectedID else { return }
-            self.change(id) { $0.opacity = value }
-        }
-        editBar.onDelete = { [weak self] in
-            guard let self, let id = self.selectedID else { return }
-            self.pushUndo()
-            var items = self.currentItems
-            items.removeAll { $0.id == id }
-            self.profile.setItems(items, landscape: self.isLandscape)
-            self.selectedID = nil
-            self.rebuild()
-            self.refreshEditBar()
-            self.setNeedsLayout()
-        }
-        editBar.onLabel = { [weak self] in self?.askLabel() }
-        editBar.onDirections = { [weak self] in
-            guard let self, let id = self.selectedID else { return }
-            self.pushUndo()
-            self.change(id) { $0.eightWay = !($0.eightWay ?? true) }
-            self.refreshEditBar()
-        }
-    }
-
-    private func askLabel() {
-        guard let item = selectedItem, let host = window?.rootViewController else { return }
-        var top = host
-        while let next = top.presentedViewController { top = next }
-        let alert = UIAlertController(title: "Label", message: nil, preferredStyle: .alert)
-        alert.addTextField { $0.text = item.displayLabel }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self, weak alert] _ in
-            guard let self else { return }
-            let text = alert?.textFields?.first?.text ?? ""
-            self.pushUndo()
-            self.change(item.id) { $0.label = text.isEmpty ? nil : String(text.prefix(8)) }
-            self.refreshEditBar()
-        })
-        top.present(alert, animated: true)
-    }
-}
-
-/// The bar shown at the top in edit mode.
-final class EditBar: UIView {
-    var onDone: (() -> Void)?
-    var onCancel: (() -> Void)?
-    var onUndo: (() -> Void)?
-    var onReset: (() -> Void)?
-    var onSnap: ((Bool) -> Void)?
-    var onSize: ((Double) -> Void)?
-    var onSizeBegan: (() -> Void)?
-    var onOpacity: ((Double) -> Void)?
-    var onOpacityBegan: (() -> Void)?
-    var onDelete: (() -> Void)?
-    var onLabel: (() -> Void)?
-    var onDirections: (() -> Void)?
-
-    let addButton = UIButton(type: .system)
-    private let topRow = UIStackView()
-    private let itemRow = UIStackView()
-    private let undoButton = UIButton(type: .system)
-    private let snapButton = UIButton(type: .system)
-    private let countLabel = UILabel()
-    private let sizeSlider = UISlider()
-    private let opacitySlider = UISlider()
-    private let labelButton = UIButton(type: .system)
-    private let directionsButton = UIButton(type: .system)
-    private let deleteButton = UIButton(type: .system)
-    private var gridSnap = true
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = UIColor(white: 0.08, alpha: 0.92)
-        layer.cornerRadius = 14
-        tintColor = .white
-
-        func button(_ button: UIButton, _ symbol: String, _ title: String, _ action: Selector) {
-            button.setImage(UIImage(systemName: symbol), for: .normal)
-            button.accessibilityLabel = title
-            button.addTarget(self, action: action, for: .touchUpInside)
-        }
-        let cancel = UIButton(type: .system)
-        button(cancel, "xmark", "Cancel", #selector(cancelTapped))
-        addButton.setImage(UIImage(systemName: "plus.circle"), for: .normal)
-        addButton.accessibilityLabel = "Add control"
-        addButton.showsMenuAsPrimaryAction = true
-        button(undoButton, "arrow.uturn.backward", "Undo", #selector(undoTapped))
-        let reset = UIButton(type: .system)
-        button(reset, "arrow.counterclockwise", "Reset layout", #selector(resetTapped))
-        button(snapButton, "grid", "Grid snap", #selector(snapTapped))
-        let done = UIButton(type: .system)
-        done.setTitle("Done", for: .normal)
-        done.titleLabel?.font = .boldSystemFont(ofSize: 16)
-        done.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
-        countLabel.font = .systemFont(ofSize: 12)
-        countLabel.textColor = .lightGray
-
-        topRow.axis = .horizontal
-        topRow.distribution = .equalSpacing
-        topRow.alignment = .center
-        [cancel, addButton, undoButton, reset, snapButton, countLabel, done].forEach { topRow.addArrangedSubview($0) }
-        addSubview(topRow)
-
-        sizeSlider.minimumValue = 36
-        sizeSlider.maximumValue = 220
-        sizeSlider.addTarget(self, action: #selector(sizeChanged), for: .valueChanged)
-        sizeSlider.addTarget(self, action: #selector(sizeBegan), for: .touchDown)
-        sizeSlider.accessibilityLabel = "Size"
-        opacitySlider.minimumValue = 0.1
-        opacitySlider.maximumValue = 1
-        opacitySlider.addTarget(self, action: #selector(opacityChanged), for: .valueChanged)
-        opacitySlider.addTarget(self, action: #selector(opacityBegan), for: .touchDown)
-        opacitySlider.accessibilityLabel = "Opacity"
-        button(labelButton, "textformat", "Label", #selector(labelTapped))
-        button(directionsButton, "arrow.up.and.down.and.arrow.left.and.right", "Four or eight directions", #selector(directionsTapped))
-        button(deleteButton, "trash", "Delete control", #selector(deleteTapped))
-        deleteButton.tintColor = .systemRed
-
-        let sizeIcon = UIImageView(image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"))
-        let opacityIcon = UIImageView(image: UIImage(systemName: "circle.lefthalf.filled"))
-        itemRow.axis = .horizontal
-        itemRow.spacing = 8
-        itemRow.alignment = .center
-        [sizeIcon, sizeSlider, opacityIcon, opacitySlider, labelButton, directionsButton, deleteButton].forEach {
-            itemRow.addArrangedSubview($0)
-        }
-        addSubview(itemRow)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    func preferredHeight(hasSelection: Bool) -> CGFloat { hasSelection ? 92 : 48 }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        topRow.frame = CGRect(x: 12, y: 4, width: bounds.width - 24, height: 40)
-        itemRow.frame = CGRect(x: 12, y: 48, width: bounds.width - 24, height: 40)
-    }
-
-    func update(selected: ControlItem?, canUndo: Bool, gridSnap: Bool, count: Int) {
-        self.gridSnap = gridSnap
-        undoButton.isEnabled = canUndo
-        snapButton.tintColor = gridSnap ? .systemYellow : .white
-        countLabel.text = "\(count)/\(LayoutProfile.maxControls)"
-        addButton.isEnabled = count < LayoutProfile.maxControls
-        itemRow.isHidden = selected == nil
-        if let selected {
-            sizeSlider.value = Float(selected.size)
-            opacitySlider.value = Float(selected.opacity)
-            directionsButton.isHidden = !selected.action.isDirectional
-            labelButton.isHidden = selected.action.isDirectional
-        }
-        setNeedsLayout()
-    }
-
-    @objc private func doneTapped() { onDone?() }
-    @objc private func cancelTapped() { onCancel?() }
-    @objc private func undoTapped() { onUndo?() }
-    @objc private func resetTapped() { onReset?() }
-    @objc private func snapTapped() { onSnap?(!gridSnap) }
-    @objc private func sizeBegan() { onSizeBegan?() }
-    @objc private func sizeChanged() { onSize?(Double(sizeSlider.value)) }
-    @objc private func opacityBegan() { onOpacityBegan?() }
-    @objc private func opacityChanged() { onOpacity?(Double(opacitySlider.value)) }
-    @objc private func labelTapped() { onLabel?() }
-    @objc private func directionsTapped() { onDirections?() }
-    @objc private func deleteTapped() { onDelete?() }
 }

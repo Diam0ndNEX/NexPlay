@@ -28,12 +28,32 @@ struct PadKey: Codable, Hashable {
     static let tab = PadKey(keyCode: 9, key: "Tab", code: "Tab")
     static let control = PadKey(keyCode: 17, key: "Control", code: "ControlLeft")
     static let alt = PadKey(keyCode: 18, key: "Alt", code: "AltLeft")
+    static let home = PadKey(keyCode: 36, key: "Home", code: "Home")
+    static let end = PadKey(keyCode: 35, key: "End", code: "End")
+    static let insert = PadKey(keyCode: 45, key: "Insert", code: "Insert")
+    static let delete = PadKey(keyCode: 46, key: "Delete", code: "Delete")
 
-    /// The key for a DOM keyCode: letters, digits, F1-F12 and the named keys above.
+    /// Punctuation keys (US layout): DOM keyCode, key, code.
+    static let symbols: [PadKey] = [
+        PadKey(keyCode: 186, key: ";", code: "Semicolon"),
+        PadKey(keyCode: 187, key: "=", code: "Equal"),
+        PadKey(keyCode: 188, key: ",", code: "Comma"),
+        PadKey(keyCode: 189, key: "-", code: "Minus"),
+        PadKey(keyCode: 190, key: ".", code: "Period"),
+        PadKey(keyCode: 191, key: "/", code: "Slash"),
+        PadKey(keyCode: 192, key: "`", code: "Backquote"),
+        PadKey(keyCode: 219, key: "[", code: "BracketLeft"),
+        PadKey(keyCode: 220, key: "\\", code: "Backslash"),
+        PadKey(keyCode: 221, key: "]", code: "BracketRight"),
+        PadKey(keyCode: 222, key: "'", code: "Quote"),
+    ]
+
+    /// The key for a DOM keyCode: letters, digits, F1-F12, punctuation and the named keys above.
     static func fromKeyCode(_ keyCode: Int) -> PadKey {
         let named: [PadKey] = [.left, .up, .right, .down, .dash, .menu, .pageUp, .pageDown, .enter, .space,
-                               .backspace, .tab, .control, .alt]
+                               .backspace, .tab, .control, .alt, .home, .end, .insert, .delete]
         if let found = named.first(where: { $0.keyCode == keyCode }) { return found }
+        if let found = symbols.first(where: { $0.keyCode == keyCode }) { return found }
         if (65...90).contains(keyCode), let scalar = UnicodeScalar(keyCode) {
             let letter = String(Character(scalar))
             return PadKey(keyCode: keyCode, key: letter.lowercased(), code: "Key" + letter)
@@ -55,8 +75,37 @@ struct PadKey: Codable, Hashable {
         keys += (65...90).map { PadKey.fromKeyCode($0) }
         keys += (48...57).map { PadKey.fromKeyCode($0) }
         keys += (112...123).map { PadKey.fromKeyCode($0) }
+        keys += [.left, .up, .right, .down, .menu, .dash, .home, .end, .insert, .delete]
+        keys += symbols
         return keys
     }()
+
+    /// Key picker groups (the Select Key screen).
+    static let letters: [PadKey] = (65...90).map { PadKey.fromKeyCode($0) }
+    static let digits: [PadKey] = (48...57).map { PadKey.fromKeyCode($0) }
+    static let navigation: [PadKey] = [.left, .up, .right, .down, .pageUp, .pageDown, .home, .end, .insert, .delete]
+    static let controlKeys: [PadKey] = [.enter, .menu, .dash, .control, .alt, .tab, .space, .backspace]
+    static let functionKeys: [PadKey] = (112...123).map { PadKey.fromKeyCode($0) }
+
+    /// A short label for a key tile.
+    var shortTitle: String {
+        switch keyCode {
+        case 37: return "←"
+        case 38: return "↑"
+        case 39: return "→"
+        case 40: return "↓"
+        case 33: return "PgUp"
+        case 34: return "PgDn"
+        case 36: return "Home"
+        case 35: return "End"
+        case 45: return "Ins"
+        case 46: return "Del"
+        case 8: return "Back"
+        case 27: return "Esc"
+        case 13: return "Enter"
+        default: return title
+        }
+    }
 
     var title: String {
         switch keyCode {
@@ -74,6 +123,10 @@ struct PadKey: Codable, Hashable {
         case 38: return "Up"
         case 39: return "Right"
         case 40: return "Down"
+        case 35: return "End"
+        case 36: return "Home"
+        case 45: return "Insert"
+        case 46: return "Delete"
         default: return key.count == 1 ? key.uppercased() : key
         }
     }
@@ -81,7 +134,7 @@ struct PadKey: Codable, Hashable {
 
 /// What an on-screen control or a controller button does.
 enum ControlAction: String, Codable, CaseIterable, Identifiable {
-    case dpad, joystick, confirm, cancel, menu, dash, pageUp, pageDown, fastForward, key, none
+    case dpad, joystick, confirm, cancel, menu, dash, pageUp, pageDown, fastForward, key, none, scrollUp, scrollDown
 
     var id: String { rawValue }
 
@@ -98,6 +151,8 @@ enum ControlAction: String, Codable, CaseIterable, Identifiable {
         case .fastForward: return "Fast Forward"
         case .key: return "Key"
         case .none: return "Nothing"
+        case .scrollUp: return "Scroll Up"
+        case .scrollDown: return "Scroll Down"
         }
     }
 
@@ -112,6 +167,8 @@ enum ControlAction: String, Codable, CaseIterable, Identifiable {
         case .pageDown: return "R"
         case .fastForward: return "▶▶"
         case .key: return "Key"
+        case .scrollUp: return "▲"
+        case .scrollDown: return "▼"
         }
     }
 
@@ -124,7 +181,7 @@ enum ControlAction: String, Codable, CaseIterable, Identifiable {
         case .dash: return .dash
         case .pageUp: return .pageUp
         case .pageDown: return .pageDown
-        case .dpad, .joystick, .fastForward, .key, .none: return nil
+        case .dpad, .joystick, .fastForward, .key, .none, .scrollUp, .scrollDown: return nil
         }
     }
 
@@ -145,6 +202,8 @@ struct ControlItem: Codable, Identifiable, Equatable {
     var label: String?
     /// For the D-pad and joystick: eight directions (true) or four.
     var eightWay: Bool?
+    /// Tint (ControlColor raw value); nil is the default dark glass.
+    var color: String?
 
     init(action: ControlAction, keyCode: Int? = nil, x: Double, y: Double, size: Double,
          opacity: Double = 0.75, label: String? = nil) {
@@ -172,6 +231,30 @@ struct ControlItem: Codable, Identifiable, Equatable {
     }
 }
 
+/// Colours a control can take in edit mode.
+enum ControlColor: String, CaseIterable, Identifiable {
+    case red, orange, yellow, green, mint, teal, cyan, blue, indigo, purple, pink
+
+    var id: String { rawValue }
+
+    /// Red, green, blue in 0...1.
+    var rgb: (Double, Double, Double) {
+        switch self {
+        case .red: return (0.92, 0.33, 0.31)
+        case .orange: return (0.95, 0.6, 0.27)
+        case .yellow: return (0.97, 0.84, 0.3)
+        case .green: return (0.4, 0.8, 0.42)
+        case .mint: return (0.38, 0.83, 0.75)
+        case .teal: return (0.36, 0.8, 0.86)
+        case .cyan: return (0.42, 0.8, 0.98)
+        case .blue: return (0.24, 0.55, 0.96)
+        case .indigo: return (0.44, 0.47, 0.98)
+        case .purple: return (0.75, 0.28, 0.9)
+        case .pink: return (0.92, 0.3, 0.42)
+        }
+    }
+}
+
 /// A named set of controls: one layout for portrait, one for landscape.
 struct LayoutProfile: Codable, Equatable {
     var name: String
@@ -186,6 +269,29 @@ struct LayoutProfile: Codable, Equatable {
 
     mutating func setItems(_ items: [ControlItem], landscape isLandscape: Bool) {
         if isLandscape { landscape = items } else { portrait = items }
+    }
+
+    /// The built-in layout for an engine: RPG Maker keys (Z/X/Esc/Shift) or the keys most web and Godot games use
+    /// (Enter, Escape, Space, Shift).
+    static func builtIn(for engine: GameEngine) -> LayoutProfile {
+        if engine.isRPGMaker || engine.isRuby { return builtIn }
+        return LayoutProfile(
+            name: "Built-in",
+            portrait: [
+                ControlItem(action: .joystick, x: 0.25, y: 0.80, size: 150),
+                ControlItem(action: .key, keyCode: 13, x: 0.86, y: 0.80, size: 62),
+                ControlItem(action: .key, keyCode: 27, x: 0.70, y: 0.88, size: 58),
+                ControlItem(action: .key, keyCode: 32, x: 0.70, y: 0.72, size: 54),
+                ControlItem(action: .key, keyCode: 16, x: 0.86, y: 0.66, size: 54),
+            ],
+            landscape: [
+                ControlItem(action: .joystick, x: 0.12, y: 0.74, size: 150),
+                ControlItem(action: .key, keyCode: 27, x: 0.84, y: 0.66, size: 62),
+                ControlItem(action: .key, keyCode: 13, x: 0.93, y: 0.66, size: 62),
+                ControlItem(action: .key, keyCode: 32, x: 0.84, y: 0.86, size: 62),
+                ControlItem(action: .key, keyCode: 16, x: 0.93, y: 0.86, size: 62),
+            ]
+        )
     }
 
     static let builtIn = LayoutProfile(
@@ -235,6 +341,13 @@ enum LayoutStore {
 
     static func load(for gameID: UUID) -> LayoutProfile {
         read(url(for: gameID)) ?? defaultProfile()
+    }
+
+    /// The game's layout, else the default profile for RPG Maker games, else the engine's built-in layout.
+    static func load(for game: Game) -> LayoutProfile {
+        if let own = read(url(for: game.id)) { return own }
+        if game.engine.isRPGMaker || game.engine.isRuby { return defaultProfile() }
+        return .builtIn(for: game.engine)
     }
 
     /// Saves a game's layout, or the default profile when `gameID` is nil.

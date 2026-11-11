@@ -66,6 +66,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var features: [PlayerFeature] = []
     private var featureHandlerNames: [String] = []
     private var fastForwardOn = false
+    /// Loopback HTTP server for games that need a secure, cross-origin-isolated page (Godot).
+    private var localServer: LocalGameServer?
+    private var serverPort: UInt16?
+    private var scrollTimer: Timer?
 
     init(game: Game, store: LibraryStore, onExit: @escaping () -> Void) {
         self.game = game
@@ -98,6 +102,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         let handler = NexSchemeHandler(rootDirectory: Paths.folder(for: game),
                                        protectedDirectories: [Paths.entryDirectory(for: game)])
         handler.fileOverride = PlayerFeatures.fileOverride(for: game)
+        handler.overlay = ModStore.overlay(for: game)
         config.setURLSchemeHandler(handler, forURLScheme: NexSchemeHandler.scheme)
         config.websiteDataStore = DataStores.store(for: game)
         config.allowsInlineMediaPlayback = true
@@ -121,6 +126,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             content.addUserScript(WKUserScript(source: runtime, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         content.addUserScript(WKUserScript(source: PageScripts.noSelect, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        for script in ModStore.webScripts(for: game) {
+            content.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        }
         content.addUserScript(WKUserScript(source: PageScripts.stats, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         content.add(statsReceiver, name: "nexStats")
         content.add(logReceiver, name: "nexLog")
@@ -249,20 +257,35 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         gamepad.frame = view.bounds
         gamepad.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         gamepad.isHidden = !game.gamepad
-        gamepad.setProfile(prefs.display(LayoutStore.load(for: game.id)))
+        gamepad.setProfile(prefs.display(LayoutStore.load(for: game)))
         gamepad.onKey = { [weak self] key, down in self?.keyRouter.press(key, down) }
         gamepad.onAction = { [weak self] action, down in self?.handleAction(action, down) }
         let gameID = game.id
+        let current = game
         gamepad.onSave = { profile in LayoutStore.save(prefs.stored(profile), for: gameID) }
         gamepad.onReset = {
             LayoutStore.reset(gameID)
-            return prefs.display(LayoutStore.load(for: gameID))
+            return prefs.display(LayoutStore.load(for: current))
         }
         gamepad.onEditingChanged = { [weak self] editing in
             guard let self else { return }
             self.isEditingControls = editing
-            self.controlBar.isHidden = editing
+            self.controlBar.isHidden = false
+            self.controlBar.setEditing(editing)
             if !editing { self.updateOverlays() }
+        }
+        gamepad.onEditItem = { [weak self] item, done in
+            guard let self else { return }
+            let editor = ControlEditorView(item: item) { result in done(result) }
+            let host = UIHostingController(rootView: editor)
+            host.modalPresentationStyle = .formSheet
+            self.presentOnTop(host)
+        }
+        gamepad.onConfirmReset = { [weak self] reset in
+            let alert = UIAlertController(title: "Reset Controls?", message: "This game's buttons go back to the default layout.", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Reset", style: .destructive) { _ in reset() })
+            self?.presentOnTop(alert)
         }
         view.addSubview(gamepad)
     }
@@ -284,6 +307,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         controlBar.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         var icon: UIImage?
         if let url = Paths.coverURL(for: game) { icon = UIImage(contentsOfFile: url.path) }
+        if icon == nil { icon = GameArt.hero(for: game) }
         controlBar.configure(prefs: prefs, showFastForward: game.engine.isRPGMaker && prefs.showFastForward,
                              showCheats: game.engine.isRPGMaker && prefs.showCheats, icon: icon)
         controlBar.menuProvider = { [weak self] in self?.buildMenuItems() ?? [] }
@@ -322,7 +346,28 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private var gameURL: URL? {
         let path = game.entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? game.entry
+        if game.engine.usesLocalServer {
+            guard let port = serverPort else { return nil }
+            return URL(string: "http://127.0.0.1:\(port)/\(path)")
+        }
         return URL(string: "\(NexSchemeHandler.scheme)://\(game.host)/\(path)")
+    }
+
+    /// Starts the loopback server once for games that use it.
+    private func startLocalServerIfNeeded() async {
+        guard game.engine.usesLocalServer, localServer == nil else { return }
+        let server = LocalGameServer(root: Paths.folder(for: game))
+        server.overlay = ModStore.overlay(for: game)
+        let log = gameLog
+        server.log = { line in DispatchQueue.main.async { log.add(line) } }
+        localServer = server
+        if let port = await server.start(preferred: LocalGameServer.port(for: game)) {
+            serverPort = port
+            gameLog.add("local server on 127.0.0.1:\(port)")
+        } else {
+            gameLog.add("local server could not start")
+            showBanner("NexPlay couldn't start the local game server. Close other games and try again.")
+        }
     }
 
     /// Applies the network block rule, then loads the game.
@@ -331,8 +376,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         loadTask = Task { @MainActor in
             let content = webView.configuration.userContentController
             content.removeAllContentRuleLists()
+            await startLocalServerIfNeeded()
             if game.blockNetwork {
-                let rules = #"[{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}},{"trigger":{"url-filter":"^wss?://"},"action":{"type":"block"}}]"#
+                // The loopback game server stays reachable; everything else on the network is blocked.
+                let rules = #"[{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}},{"trigger":{"url-filter":"^wss?://"},"action":{"type":"block"}},{"trigger":{"url-filter":"^http://127\\.0\\.0\\.1[:/]"},"action":{"type":"ignore-previous-rules"}}]"#
                 if let list = try? await WKContentRuleListStore.default()
                     .compileContentRuleList(forIdentifier: "nexplay-block", encodedContentRuleList: rules) {
                     content.add(list)
@@ -430,8 +477,25 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     /// App actions from on-screen controls and controller buttons.
     private func handleAction(_ action: ControlAction, _ down: Bool) {
-        guard action == .fastForward, down, game.engine.isRPGMaker else { return }
-        setSpeed(fastForwardOn ? 1 : max(2, game.fastForwardSpeed ?? 2))
+        switch action {
+        case .scrollUp, .scrollDown:
+            scrollTimer?.invalidate()
+            scrollTimer = nil
+            guard down else { return }
+            let delta = action == .scrollUp ? -120 : 120
+            webView.evaluateJavaScript("window.__nexWheel && window.__nexWheel(\(delta))", completionHandler: nil)
+            // Holding the button keeps scrolling.
+            scrollTimer = Timer.scheduledTimer(withTimeInterval: 0.14, repeats: true) { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.webView.evaluateJavaScript("window.__nexWheel && window.__nexWheel(\(delta))", completionHandler: nil)
+                }
+            }
+        case .fastForward:
+            guard down, game.engine.isRPGMaker else { return }
+            setSpeed(fastForwardOn ? 1 : max(2, game.fastForwardSpeed ?? 2))
+        default:
+            break
+        }
     }
 
     private func barItem(_ item: ControlBarView.Item) {
@@ -447,7 +511,11 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         case .screenshot:
             takeScreenshot()
         case .edit:
-            editControls()
+            if gamepad.isEditing {
+                gamepad.endEditing(save: true)
+            } else {
+                editControls()
+            }
         case .fastForward:
             handleAction(.fastForward, true)
         case .cheats:
@@ -549,7 +617,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             UIAction(title: "Use Default Layout", image: UIImage(systemName: "arrow.uturn.backward")) { [weak self] _ in
                 guard let self else { return }
                 LayoutStore.reset(self.game.id)
-                self.gamepad.setProfile(profilePrefs.display(LayoutStore.load(for: self.game.id)))
+                self.gamepad.setProfile(profilePrefs.display(LayoutStore.load(for: self.game)))
             },
             UIAction(title: "Controller Buttons…", image: UIImage(systemName: "gamecontroller.fill")) { [weak self] _ in
                 self?.showControllerMap()
@@ -871,6 +939,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         AppLog.noteGame(nil)
         statsTimer?.invalidate()
         statsTimer = nil
+        scrollTimer?.invalidate()
+        scrollTimer = nil
         bannerTimer?.invalidate()
         bannerTimer = nil
         controlBar.stop()
@@ -891,6 +961,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         for name in featureHandlerNames { content?.removeScriptMessageHandler(forName: name) }
         featureHandlerNames = []
         webView?.stopLoading()
+        localServer?.stop()
+        localServer = nil
     }
 
     // MARK: - WKNavigationDelegate / WKUIDelegate
@@ -901,6 +973,12 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         migrateSavesIfNeeded()
         features.forEach { $0.didFinishLoad() }
         checkStartPage()
+        if game.engine == .godot {
+            let probe = "'secure=' + window.isSecureContext + ' isolated=' + window.crossOriginIsolated + ' sab=' + (typeof SharedArrayBuffer !== 'undefined')"
+            webView.evaluateJavaScript(probe) { [weak self] result, _ in
+                if let text = result as? String { self?.gameLog.add("godot page: \(text)") }
+            }
+        }
     }
 
     /// A start page served as plain text means the file server answered with an error (missing file, no access):

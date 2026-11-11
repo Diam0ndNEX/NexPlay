@@ -24,7 +24,7 @@ enum OrientationMode: String, Codable, CaseIterable, Identifiable {
 }
 
 enum GameEngine: String, Codable {
-    case rpgMV, rpgMZ, web, rpgXP, rpgVX, rpgVXAce
+    case rpgMV, rpgMZ, web, rpgXP, rpgVX, rpgVXAce, godot, construct, twine, tyrano
 
     var badge: String {
         switch self {
@@ -34,6 +34,10 @@ enum GameEngine: String, Codable {
         case .rpgXP: return "XP"
         case .rpgVX: return "VX"
         case .rpgVXAce: return "Ace"
+        case .godot: return "Godot"
+        case .construct: return "Construct"
+        case .twine: return "Twine"
+        case .tyrano: return "Tyrano"
         }
     }
 
@@ -45,6 +49,10 @@ enum GameEngine: String, Codable {
         case .rpgXP: return "RPG Maker XP"
         case .rpgVX: return "RPG Maker VX"
         case .rpgVXAce: return "RPG Maker VX Ace"
+        case .godot: return "Godot (Web export)"
+        case .construct: return "Construct"
+        case .twine: return "Twine story"
+        case .tyrano: return "TyranoBuilder / TyranoScript"
         }
     }
 
@@ -52,7 +60,7 @@ enum GameEngine: String, Codable {
     var isRPGMaker: Bool {
         switch self {
         case .rpgMV, .rpgMZ: return true
-        case .web, .rpgXP, .rpgVX, .rpgVXAce: return false
+        case .web, .rpgXP, .rpgVX, .rpgVXAce, .godot, .construct, .twine, .tyrano: return false
         }
     }
 
@@ -60,9 +68,21 @@ enum GameEngine: String, Codable {
     var isRuby: Bool {
         switch self {
         case .rpgXP, .rpgVX, .rpgVXAce: return true
-        case .rpgMV, .rpgMZ, .web: return false
+        case .rpgMV, .rpgMZ, .web, .godot, .construct, .twine, .tyrano: return false
         }
     }
+
+    /// Plain web games (HTML5, Godot web, Construct, Twine, Tyrano): no RPG Maker runtime, no NW.js shim.
+    var isWebGame: Bool {
+        switch self {
+        case .web, .godot, .construct, .twine, .tyrano: return true
+        case .rpgMV, .rpgMZ, .rpgXP, .rpgVX, .rpgVXAce: return false
+        }
+    }
+
+    /// Served from a loopback HTTP server instead of the nexplay:// scheme. Godot 4 needs a secure origin with
+    /// cross-origin isolation (SharedArrayBuffer for threads), which http://127.0.0.1 gets and a custom scheme may not.
+    var usesLocalServer: Bool { self == .godot }
 }
 
 enum LibrarySort: String, CaseIterable, Identifiable {
@@ -115,6 +135,10 @@ struct Game: Identifiable, Codable, Hashable {
     var version: String?
     /// Developer or publisher, as the player typed it.
     var developer: String?
+    /// Save profiles (NW.js-mode RPG Maker games); nil means one implicit "Profile 1".
+    var profiles: [SaveProfile]?
+    /// The profile whose saves are in save/ right now.
+    var activeProfile: UUID?
 
     /// The hostname used in nexplay://<host>/ URLs. Unique per game, so every game has its own web storage.
     var host: String { id.uuidString.lowercased() }
@@ -242,4 +266,8 @@ enum SettingsKey {
     static let screenScaling = "screenScaling"
     /// Screenshots also go to the Photos library (default on); they always go to the game's gallery.
     static let screenshotsToPhotos = "screenshotsToPhotos"
+    /// The Departure Mono pixel font for the interface (default on).
+    static let pixelFont = "pixelFont"
+    /// Tapping a game opens its game page (default on); off starts it right away.
+    static let tapOpensGamePage = "tapOpensGamePage"
 }

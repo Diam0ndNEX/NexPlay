@@ -314,10 +314,18 @@ struct AppearanceSettings: View {
     @AppStorage(SettingsKey.libraryLayout) private var layout = "grid"
     @AppStorage(SettingsKey.titleUnderCard) private var titleUnder = true
     @AppStorage(SettingsKey.showContinueCard) private var showContinue = true
+    @AppStorage(SettingsKey.pixelFont) private var pixelFont = true
+    @AppStorage(SettingsKey.tapOpensGamePage) private var tapOpensPage = true
 
     var body: some View {
         Form {
             Section {
+                Toggle(isOn: $pixelFont) {
+                    SettingLabel("Pixel Font", "Retro pixel lettering (Departure Mono) across the app and the touch controls. Fully applies after reopening the app.")
+                }
+                Toggle(isOn: $tapOpensPage) {
+                    SettingLabel("Tap Opens Game Page", "Tapping a game shows its page with saves, gallery and mods. Turn off to start games right away.")
+                }
                 Picker("Appearance", selection: $theme) {
                     Text("Dark").tag("dark")
                     Text("Light").tag("light")
@@ -581,7 +589,7 @@ struct GameplaySettings: View {
     private func applyOrientationToAll() {
         let mode = OrientationMode(rawValue: orientation) ?? .landscape
         var count = 0
-        for game in store.games where game.engine != .web {
+        for game in store.games where game.engine.isRPGMaker || game.engine.isRuby {
             store.mutate(game.id) { $0.orientation = mode }
             count += 1
         }
@@ -726,12 +734,13 @@ struct CreditsView: View {
             Section("Libraries") {
                 Text("ZIPFoundation, Copyright (c) 2017-2026 Thomas Zoechling, https://github.com/weichsel/ZIPFoundation (MIT).")
                 Text("libarchive (part of iOS), https://www.libarchive.org (BSD-2-Clause): 7z, RAR and TAR import.")
+                Text("Departure Mono, Copyright 2022–2024 Helena Zhang, https://departuremono.com (SIL Open Font License 1.1): the pixel font.")
             }
             Section("RPG Maker XP/VX/Ace core (only in builds with the mkxp core)") {
                 Text("mkxp-z, https://github.com/mkxp-z/mkxp-z (GPLv2 or later), built for iOS by mkxp-z-apple-mobile, https://github.com/mateo-m/mkxp-z-apple-mobile (GPL), with Ruby (Ruby license / BSD-2-Clause), SDL (zlib), ANGLE (BSD-3-Clause), FluidSynth (LGPL-2.1) and the other libraries its licenses.json lists. Core contract and build scripts from Empo (GPL-3.0-only with additional terms).")
             }
             Section("Ideas only (no code)") {
-                Text("RPGPlayer, ArkRPG, JoiPlay, Runa, QuestPlay, RPGEmu: feature ideas such as the control bar, settings layout, background themes, collections, plugin manager, cheats, storage manager, MTool translation files and encoding repair.")
+                Text("RPGPlayer, ArkRPG, JoiPlay, Runa, QuestPlay, RPGEmu: feature ideas such as the control bar, settings layout, background themes, collections, plugin manager, cheats, storage manager, MTool translation files and encoding repair; the game page, save profiles, media browser, mods page and the touch-control edit mode follow RPGPlayer's screenshots.")
             }
         }
         .font(.footnote)

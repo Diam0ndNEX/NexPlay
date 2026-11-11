@@ -39,6 +39,9 @@ final class NexSchemeHandler: NSObject, WKURLSchemeHandler {
     /// Optional replacement content for a path relative to the game folder (lowercased), for example a generated
     /// js/plugins.js. Called on the file queue.
     var fileOverride: ((String) -> Data?)?
+    /// Optional replacement file (absolute path) for a path relative to the game folder (lowercased): mods.
+    /// Wins over `fileOverride`, so a mod that ships its own js/plugins.js is used as it is.
+    var overlay: ((String) -> String?)?
 
     init(rootDirectory: URL, protectedDirectories: [URL] = []) {
         let standard = rootDirectory.standardizedFileURL.path
@@ -250,7 +253,10 @@ final class NexSchemeHandler: NSObject, WKURLSchemeHandler {
 
         let fileURL = URL(fileURLWithPath: path)
         let data: Data
-        if let replaced = fileOverride?(relative(path).lowercased()) {
+        let key = relative(path).lowercased()
+        if let modFile = overlay?(key), let contents = try? Data(contentsOf: URL(fileURLWithPath: modFile), options: .mappedIfSafe) {
+            data = contents
+        } else if let replaced = fileOverride?(key) {
             data = replaced
         } else {
             guard fm.fileExists(atPath: path),

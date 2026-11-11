@@ -134,42 +134,117 @@ enum GameScanner {
         return rel
     }
 
-    /// Finds the game inside an imported folder. Looks up to two folders deep, so "Game/www/index.html" works.
+    /// Finds the game inside an imported folder. Looks up to three folders deep, so "Game/www/index.html" works.
+    /// RPG Maker MV/MZ wins, then Godot web exports, Construct, TyranoScript, Twine, then any HTML page
+    /// (index.html first, else the page whose name matches the folder, else the largest page).
     static func detect(in root: URL) -> DetectedGame? {
         let fm = FileManager.default
         var level: [URL] = [root]
-        var firstPlain: URL?
+        var plain: (dir: URL, page: URL)?
 
-        for _ in 0...2 {
+        func entry(_ page: URL) -> String { relativePath(of: page, in: root) }
+
+        for _ in 0...3 {
             var next: [URL] = []
             for dir in level {
-                let index = dir.appendingPathComponent("index.html")
-                if fm.fileExists(atPath: index.path) {
-                    let rel = relativePath(of: dir, in: root)
-                    let entry = rel.isEmpty ? "index.html" : rel + "/index.html"
+                let pages = htmlFiles(in: dir)
+                let index = pages.first { $0.lastPathComponent.lowercased() == "index.html" }
+                if let index {
                     if fm.fileExists(atPath: dir.appendingPathComponent("js/rmmz_core.js").path) {
-                        return DetectedGame(engine: .rpgMZ, entry: entry)
+                        return DetectedGame(engine: .rpgMZ, entry: entry(index))
                     }
                     if fm.fileExists(atPath: dir.appendingPathComponent("js/rpg_core.js").path) {
-                        return DetectedGame(engine: .rpgMV, entry: entry)
+                        return DetectedGame(engine: .rpgMV, entry: entry(index))
                     }
-                    if firstPlain == nil { firstPlain = dir }
+                }
+                if !pages.isEmpty {
+                    if let godot = godotPage(in: dir, pages: pages) {
+                        return DetectedGame(engine: .godot, entry: entry(godot))
+                    }
+                    let start = index ?? preferredPage(pages, folder: dir)
+                    if isConstruct(dir) { return DetectedGame(engine: .construct, entry: entry(start)) }
+                    if isTyrano(dir) { return DetectedGame(engine: .tyrano, entry: entry(start)) }
+                    if let story = pages.first(where: { isTwine($0) }) {
+                        return DetectedGame(engine: .twine, entry: entry(story))
+                    }
+                    if plain == nil { plain = (dir, start) }
                 }
                 let kids = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey],
                                                         options: [.skipsHiddenFiles])) ?? []
-                next += kids.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+                next += kids.filter {
+                    let name = $0.lastPathComponent.lowercased()
+                    return name != "__macosx" && name != "node_modules"
+                        && (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                }
             }
             level = next
         }
-
-        if let dir = firstPlain {
-            let rel = relativePath(of: dir, in: root)
-            return DetectedGame(engine: .web, entry: rel.isEmpty ? "index.html" : rel + "/index.html")
-        }
-        if let html = htmlFiles(in: root).first {
-            return DetectedGame(engine: .web, entry: html.lastPathComponent)
-        }
+        if let plain { return DetectedGame(engine: .web, entry: entry(plain.page)) }
         return nil
+    }
+
+    /// A Godot web export: an HTML page next to a .pck and a .wasm (Godot 3 and 4).
+    private static func godotPage(in dir: URL, pages: [URL]) -> URL? {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        let lower = names.map { $0.lowercased() }
+        guard let pck = lower.first(where: { $0.hasSuffix(".pck") }), lower.contains(where: { $0.hasSuffix(".wasm") }) else {
+            return nil
+        }
+        let base = String(pck.dropLast(4))
+        if let same = pages.first(where: { $0.deletingPathExtension().lastPathComponent.lowercased() == base }) { return same }
+        if let index = pages.first(where: { $0.lastPathComponent.lowercased() == "index.html" }) { return index }
+        return pages.first
+    }
+
+    /// A Godot desktop build (a .pck or a Godot .exe without a web page). It can't run in a web view.
+    static func isDesktopGodot(_ root: URL) -> Bool {
+        guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return false }
+        var count = 0
+        for case let url as URL in walker {
+            count += 1
+            if count > 3000 { break }
+            if url.pathExtension.lowercased() == "pck" { return true }
+        }
+        return false
+    }
+
+    private static func isConstruct(_ dir: URL) -> Bool {
+        let fm = FileManager.default
+        return ["c2runtime.js", "scripts/c3runtime.js", "scripts/c3main.js", "scripts/main.js"].contains {
+            fm.fileExists(atPath: dir.appendingPathComponent($0).path)
+        } && (fm.fileExists(atPath: dir.appendingPathComponent("data.json").path)
+              || fm.fileExists(atPath: dir.appendingPathComponent("data.js").path)
+              || fm.fileExists(atPath: dir.appendingPathComponent("c2runtime.js").path))
+    }
+
+    private static func isTyrano(_ dir: URL) -> Bool {
+        let fm = FileManager.default
+        return fm.fileExists(atPath: dir.appendingPathComponent("tyrano").path)
+            && fm.fileExists(atPath: dir.appendingPathComponent("data/scenario").path)
+    }
+
+    /// Twine 2 stories are one HTML file holding a <tw-storydata> element.
+    private static func isTwine(_ page: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: page) else { return false }
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: 4_000_000)) ?? Data()
+        return data.range(of: Data("<tw-storydata".utf8)) != nil
+    }
+
+    /// The page to start: one named like the folder or "game"/"main"/"play", else the largest.
+    private static func preferredPage(_ pages: [URL], folder: URL) -> URL {
+        let folderName = folder.lastPathComponent.lowercased()
+        let wanted = [folderName, "game", "main", "play", "start", "story"]
+        for name in wanted {
+            if let page = pages.first(where: { $0.deletingPathExtension().lastPathComponent.lowercased() == name }) {
+                return page
+            }
+        }
+        let sized = pages.map { page -> (URL, Int) in
+            let size = (try? page.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            return (page, size)
+        }
+        return sized.max { $0.1 < $1.1 }?.0 ?? pages[0]
     }
 
     static func htmlFiles(in dir: URL) -> [URL] {

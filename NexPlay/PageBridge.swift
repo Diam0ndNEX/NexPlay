@@ -43,13 +43,53 @@ enum PageScripts {
     /// window.__nexKey(keyCode, key, code, down) lets the on-screen controls press keyboard keys.
     static let keyBridge = #"""
     (function () {
+        // Keys go to the focused element when there is one (text fields, Godot's focused canvas), else to the
+        // first canvas, and bubble up to document and window, so RPG Maker (document), Godot and Construct (canvas
+        // or window) and plain pages all see them.
+        function target() {
+            var a = document.activeElement;
+            if (a && a !== document.body && a !== document.documentElement) return a;
+            return document.querySelector('canvas') || document;
+        }
         window.__nexKey = function (kc, key, code, down) {
-            var e = new Event(down ? 'keydown' : 'keyup', { bubbles: true, cancelable: true });
-            Object.defineProperty(e, 'keyCode', { get: function () { return kc; } });
-            Object.defineProperty(e, 'which', { get: function () { return kc; } });
-            Object.defineProperty(e, 'key', { get: function () { return key; } });
-            Object.defineProperty(e, 'code', { get: function () { return code; } });
-            document.dispatchEvent(e);
+            var type = down ? 'keydown' : 'keyup';
+            var e;
+            try {
+                e = new KeyboardEvent(type, { key: key, code: code, bubbles: true, cancelable: true, composed: true });
+            } catch (err) {
+                e = new Event(type, { bubbles: true, cancelable: true });
+            }
+            try {
+                Object.defineProperty(e, 'keyCode', { get: function () { return kc; } });
+                Object.defineProperty(e, 'which', { get: function () { return kc; } });
+                Object.defineProperty(e, 'charCode', { get: function () { return 0; } });
+                Object.defineProperty(e, 'key', { get: function () { return key; } });
+                Object.defineProperty(e, 'code', { get: function () { return code; } });
+            } catch (err) {}
+            target().dispatchEvent(e);
+            if (down && key && key.length === 1) {
+                try {
+                    var p = new KeyboardEvent('keypress', { key: key, code: code, bubbles: true, cancelable: true });
+                    Object.defineProperty(p, 'keyCode', { get: function () { return key.charCodeAt(0); } });
+                    Object.defineProperty(p, 'charCode', { get: function () { return key.charCodeAt(0); } });
+                    Object.defineProperty(p, 'which', { get: function () { return key.charCodeAt(0); } });
+                    target().dispatchEvent(p);
+                } catch (err) {}
+            }
+        };
+        // A mouse-wheel notch at the middle of the game (scroll buttons on the touch controls).
+        window.__nexWheel = function (dy) {
+            var el = document.querySelector('canvas') || document.body || document;
+            var r = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: innerWidth, height: innerHeight };
+            var x = r.left + r.width / 2, y = r.top + r.height / 2;
+            var e;
+            try {
+                e = new WheelEvent('wheel', { deltaY: dy, deltaMode: 0, clientX: x, clientY: y, bubbles: true, cancelable: true });
+            } catch (err) {
+                e = new Event('wheel', { bubbles: true, cancelable: true });
+                try { Object.defineProperty(e, 'deltaY', { get: function () { return dy; } }); } catch (err2) {}
+            }
+            el.dispatchEvent(e);
         };
     })();
     """#
