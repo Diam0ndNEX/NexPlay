@@ -12,6 +12,7 @@ final class LibraryStore: ObservableObject {
     private let fileURL = Paths.support.appendingPathComponent("library.json")
 
     init() {
+        ImportPipeline.sweepStaging()
         load()
     }
 
@@ -86,81 +87,111 @@ final class LibraryStore: ObservableObject {
 
     // MARK: - Import
 
+    /// Status text for the progress card while importing.
+    @Published var importStatus = ""
+    /// Asks whether an import with the title of an installed game updates it or is added as a new game.
+    @Published var pendingUpdate: PendingUpdate?
+    private var importCancel: ImportCancel?
+
+    func cancelImport() {
+        importCancel?.cancel()
+    }
+
+    func answerUpdate(_ choice: UpdateChoice) {
+        let request = pendingUpdate
+        pendingUpdate = nil
+        request?.continuation.resume(returning: choice)
+    }
+
+    private func askUpdate(title: String, existing: Game) async -> UpdateChoice {
+        await withCheckedContinuation { continuation in
+            pendingUpdate = PendingUpdate(title: title, existing: existing, continuation: continuation)
+        }
+    }
+
     func importItems(_ urls: [URL]) async {
-        guard !urls.isEmpty else { return }
+        guard !urls.isEmpty, !isImporting else { return }
         isImporting = true
-        var problems: [String] = []
+        let cancel = ImportCancel()
+        importCancel = cancel
+        var notes: [String] = []
 
         for url in urls {
+            if cancel.isCancelled { break }
             let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
-                let game = try await Task.detached(priority: .userInitiated) {
-                    try LibraryStore.buildGame(from: url)
+                importStatus = "Preparing \(url.lastPathComponent)…"
+                let staged = try await Task.detached(priority: .userInitiated) {
+                    try ImportPipeline.stage(url, cancel: cancel) { text in
+                        Task { @MainActor in self.importStatus = text }
+                    }
                 }.value
-                games.append(game)
-                save()
-                AppLog.log("imported \(game.name) (\(game.engine.badge)) from \(url.lastPathComponent)")
-                if game.engine.isRPGMaker, let folder = SaveArchive.rescued(forTitle: game.name) {
-                    rescueOffer = RescueOffer(gameID: game.id, gameName: game.name, folder: folder)
+
+                var choice = UpdateChoice.addNew
+                let existing = games.first { $0.name.caseInsensitiveCompare(staged.title) == .orderedSame && $0.engine == staged.found.engine }
+                if let existing {
+                    choice = await askUpdate(title: staged.title, existing: existing)
                 }
+                if choice == .cancel || cancel.isCancelled {
+                    try? FileManager.default.removeItem(at: staged.folder)
+                    continue
+                }
+
+                importStatus = "Installing \(staged.title)…"
+                var lines: [String] = []
+                if choice == .update, let existing {
+                    let updated = try await Task.detached(priority: .userInitiated) {
+                        try ImportPipeline.update(existing, with: staged)
+                    }.value
+                    mutate(existing.id) { game in
+                        game.engine = updated.engine
+                        game.entry = updated.entry
+                    }
+                    lines.append("Updated \(staged.title). Saves and settings were kept.")
+                    AppLog.log("updated \(staged.title) from \(url.lastPathComponent)")
+                } else {
+                    let game = try await Task.detached(priority: .userInitiated) {
+                        try ImportPipeline.install(staged)
+                    }.value
+                    games.append(game)
+                    save()
+                    AppLog.log("imported \(game.name) (\(game.engine.badge)) from \(url.lastPathComponent)")
+                    if game.engine.isRPGMaker, let folder = SaveArchive.rescued(forTitle: game.name) {
+                        rescueOffer = RescueOffer(gameID: game.id, gameName: game.name, folder: folder)
+                    }
+                }
+                if let note = staged.encodingNote { lines.append(note) }
+                lines += staged.warnings
+                if !lines.isEmpty || urls.count > 1 {
+                    notes.append(([staged.title + ":"] + (lines.isEmpty ? ["Imported."] : lines)).joined(separator: "\n"))
+                }
+            } catch PipelineError.cancelled {
+                notes.append("\(url.lastPathComponent): cancelled.")
             } catch {
-                problems.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                notes.append("\(url.lastPathComponent): \(error.localizedDescription)")
                 AppLog.log("import failed for \(url.lastPathComponent): \(error.localizedDescription)")
             }
-            if scoped { url.stopAccessingSecurityScopedResource() }
         }
 
+        importCancel = nil
+        importStatus = ""
         isImporting = false
-        if !problems.isEmpty {
-            importMessage = problems.joined(separator: "\n\n")
+        if !notes.isEmpty {
+            importMessage = notes.joined(separator: "\n\n")
         }
     }
+}
 
-    nonisolated static func buildGame(from url: URL) throws -> Game {
-        let fm = FileManager.default
-        var isDirectory: ObjCBool = false
-        guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory) else { throw ImportError.missing }
+enum UpdateChoice {
+    case update, addNew, cancel
+}
 
-        var game = Game(name: "", engine: .web, entry: "")
-        let destination = Paths.folder(for: game)
-        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
-
-        do {
-            let ext = url.pathExtension.lowercased()
-            var fallbackName = url.deletingPathExtension().lastPathComponent
-
-            if isDirectory.boolValue {
-                fallbackName = url.lastPathComponent
-                for child in try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) {
-                    try fm.copyItem(at: child, to: destination.appendingPathComponent(child.lastPathComponent))
-                }
-            } else if ext == "zip" {
-                try fm.unzipItem(at: url, to: destination)
-            } else if ["html", "htm"].contains(ext) {
-                try fm.copyItem(at: url, to: destination.appendingPathComponent(url.lastPathComponent))
-            } else {
-                throw ImportError.unsupported(ext)
-            }
-
-            GameScanner.tidy(destination)
-            guard let found = GameScanner.detect(in: destination) else { throw ImportError.noGame }
-
-            game.engine = found.engine
-            game.entry = found.entry
-            game.name = GameScanner.title(for: found, in: destination) ?? fallbackName
-            if found.engine.isRPGMaker {
-                game.orientation = .landscape
-                game.gamepad = true
-            } else {
-                game.orientation = .auto
-                game.gamepad = false
-            }
-            return game
-        } catch {
-            try? fm.removeItem(at: destination)
-            throw error
-        }
-    }
+struct PendingUpdate: Identifiable {
+    let id = UUID()
+    let title: String
+    let existing: Game
+    let continuation: CheckedContinuation<UpdateChoice, Never>
 }
 
 struct RescueOffer: Identifiable {
