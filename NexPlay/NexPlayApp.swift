@@ -42,6 +42,7 @@ struct NexPlayApp: App {
             SettingsKey.keepScreenAwake: true,
             SettingsKey.desktopMode: true,
             SettingsKey.pixelatedScaling: false,
+            SettingsKey.nwMode: true,
         ])
         AppLog.noteLaunch()
     }

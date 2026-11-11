@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct GameDetailView: View {
     @EnvironmentObject private var store: LibraryStore
@@ -9,8 +10,14 @@ struct GameDetailView: View {
     let onPlay: (Game) -> Void
 
     @State private var sizeText = "…"
+    @State private var saveInfo = SaveInfo()
     @State private var confirmDelete = false
     @State private var confirmWipe = false
+    @State private var confirmDeleteSaves = false
+    @State private var shareURL: URL?
+    @State private var pickingZip = false
+    @State private var pendingRestore: URL?
+    @State private var message: String?
 
     private var game: Game? { store.game(id: gameID) }
 
@@ -58,11 +65,29 @@ struct GameDetailView: View {
                         Toggle("Block internet", isOn: binding(\.blockNetwork, default: false))
                     }
 
+                    if game.engine.isRPGMaker {
+                        Section {
+                            Toggle("NW.js mode (saves as files)", isOn: Binding(
+                                get: { game.usesNWMode },
+                                set: { value in store.mutate(gameID) { $0.nwMode = value } }
+                            ))
+                            if game.nwMode != nil {
+                                Button("Use the app setting") { store.mutate(gameID) { $0.nwMode = nil } }
+                            }
+                        } footer: {
+                            Text("In NW.js mode the game runs as on a PC and keeps its saves as files in save/. The first start in this mode copies old browser saves into files; the old data is kept.")
+                        }
+                    }
+
+                    if game.usesNWMode {
+                        savesSection(game)
+                    }
+
                     Section {
-                        Button("Delete Saves and Game Data", role: .destructive) { confirmWipe = true }
+                        Button("Delete Browser Data", role: .destructive) { confirmWipe = true }
                         Button("Delete Game", role: .destructive) { confirmDelete = true }
                     } footer: {
-                        Text("Deleting a game also deletes its saves. Back them up from the in-game menu first.")
+                        Text("Deleting a game moves its save files to Rescued Saves; importing the same game again offers to put them back. Browser data (saves of games not in NW.js mode) is deleted with the game: back it up from the game menu first.")
                     }
                 }
                 .navigationTitle(game.name)
@@ -70,17 +95,38 @@ struct GameDetailView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
                 }
-                .task {
-                    let folder = Paths.folder(for: game)
-                    let bytes = await Task.detached { GameScanner.size(of: folder) }.value
-                    sizeText = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+                .task { await refresh(game) }
+                .sheet(item: Binding(
+                    get: { shareURL.map { ShareItem(url: $0) } },
+                    set: { if $0 == nil { shareURL = nil } }
+                )) { item in
+                    ActivityView(items: [item.url])
                 }
-                .confirmationDialog("Delete saves and data for \(game.name)?", isPresented: $confirmWipe, titleVisibility: .visible) {
-                    Button("Delete Saves", role: .destructive) {
+                .fileImporter(isPresented: $pickingZip, allowedContentTypes: [.zip]) { result in
+                    if case .success(let url) = result { pendingRestore = url }
+                }
+                .confirmationDialog("Restore saves into \(game.name)?", isPresented: Binding(
+                    get: { pendingRestore != nil },
+                    set: { if !$0 { pendingRestore = nil } }
+                ), titleVisibility: .visible) {
+                    Button("Restore") {
+                        if let url = pendingRestore { restore(url, into: game) }
+                        pendingRestore = nil
+                    }
+                } message: {
+                    Text("Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.")
+                }
+                .confirmationDialog("Delete the save files of \(game.name)?", isPresented: $confirmDeleteSaves, titleVisibility: .visible) {
+                    Button("Delete Saves", role: .destructive) { deleteSaves(of: game) }
+                } message: {
+                    Text("A backup ZIP is kept in the app's Backups folder.")
+                }
+                .confirmationDialog("Delete browser data for \(game.name)?", isPresented: $confirmWipe, titleVisibility: .visible) {
+                    Button("Delete Browser Data", role: .destructive) {
                         Task { await DataStores.wipe(for: game) }
                     }
                 } message: {
-                    Text("This can't be undone.")
+                    Text("This removes the game's web storage (browser-mode saves). Save files are not touched. This can't be undone.")
                 }
                 .confirmationDialog("Delete \(game.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
                     Button("Delete Game", role: .destructive) {
@@ -90,9 +136,101 @@ struct GameDetailView: View {
                         }
                     }
                 } message: {
-                    Text("The game and its saves will be removed. This can't be undone.")
+                    Text("The game is removed. Its save files are kept in Rescued Saves.")
+                }
+                .alert("Saves", isPresented: Binding(
+                    get: { message != nil },
+                    set: { if !$0 { message = nil } }
+                )) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(message ?? "")
                 }
             }
         }
     }
+
+    @ViewBuilder
+    private func savesSection(_ game: Game) -> some View {
+        Section {
+            LabeledContent("Save files", value: "\(saveInfo.count)")
+            LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: saveInfo.bytes, countStyle: .file))
+            if let newest = saveInfo.newest {
+                LabeledContent("Last save", value: newest.formatted(date: .abbreviated, time: .shortened))
+            }
+            if saveInfo.displaced > 0 {
+                LabeledContent("Displaced copies", value: "\(saveInfo.displaced)")
+            }
+            Button { export(game) } label: { Label("Export Saves (ZIP)", systemImage: "square.and.arrow.up") }
+                .disabled(saveInfo.count == 0)
+            Button { pickingZip = true } label: { Label("Import Saves (ZIP)", systemImage: "square.and.arrow.down") }
+            Button(role: .destructive) { confirmDeleteSaves = true } label: { Label("Delete Saves", systemImage: "trash") }
+                .disabled(saveInfo.count == 0)
+        } header: {
+            Text("Saves")
+        } footer: {
+            if saveInfo.displaced > 0 {
+                Text("Displaced copies (.nex-displaced.bak) are older saves kept when a restore replaced them.")
+            }
+        }
+    }
+
+    private func refresh(_ game: Game) async {
+        let folder = Paths.folder(for: game)
+        let target = game
+        let result = await Task.detached { (GameScanner.size(of: folder), SaveArchive.info(for: target)) }.value
+        sizeText = ByteCountFormatter.string(fromByteCount: result.0, countStyle: .file)
+        saveInfo = result.1
+    }
+
+    private func export(_ game: Game) {
+        Task {
+            do {
+                shareURL = try await Task.detached { try SaveArchive.exportZip(for: game) }.value
+            } catch {
+                message = error.localizedDescription
+            }
+        }
+    }
+
+    private func restore(_ url: URL, into game: Game) {
+        Task {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let count = try await Task.detached { try SaveArchive.restore(zip: url, into: game) }.value
+                message = "Restored \(count) save file(s)."
+            } catch {
+                message = "Restore failed: \(error.localizedDescription)"
+            }
+            await refresh(game)
+        }
+    }
+
+    private func deleteSaves(of game: Game) {
+        Task {
+            do {
+                try await Task.detached { try SaveArchive.deleteSaves(of: game) }.value
+            } catch {
+                message = error.localizedDescription
+            }
+            await refresh(game)
+        }
+    }
+}
+
+struct ShareItem: Identifiable {
+    let url: URL
+    var id: String { url.path }
+}
+
+/// The system share sheet for SwiftUI.
+struct ActivityView: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

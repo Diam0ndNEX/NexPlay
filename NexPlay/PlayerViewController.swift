@@ -22,6 +22,11 @@ struct PlayerScreen: UIViewControllerRepresentable {
 }
 
 final class PlayerViewController: GCEventViewController, WKNavigationDelegate, WKUIDelegate, UIDocumentPickerDelegate {
+    private enum PickPurpose {
+        case jsonRestore
+        case zipRestore
+    }
+
     private var game: Game
     private let store: LibraryStore
     private let onExit: () -> Void
@@ -29,6 +34,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var webView: WKWebView!
     private let statsReceiver = StatsReceiver()
     private let logReceiver = LogReceiver()
+    private let exitReceiver = MessageReceiver()
     private let gameLog = GameLog()
     private let gamepad = GamepadOverlayView()
     private let menuButton = UIButton(type: .custom)
@@ -42,6 +48,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var didPlaceMenuButton = false
     private var isShutDown = false
     private var loadTask: Task<Void, Never>?
+    private var pickPurpose: PickPurpose = .jsonRestore
+    private var didWarnAboutMemory = false
+    private var migrationRunning = false
 
     init(game: Game, store: LibraryStore, onExit: @escaping () -> Void) {
         self.game = game
@@ -54,6 +63,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private static var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+    }
+
     // MARK: - View lifecycle
 
     override func viewDidLoad() {
@@ -62,8 +75,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         configureAudio()
 
         let config = WKWebViewConfiguration()
-        config.setURLSchemeHandler(NexSchemeHandler(rootDirectory: Paths.folder(for: game)),
-                                   forURLScheme: NexSchemeHandler.scheme)
+        let handler = NexSchemeHandler(rootDirectory: Paths.folder(for: game),
+                                       protectedDirectories: [Paths.entryDirectory(for: game)])
+        config.setURLSchemeHandler(handler, forURLScheme: NexSchemeHandler.scheme)
         config.websiteDataStore = DataStores.store(for: game)
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
@@ -72,7 +86,14 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         let defaults = UserDefaults.standard
         let content = config.userContentController
         content.addUserScript(WKUserScript(source: PageScripts.diagnostics, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        content.addUserScript(WKUserScript(source: PageScripts.identity(version: PlayerViewController.appVersion),
+                                           injectionTime: .atDocumentStart, forMainFrameOnly: true))
         content.addUserScript(WKUserScript(source: PageScripts.keyBridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if game.usesNWMode {
+            let folder = (game.entry as NSString).deletingLastPathComponent
+            content.addUserScript(WKUserScript(source: PageScripts.nwShim(entryFolder: folder),
+                                               injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         if game.engine.isRPGMaker {
             let runtime = PageScripts.rpgRuntime(pixelated: defaults.bool(forKey: SettingsKey.pixelatedScaling))
             content.addUserScript(WKUserScript(source: runtime, injectionTime: .atDocumentStart, forMainFrameOnly: true))
@@ -81,8 +102,13 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         content.addUserScript(WKUserScript(source: PageScripts.stats, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         content.add(statsReceiver, name: "nexStats")
         content.add(logReceiver, name: "nexLog")
+        content.add(exitReceiver, name: "nexExit")
         statsReceiver.onFPS = { [weak self] fps in self?.currentFPS = fps }
         logReceiver.onLine = { [weak self] line in self?.gameLog.add(line) }
+        exitReceiver.onMessage = { [weak self] _ in
+            self?.gameLog.add("the game asked to quit")
+            self?.exitGame()
+        }
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
@@ -129,6 +155,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive),
                                                name: UIApplication.didBecomeActiveNotification, object: nil)
 
+        gameLog.add(game.usesNWMode ? "NW.js mode: saves are files in save/" : "browser mode: saves are in web storage")
         prepareAndLoad()
     }
 
@@ -143,6 +170,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         if !didCountPlay {
             didCountPlay = true
             update { $0.playCount += 1; $0.lastPlayed = Date() }
+            AppLog.noteGame(game.name)
         }
         if sessionStart == nil { sessionStart = Date() }
     }
@@ -216,6 +244,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         menuButton.tintColor = .white
         menuButton.backgroundColor = UIColor(white: 0, alpha: 0.35)
         menuButton.layer.cornerRadius = 22
+        menuButton.accessibilityLabel = "Game menu"
         let visible = UserDefaults.standard.bool(forKey: SettingsKey.showMenuButton)
         menuButton.alpha = visible ? 0.85 : 0.15
         menuButton.showsMenuAsPrimaryAction = true
@@ -270,14 +299,25 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         }
         items.append(UIMenu(title: "Orientation", image: UIImage(systemName: "rotate.right"), children: orientations))
 
-        items.append(UIMenu(title: "Saves", image: UIImage(systemName: "externaldrive"), children: [
-            UIAction(title: "Back Up Saves…", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
-                self?.backUp()
-            },
-            UIAction(title: "Restore Saves…", image: UIImage(systemName: "square.and.arrow.down")) { [weak self] _ in
-                self?.pickBackup()
-            },
-        ]))
+        if game.usesNWMode {
+            items.append(UIMenu(title: "Saves", image: UIImage(systemName: "externaldrive"), children: [
+                UIAction(title: "Export Saves (ZIP)…", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
+                    self?.exportSaveZip()
+                },
+                UIAction(title: "Import Saves (ZIP)…", image: UIImage(systemName: "square.and.arrow.down")) { [weak self] _ in
+                    self?.pick(.zipRestore)
+                },
+            ]))
+        } else {
+            items.append(UIMenu(title: "Saves", image: UIImage(systemName: "externaldrive"), children: [
+                UIAction(title: "Back Up Saves…", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
+                    self?.backUp()
+                },
+                UIAction(title: "Restore Saves…", image: UIImage(systemName: "square.and.arrow.down")) { [weak self] _ in
+                    self?.pick(.jsonRestore)
+                },
+            ]))
+        }
 
         items.append(UIAction(title: "Stats Overlay", image: UIImage(systemName: "speedometer"),
                               state: (game.statsOverlay ?? false) ? .on : .off) { [weak self] _ in
@@ -347,12 +387,16 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         }
     }
 
+    private static let clockFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
     private func refreshStats() {
         let level = UIDevice.current.batteryLevel
         let battery = level < 0 ? "--" : "\(Int(level * 100))%"
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        statsLabel.text = "\(currentFPS) FPS · \(battery) · \(formatter.string(from: Date()))"
+        statsLabel.text = "\(currentFPS) FPS · \(battery) · \(PlayerViewController.clockFormatter.string(from: Date()))"
     }
 
     private func toggleBlockNetwork() {
@@ -367,36 +411,91 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     // MARK: - Saves
 
+    private func share(_ file: URL, onDone: (() -> Void)? = nil) {
+        let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+        sheet.popoverPresentationController?.sourceView = menuButton
+        sheet.popoverPresentationController?.sourceRect = menuButton.bounds
+        sheet.completionWithItemsHandler = { _, _, _, _ in onDone?() }
+        presentOnTop(sheet)
+    }
+
     private func backUp() {
         Task { @MainActor in
             do {
                 let result = try await SaveTools.exportBackup(from: webView)
                 let file = try SaveTools.writeBackupFile(result.data, gameName: game.name)
-                let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
-                sheet.popoverPresentationController?.sourceView = menuButton
-                sheet.popoverPresentationController?.sourceRect = menuButton.bounds
                 let binary = result.binaryRecords
-                sheet.completionWithItemsHandler = { [weak self] _, _, _, _ in
+                share(file) { [weak self] in
                     if binary > 0 {
                         self?.showAlert("Partial backup",
                                         "\(binary) saved record(s) contain binary data that a backup file can't hold. They stay in the app.")
                     }
                 }
-                presentOnTop(sheet)
             } catch {
                 showAlert("Back up failed", error.localizedDescription)
             }
         }
     }
 
-    private func pickBackup() {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.json, .plainText], asCopy: true)
+    private func exportSaveZip() {
+        let target = game
+        Task { @MainActor in
+            do {
+                let file = try await Task.detached(priority: .userInitiated) { try SaveArchive.exportZip(for: target) }.value
+                share(file)
+            } catch {
+                showAlert("Export failed", error.localizedDescription)
+            }
+        }
+    }
+
+    private func pick(_ purpose: PickPurpose) {
+        pickPurpose = purpose
+        let types: [UTType] = purpose == .zipRestore ? [.zip] : [.json, .plainText]
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         picker.delegate = self
         presentOnTop(picker)
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        guard let url = urls.first, let text = try? String(contentsOf: url, encoding: .utf8) else {
+        guard let url = urls.first else { return }
+        switch pickPurpose {
+        case .zipRestore:
+            confirmZipRestore(url)
+        case .jsonRestore:
+            restoreJSON(url)
+        }
+    }
+
+    private func confirmZipRestore(_ url: URL) {
+        let alert = UIAlertController(title: "Restore saves into \(game.name)?",
+                                      message: "Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.",
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in try? FileManager.default.removeItem(at: url) })
+        alert.addAction(UIAlertAction(title: "Restore", style: .default) { [weak self] _ in
+            self?.restoreZip(url)
+        })
+        presentOnTop(alert)
+    }
+
+    private func restoreZip(_ url: URL) {
+        let target = game
+        Task { @MainActor in
+            do {
+                let count = try await Task.detached(priority: .userInitiated) { try SaveArchive.restore(zip: url, into: target) }.value
+                try? FileManager.default.removeItem(at: url)
+                showAlert("Saves restored", "Restored \(count) file(s). The game will restart.") { [weak self] in
+                    self?.prepareAndLoad()
+                }
+            } catch {
+                try? FileManager.default.removeItem(at: url)
+                showAlert("Restore failed", error.localizedDescription)
+            }
+        }
+    }
+
+    private func restoreJSON(_ url: URL) {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
             showAlert("Restore failed", "The file could not be read.")
             return
         }
@@ -412,6 +511,33 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                 }
             } catch {
                 showAlert("Restore failed", error.localizedDescription)
+            }
+        }
+    }
+
+    /// Copies browser-mode saves into save/ files once per game, the first time it runs in NW.js mode.
+    private func migrateSavesIfNeeded() {
+        guard game.usesNWMode, game.savesMigrated != true, !migrationRunning else { return }
+        migrationRunning = true
+        let isMZ = game.engine == .rpgMZ
+        let name = game.name
+        Task { @MainActor in
+            defer { migrationRunning = false }
+            do {
+                let result = try await SaveTools.migrateBrowserSaves(isMZ: isMZ, in: webView)
+                for line in result.log {
+                    gameLog.add("save migration: \(line)")
+                    AppLog.log("save migration (\(name)): \(line)")
+                }
+                guard result.ok else { return }
+                update { $0.savesMigrated = true }
+                if !result.written.isEmpty {
+                    gameLog.add("save migration copied \(result.written.count) save(s); restarting so the game sees them")
+                    prepareAndLoad()
+                }
+            } catch {
+                gameLog.add("save migration failed: \(error.localizedDescription)")
+                AppLog.log("save migration (\(name)) failed: \(error.localizedDescription)")
             }
         }
     }
@@ -456,6 +582,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         guard !isShutDown else { return }
         isShutDown = true
         accumulate()
+        AppLog.noteGame(nil)
         statsTimer?.invalidate()
         statsTimer = nil
         loadTask?.cancel()
@@ -463,8 +590,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         NotificationCenter.default.removeObserver(self)
         UIApplication.shared.isIdleTimerDisabled = false
         OrientationManager.unlock()
-        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "nexStats")
-        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "nexLog")
+        let content = webView?.configuration.userContentController
+        content?.removeScriptMessageHandler(forName: "nexStats")
+        content?.removeScriptMessageHandler(forName: "nexLog")
+        content?.removeScriptMessageHandler(forName: "nexExit")
         webView?.stopLoading()
     }
 
@@ -473,6 +602,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         applySpeed()
         applyStats()
+        migrateSavesIfNeeded()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -482,7 +612,13 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         gameLog.add("the web content process stopped (probably out of memory); reloading")
+        AppLog.log("\(game.name): web content process stopped (probably out of memory); reloaded")
         webView.reload()
+        if !didWarnAboutMemory {
+            didWarnAboutMemory = true
+            showAlert("The game was reloaded",
+                      "iOS stopped the game, probably because it used too much memory. Unsaved progress since the last save is lost.")
+        }
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
