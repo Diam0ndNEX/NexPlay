@@ -24,13 +24,16 @@ enum OrientationMode: String, Codable, CaseIterable, Identifiable {
 }
 
 enum GameEngine: String, Codable {
-    case rpgMV, rpgMZ, web
+    case rpgMV, rpgMZ, web, rpgXP, rpgVX, rpgVXAce
 
     var badge: String {
         switch self {
         case .rpgMV: return "MV"
         case .rpgMZ: return "MZ"
         case .web: return "HTML"
+        case .rpgXP: return "XP"
+        case .rpgVX: return "VX"
+        case .rpgVXAce: return "Ace"
         }
     }
 
@@ -39,6 +42,9 @@ enum GameEngine: String, Codable {
         case .rpgMV: return "RPG Maker MV"
         case .rpgMZ: return "RPG Maker MZ"
         case .web: return "HTML5 game"
+        case .rpgXP: return "RPG Maker XP"
+        case .rpgVX: return "RPG Maker VX"
+        case .rpgVXAce: return "RPG Maker VX Ace"
         }
     }
 
@@ -46,7 +52,15 @@ enum GameEngine: String, Codable {
     var isRPGMaker: Bool {
         switch self {
         case .rpgMV, .rpgMZ: return true
-        case .web: return false
+        case .web, .rpgXP, .rpgVX, .rpgVXAce: return false
+        }
+    }
+
+    /// RPG Maker XP, VX or VX Ace: Ruby games that need the mkxp core, not the web view.
+    var isRuby: Bool {
+        switch self {
+        case .rpgXP, .rpgVX, .rpgVXAce: return true
+        case .rpgMV, .rpgMZ, .web: return false
         }
     }
 }
