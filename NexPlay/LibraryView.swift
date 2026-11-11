@@ -238,10 +238,18 @@ struct LibraryView: View {
                 }
                 if selecting { selectionBar }
                 if store.isImporting {
-                    ProgressView("Importing…")
-                        .padding(24)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                        .frame(maxHeight: .infinity)
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text(store.importStatus.isEmpty ? "Importing…" : store.importStatus)
+                            .font(.subheadline)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                        Button("Cancel", role: .cancel) { store.cancelImport() }
+                    }
+                    .padding(24)
+                    .frame(maxWidth: 320)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .frame(maxHeight: .infinity)
                 }
             }
             .navigationTitle("NexPlay")
@@ -249,7 +257,7 @@ struct LibraryView: View {
             .toolbar { toolbar }
         }
         .fullScreenCover(item: $playing) { game in
-            PlayerScreen(game: game, store: store, onExit: {
+            GameScreen(game: game, store: store, onExit: {
                 playing = nil
                 if AutoBackup.isEnabled {
                     Task.detached(priority: .utility) { AutoBackup.run(game) }
@@ -298,6 +306,24 @@ struct LibraryView: View {
             Button("Not Now", role: .cancel) {}
         } message: { offer in
             Text("Saves of a deleted copy of \(offer.gameName) were kept. Put them back into the game you just imported? Files that would be replaced are kept as .nex-displaced.bak copies.")
+        }
+        .confirmationDialog("\(store.pendingUpdate?.title ?? "This game") is already in your library", isPresented: Binding(
+            get: { store.pendingUpdate != nil },
+            set: { shown in
+                // Runs after a button's own action; only a dismissal without a choice cancels.
+                if !shown {
+                    Task { @MainActor in
+                        await Task.yield()
+                        if store.pendingUpdate != nil { store.answerUpdate(.cancel) }
+                    }
+                }
+            }
+        ), titleVisibility: .visible) {
+            Button("Update It") { store.answerUpdate(.update) }
+            Button("Add as New Game") { store.answerUpdate(.addNew) }
+            Button("Cancel", role: .cancel) { store.answerUpdate(.cancel) }
+        } message: {
+            Text("Update keeps its saves, settings and layout and replaces the game files. A file in the new version that sits where a save is gets kept as a .nex-displaced.bak copy.")
         }
         .confirmationDialog(deleteTitle, isPresented: Binding(
             get: { !pendingDelete.isEmpty },
@@ -469,7 +495,7 @@ struct LibraryView: View {
                 .font(.system(size: 54))
                 .foregroundStyle(.secondary)
             Text("No games yet").font(.title2.bold())
-            Text("Add an RPG Maker MV/MZ or HTML5 game as a ZIP or a folder. Tip: open a ZIP from the Files app with NexPlay.")
+            Text("Add an RPG Maker MV/MZ or HTML5 game as a ZIP or a folder. XP/VX/Ace games can be added too; they need a build with the mkxp core to start. Tip: open a ZIP from the Files app with NexPlay.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Button { importFiles() } label: { Label("Add a Game", systemImage: "plus") }
