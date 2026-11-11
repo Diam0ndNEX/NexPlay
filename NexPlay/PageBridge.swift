@@ -243,7 +243,9 @@ enum PageScripts {
             env: {},
             argv: [],
             execPath: '/',
-            versions: { node: '16.0.0', nw: '0.60.0', chromium: '100.0.0' },
+            // No "node" version here: Emscripten code (MZ's Effekseer, some plugins) would think it runs in Node.js,
+            // look for __dirname and stop the game before it draws anything. Empo leaves versions empty too.
+            versions: {},
             cwd: function () { return '/'; },
             exit: exit,
             on: noop,
