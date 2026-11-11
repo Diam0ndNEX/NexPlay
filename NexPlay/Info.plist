@@ -55,6 +55,12 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>NexPlay saves game screenshots to your photo library.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>NexPlay uses Face ID to unlock hidden games and collections.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>NexPlay lets you pick a cover image for a game.</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

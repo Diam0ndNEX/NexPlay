@@ -87,6 +87,8 @@ struct Game: Identifiable, Codable, Hashable {
     var nwMode: Bool?
     /// True once browser-mode saves were copied into save/ files.
     var savesMigrated: Bool?
+    /// Speed the fast-forward button switches to (2...9). nil means 2.
+    var fastForwardSpeed: Int?
 
     /// The hostname used in nexplay://<host>/ URLs. Unique per game, so every game has its own web storage.
     var host: String { id.uuidString.lowercased() }
@@ -109,4 +111,9 @@ enum SettingsKey {
     static let pixelatedScaling = "pixelatedScaling"
     /// RPG Maker games run as under NW.js and keep saves as files (default on).
     static let nwMode = "nwMode"
+    /// Haptic feedback on on-screen control presses (default on) and its strength (0 light, 1 medium, 2 heavy).
+    static let hapticsEnabled = "hapticsEnabled"
+    static let hapticStrength = "hapticStrength"
+    /// "keys" (controllers send keys, default) or "gamepadAPI" (leave controllers to the game).
+    static let controllerMode = "controllerMode"
 }

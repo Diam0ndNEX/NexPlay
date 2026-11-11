@@ -43,6 +43,9 @@ struct NexPlayApp: App {
             SettingsKey.desktopMode: true,
             SettingsKey.pixelatedScaling: false,
             SettingsKey.nwMode: true,
+            SettingsKey.hapticsEnabled: true,
+            SettingsKey.hapticStrength: 1,
+            SettingsKey.controllerMode: "keys",
         ])
         AppLog.noteLaunch()
     }
