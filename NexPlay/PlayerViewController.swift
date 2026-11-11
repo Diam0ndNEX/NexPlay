@@ -51,6 +51,12 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var pickPurpose: PickPurpose = .jsonRestore
     private var didWarnAboutMemory = false
     private var migrationRunning = false
+    private let keyRouter = KeyRouter()
+    private var controllers: PhysicalControllerManager?
+    private var context: PlayerContext!
+    private var features: [PlayerFeature] = []
+    private var featureHandlerNames: [String] = []
+    private var fastForwardOn = false
 
     init(game: Game, store: LibraryStore, onExit: @escaping () -> Void) {
         self.game = game
@@ -77,6 +83,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         let config = WKWebViewConfiguration()
         let handler = NexSchemeHandler(rootDirectory: Paths.folder(for: game),
                                        protectedDirectories: [Paths.entryDirectory(for: game)])
+        handler.fileOverride = PlayerFeatures.fileOverride(for: game)
         config.setURLSchemeHandler(handler, forURLScheme: NexSchemeHandler.scheme)
         config.websiteDataStore = DataStores.store(for: game)
         config.allowsInlineMediaPlayback = true
@@ -103,6 +110,22 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         content.add(statsReceiver, name: "nexStats")
         content.add(logReceiver, name: "nexLog")
         content.add(exitReceiver, name: "nexExit")
+
+        context = PlayerContext(gameLog: gameLog)
+        context.game = { [weak self] in self?.game ?? Game(name: "", engine: .web, entry: "") }
+        context.present = { [weak self] controller in self?.presentOnTop(controller) }
+        context.reload = { [weak self] in self?.prepareAndLoad() }
+        context.update = { [weak self] change in self?.update(change) }
+        features = PlayerFeatures.make(context: context)
+        for feature in features {
+            for script in feature.userScripts(for: game) { content.addUserScript(script) }
+            for name in feature.messageNames {
+                let receiver = MessageReceiver()
+                receiver.onMessage = { [weak feature] body in feature?.receive(name: name, body: body) }
+                content.add(receiver, name: name)
+                featureHandlerNames.append(name)
+            }
+        }
         statsReceiver.onFPS = { [weak self] fps in self?.currentFPS = fps }
         logReceiver.onLine = { [weak self] line in self?.gameLog.add(line) }
         exitReceiver.onMessage = { [weak self] _ in
@@ -111,6 +134,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         }
 
         webView = WKWebView(frame: .zero, configuration: config)
+        context.webView = webView
+        keyRouter.webView = webView
         webView.navigationDelegate = self
         webView.uiDelegate = self
         if game.engine.isRPGMaker && defaults.bool(forKey: SettingsKey.desktopMode) {
@@ -136,8 +161,29 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         gamepad.frame = view.bounds
         gamepad.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         gamepad.isHidden = !game.gamepad
-        gamepad.onKey = { [weak self] key, down in self?.sendKey(key, down) }
+        gamepad.setProfile(LayoutStore.load(for: game.id))
+        gamepad.onKey = { [weak self] key, down in self?.keyRouter.press(key, down) }
+        gamepad.onAction = { [weak self] action, down in self?.handleAction(action, down) }
+        let gameID = game.id
+        gamepad.onSave = { profile in LayoutStore.save(profile, for: gameID) }
+        gamepad.onReset = {
+            LayoutStore.reset(gameID)
+            return LayoutStore.load(for: gameID)
+        }
+        gamepad.onEditingChanged = { [weak self] editing in
+            guard let self else { return }
+            self.menuButton.isHidden = editing
+            if !editing { self.gamepad.isHidden = !self.game.gamepad }
+        }
         view.addSubview(gamepad)
+
+        if UserDefaults.standard.string(forKey: SettingsKey.controllerMode) != "gamepadAPI" {
+            let manager = PhysicalControllerManager(gameID: game.id)
+            manager.onKey = { [weak self] key, down in self?.keyRouter.press(key, down) }
+            manager.onAction = { [weak self] action, down in self?.handleAction(action, down) }
+            manager.start()
+            controllers = manager
+        }
 
         statsLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
         statsLabel.textColor = .white
@@ -232,8 +278,35 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     // MARK: - Input
 
-    private func sendKey(_ key: PadKey, _ down: Bool) {
-        webView.evaluateJavaScript("window.__nexKey && window.__nexKey(\(key.keyCode),'\(key.key)','\(key.code)',\(down))")
+    /// App actions from on-screen controls and controller buttons.
+    private func handleAction(_ action: ControlAction, _ down: Bool) {
+        guard action == .fastForward, down, game.engine.isRPGMaker else { return }
+        fastForwardOn.toggle()
+        setSpeed(fastForwardOn ? max(2, game.fastForwardSpeed ?? 2) : 1)
+    }
+
+    private func editControls() {
+        gamepad.isHidden = false
+        gamepad.beginEditing()
+    }
+
+    private func showControllerMap() {
+        let view = ControllerMapView(gameID: game.id, gameName: game.name)
+        let host = UIHostingController(rootView: view)
+        presentOnTop(host)
+    }
+
+    private func takeScreenshot() {
+        let config = WKSnapshotConfiguration()
+        webView.takeSnapshot(with: config) { [weak self] image, error in
+            guard let self else { return }
+            guard let image else {
+                self.showAlert("Screenshot failed", error?.localizedDescription ?? "No image.")
+                return
+            }
+            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+            self.gameLog.add("screenshot saved to Photos")
+        }
     }
 
     // MARK: - Menu
@@ -279,7 +352,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         })
 
         if game.engine.isRPGMaker {
-            let speeds = (1...4).map { n in
+            let speeds = [1, 2, 3, 4, 6, 9].map { n in
                 UIAction(title: n == 1 ? "Normal Speed" : "\(n)× Speed", state: speed == n ? .on : .off) { [weak self] _ in
                     self?.setSpeed(n)
                 }
@@ -287,10 +360,26 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             items.append(UIMenu(title: "Fast Forward", image: UIImage(systemName: "forward.fill"), children: speeds))
         }
 
-        items.append(UIAction(title: "On-Screen Controls", image: UIImage(systemName: "gamecontroller"),
-                              state: game.gamepad ? .on : .off) { [weak self] _ in
-            self?.toggleGamepad()
-        })
+        items.append(UIMenu(title: "Controls", image: UIImage(systemName: "gamecontroller"), children: [
+            UIAction(title: "Show On-Screen Controls", state: game.gamepad ? .on : .off) { [weak self] _ in
+                self?.toggleGamepad()
+            },
+            UIAction(title: "Edit Controls", image: UIImage(systemName: "slider.horizontal.3")) { [weak self] _ in
+                self?.editControls()
+            },
+            UIAction(title: "Use as Default Layout", image: UIImage(systemName: "square.on.square")) { [weak self] _ in
+                guard let self else { return }
+                LayoutStore.save(self.gamepad.profile, for: nil)
+            },
+            UIAction(title: "Use Default Layout", image: UIImage(systemName: "arrow.uturn.backward")) { [weak self] _ in
+                guard let self else { return }
+                LayoutStore.reset(self.game.id)
+                self.gamepad.setProfile(LayoutStore.load(for: self.game.id))
+            },
+            UIAction(title: "Controller Buttons…", image: UIImage(systemName: "gamecontroller.fill")) { [weak self] _ in
+                self?.showControllerMap()
+            },
+        ]))
 
         let orientations = OrientationMode.allCases.map { mode in
             UIAction(title: mode.title, state: game.orientation == mode ? .on : .off) { [weak self] _ in
@@ -318,6 +407,14 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                 },
             ]))
         }
+
+        for feature in features {
+            items.append(contentsOf: feature.menuItems(for: game))
+        }
+
+        items.append(UIAction(title: "Screenshot", image: UIImage(systemName: "camera")) { [weak self] _ in
+            self?.takeScreenshot()
+        })
 
         items.append(UIAction(title: "Stats Overlay", image: UIImage(systemName: "speedometer"),
                               state: (game.statsOverlay ?? false) ? .on : .off) { [weak self] _ in
@@ -358,7 +455,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private func toggleGamepad() {
         update { $0.gamepad.toggle() }
         gamepad.isHidden = !game.gamepad
-        if !game.gamepad { gamepad.releaseAll() }
+        if !game.gamepad {
+            gamepad.releaseAll()
+            keyRouter.releaseAll()
+        }
     }
 
     private func setOrientation(_ mode: OrientationMode) {
@@ -561,6 +661,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     /// Pauses the game loop and its audio, then counts playtime.
     @objc private func appWillResign() {
         accumulate()
+        keyRouter.releaseAll()
         webView?.evaluateJavaScript("window.__nex && window.__nex.pause()")
     }
 
@@ -587,6 +688,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         statsTimer = nil
         loadTask?.cancel()
         gamepad.releaseAll()
+        controllers?.stop()
+        controllers = nil
+        keyRouter.releaseAll()
+        features.forEach { $0.shutdown() }
         NotificationCenter.default.removeObserver(self)
         UIApplication.shared.isIdleTimerDisabled = false
         OrientationManager.unlock()
@@ -594,6 +699,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         content?.removeScriptMessageHandler(forName: "nexStats")
         content?.removeScriptMessageHandler(forName: "nexLog")
         content?.removeScriptMessageHandler(forName: "nexExit")
+        for name in featureHandlerNames { content?.removeScriptMessageHandler(forName: name) }
+        featureHandlerNames = []
         webView?.stopLoading()
     }
 
@@ -603,6 +710,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         applySpeed()
         applyStats()
         migrateSavesIfNeeded()
+        features.forEach { $0.didFinishLoad() }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
