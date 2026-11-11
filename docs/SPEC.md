@@ -181,3 +181,11 @@ Acceptance (after the owner turns the flag on): an XP or Ace game starts, takes 
 - Does desktop mode break touch in any game? Default: on, with the setting to turn it off.
 - iCloud sync of saves and iCloud Drive/Dropbox/Drive/S3 backups: not built (a self-signed IPA probably lacks the entitlement, the others need OAuth or accounts). Files-app export and WebDAV (P2) instead.
 - The repo is private, so an in-app update checker cannot read releases: skip.
+
+## 10. Engines roadmap (owner, 2026-11-11)
+Definitely coming: RPG Maker MV/MZ (done), RPG Maker XP/VX/VX Ace (mkxp-z, Part G), Godot, Ren'Py. Maybe: Construct, Twine, TyranoBuilder.
+Notes for whoever builds them (unverified, check before starting):
+- Construct 2/3, Twine (Harlowe/SugarCube/Snowman) and TyranoBuilder/TyranoScript export HTML5; they already run as "HTML5 game". Work: detect them (Construct: `c3runtime.js`/`c2runtime.js`, `data.json`; Twine: one HTML with `<tw-storydata>`; Tyrano: `tyrano/` folder + `data/scenario/`) and give each its own `GameEngine` case and badge, save handling (Twine and Tyrano save to localStorage) and a per-engine key map.
+- Godot web exports: Godot 3 runs in WKWebView with WebGL. Godot 4 needs SharedArrayBuffer (cross-origin isolation: COOP/COEP headers) unless exported single-threaded (4.3+ "Thread Support" off); the scheme handler would add `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, and whether WKWebView grants isolation on a custom scheme must be tested. Desktop Godot exports (.pck + .exe) need a native Godot iOS runtime that loads a `.pck`: large, separate phase (export templates for iOS are built per project).
+- Ren'Py: desktop builds are Python + SDL; on iOS the realistic path is the Ren'Py web build (renpyweb, WebAssembly) running the game's `game/` folder, or a native Ren'Py iOS runtime. Both are large; research first.
+Every new engine: keep `switch` on `GameEngine` exhaustive, add detection in `GameScanner`/`ImportPipeline`, import warnings, a badge, controls defaults, and save rescue rules.

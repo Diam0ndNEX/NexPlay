@@ -211,6 +211,48 @@ enum PageScripts {
             }
         };
 
+        // Screen scaling: "fit" is RPG Maker's own letterbox. "fill" crops to cover the screen, "stretch" fills it
+        // and changes the aspect. Both replace Graphics._centerElement and map touches through the canvas rect.
+        if (cfg.scaling === 'fill' || cfg.scaling === 'stretch') {
+            (function patchScaling() {
+                if (typeof Graphics === 'undefined' || !Graphics._centerElement) { setTimeout(patchScaling, 30); return; }
+                if (Graphics.__nexScaled) return;
+                Graphics.__nexScaled = true;
+                var fill = cfg.scaling === 'fill';
+                Graphics._centerElement = function (element) {
+                    if (!element) return;
+                    var vw = window.innerWidth, vh = window.innerHeight;
+                    var w = element.width || this._width, h = element.height || this._height;
+                    if (!w || !h || !vw || !vh) return;
+                    var sx = vw / w, sy = vh / h;
+                    if (fill) { sx = sy = Math.max(sx, sy); }
+                    var cw = w * sx, ch = h * sy;
+                    var style = element.style;
+                    style.position = 'absolute';
+                    style.margin = '0';
+                    style.right = 'auto';
+                    style.bottom = 'auto';
+                    style.left = ((vw - cw) / 2) + 'px';
+                    style.top = ((vh - ch) / 2) + 'px';
+                    style.width = cw + 'px';
+                    style.height = ch + 'px';
+                };
+                Graphics.pageToCanvasX = function (x) {
+                    var c = this._canvas;
+                    if (!c) return 0;
+                    var r = c.getBoundingClientRect();
+                    return Math.round((x - r.left) * c.width / (r.width || 1));
+                };
+                Graphics.pageToCanvasY = function (y) {
+                    var c = this._canvas;
+                    if (!c) return 0;
+                    var r = c.getBoundingClientRect();
+                    return Math.round((y - r.top) * c.height / (r.height || 1));
+                };
+                try { if (Graphics._updateAllElements && Graphics._canvas) Graphics._updateAllElements(); } catch (e) {}
+            })();
+        }
+
         if (cfg.pixelated) {
             document.addEventListener('DOMContentLoaded', function () {
                 var s = document.createElement('style');
@@ -221,8 +263,9 @@ enum PageScripts {
     })();
     """#
 
-    static func rpgRuntime(pixelated: Bool) -> String {
-        "window.__nexSettings = { pixelated: \(pixelated ? "true" : "false") };\n" + rpgRuntimeBody
+    static func rpgRuntime(pixelated: Bool, scaling: ScreenScaling = .fit) -> String {
+        "window.__nexSettings = { pixelated: \(pixelated ? "true" : "false"), scaling: '\(scaling.rawValue)' };\n"
+            + rpgRuntimeBody
     }
 
     /// NW.js shim for RPG Maker games: window.require (fs, path, os, nw.gui), window.nw, window.process.

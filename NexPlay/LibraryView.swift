@@ -89,6 +89,13 @@ struct GameCard: View {
                 .overlay(alignment: .top) {
                     HStack {
                         EngineBadge(engine: game.engine)
+                        if game.status != nil && game.playStatus != .backlog {
+                            Image(systemName: game.playStatus.symbol)
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(game.playStatus.color)
+                                .padding(4)
+                                .background(.ultraThinMaterial, in: Circle())
+                        }
                         Spacer()
                         if game.isFavorite {
                             Image(systemName: "heart.fill").foregroundStyle(.pink).font(.caption)
@@ -105,6 +112,13 @@ struct GameCard: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom))
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                }
+                .overlay {
+                    if let tint = game.tagColor {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(tint, lineWidth: 3)
+                            .shadow(color: tint.opacity(0.6), radius: 6)
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
@@ -140,6 +154,11 @@ struct GameRow: View {
                     .foregroundStyle(selected ? Color.accentColor : .secondary)
             }
             CoverView(game: game).frame(width: 52)
+                .overlay {
+                    if let tint = game.tagColor {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(tint, lineWidth: 2)
+                    }
+                }
             VStack(alignment: .leading, spacing: 3) {
                 Text(game.name).font(.body.weight(.semibold)).lineLimit(1)
                 Text("\(game.engine.title) · \(formatDuration(game.playSeconds))")
@@ -238,20 +257,11 @@ struct LibraryView: View {
                 }
                 if selecting { selectionBar }
                 if store.isImporting {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text(store.importStatus.isEmpty ? "Importing…" : store.importStatus)
-                            .font(.subheadline)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(3)
-                        Button("Cancel", role: .cancel) { store.cancelImport() }
-                    }
-                    .padding(24)
-                    .frame(maxWidth: 320)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                    .frame(maxHeight: .infinity)
+                    ImportProgressCard(progress: store.importProgress) { store.cancelImport() }
+                        .padding(.bottom, selecting ? 76 : 12)
                 }
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: store.isImporting)
             .background(AppBackground().ignoresSafeArea())
             .navigationTitle("NexPlay")
             .searchable(text: $search, prompt: "Search games")

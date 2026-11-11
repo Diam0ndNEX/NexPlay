@@ -7,10 +7,86 @@ import ZIPFoundation
 // Empo's ios/Empo/docs/import-pipeline.md, GameImporter.swift and SaveMigration.swift.
 // Empo, Copyright (C) 2026 Mateo M., https://github.com/mateo-m/empo-app (GPL-3.0-only with additional terms).
 
-/// A cancel flag that background import work checks.
+/// What the import is doing right now, for the progress card.
+enum ImportStage: String {
+    case preparing, copying, extracting, scanning, installing, updating
+
+    var title: String {
+        switch self {
+        case .preparing: return "Preparing"
+        case .copying: return "Copying Game"
+        case .extracting: return "Extracting Archive"
+        case .scanning: return "Finding the Game"
+        case .installing: return "Installing"
+        case .updating: return "Updating"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .preparing: return "hourglass"
+        case .copying: return "doc.on.doc.fill"
+        case .extracting: return "archivebox.fill"
+        case .scanning: return "magnifyingglass"
+        case .installing: return "square.and.arrow.down.fill"
+        case .updating: return "arrow.triangle.2.circlepath"
+        }
+    }
+
+    /// The share of the whole import this stage covers (start, end).
+    var span: (Double, Double) {
+        switch self {
+        case .preparing: return (0, 0.02)
+        case .copying, .extracting: return (0.02, 0.88)
+        case .scanning: return (0.88, 0.93)
+        case .installing, .updating: return (0.93, 1)
+        }
+    }
+}
+
+/// One progress report: the stage, a detail line (usually a file name) and how far the whole import is (0...1).
+struct ImportProgress: Equatable {
+    var stage: ImportStage = .preparing
+    var detail: String = ""
+    /// Overall fraction, nil while unknown.
+    var fraction: Double?
+    /// Which of several picked items this is (1-based) and how many there are.
+    var item: Int = 1
+    var itemCount: Int = 1
+    var itemName: String = ""
+}
+
+/// A cancel flag that background import work checks. It also carries the progress callback.
 final class ImportCancel: @unchecked Sendable {
     private let lock = NSLock()
     private var flag = false
+    private var progressHandler: ((ImportStage, String, Double?) -> Void)?
+    private var lastReport = Date.distantPast
+
+    /// Set once, before any work starts. Called on background threads.
+    func onProgress(_ handler: @escaping (ImportStage, String, Double?) -> Void) {
+        lock.lock(); progressHandler = handler; lock.unlock()
+    }
+
+    /// Reports progress inside a stage (`fraction` is 0...1 of that stage, nil when unknown). Throttled to about
+    /// 15 reports a second unless `force` is set, so huge archives don't flood the main thread.
+    func report(_ stage: ImportStage, _ detail: String, _ fraction: Double?, force: Bool = false) {
+        lock.lock()
+        let now = Date()
+        if !force && now.timeIntervalSince(lastReport) < 0.066 {
+            lock.unlock()
+            return
+        }
+        lastReport = now
+        let handler = progressHandler
+        lock.unlock()
+        var overall: Double?
+        if let fraction {
+            let span = stage.span
+            overall = span.0 + (span.1 - span.0) * min(max(fraction, 0), 1)
+        }
+        handler?(stage, detail, overall)
+    }
 
     func cancel() {
         lock.lock(); flag = true; lock.unlock()
@@ -105,11 +181,14 @@ enum ImportPipeline {
             if isDirectory.boolValue {
                 fallbackName = url.lastPathComponent
                 status("Copying \(url.lastPathComponent)…")
+                cancel.report(.copying, "Counting files…", nil, force: true)
+                let total = max(countFiles(in: url), 1)
                 var copied = 0
-                try copyFolder(url, to: folder, cancel: cancel, status: status, copied: &copied)
+                try copyFolder(url, to: folder, cancel: cancel, status: status, copied: &copied, total: total)
                 if copied == 0 { throw PipelineError.emptyFolder }
             } else if ext == "zip" || ext == "jgp" {
                 status("Unpacking \(url.lastPathComponent)…")
+                cancel.report(.extracting, url.lastPathComponent, 0, force: true)
                 do {
                     encodingNote = try extractZip(url, to: folder, cancel: cancel)
                 } catch ImportError.unsupported(_) {
@@ -120,6 +199,7 @@ enum ImportPipeline {
                 try mapSpace { try fm.copyItem(at: url, to: folder.appendingPathComponent(url.lastPathComponent)) }
             } else if ArchiveExtractor.extensions.contains(ext) {
                 status("Unpacking \(url.lastPathComponent)…")
+                cancel.report(.extracting, url.lastPathComponent, 0, force: true)
                 try ArchiveExtractor.extract(url, to: folder, cancel: cancel, status: status)
             } else {
                 throw PipelineError.unknownType(ext)
@@ -127,6 +207,7 @@ enum ImportPipeline {
 
             try cancel.check()
             status("Looking for the game…")
+            cancel.report(.scanning, "Detecting the engine…", 0, force: true)
             GameScanner.tidy(folder)
             guard let found = detect(in: folder) else { throw ImportError.noGame }
             let title = gameTitle(found, in: folder) ?? fallbackName
@@ -142,7 +223,7 @@ enum ImportPipeline {
     /// are not downloaded yet (iCloud shows them as hidden ".name.icloud" placeholders); each file is read through
     /// NSFileCoordinator, which downloads it first.
     private static func copyFolder(_ source: URL, to target: URL, cancel: ImportCancel,
-                                   status: (String) -> Void, copied: inout Int) throws {
+                                   status: (String) -> Void, copied: inout Int, total: Int) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: target, withIntermediateDirectories: true)
         let kids = try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey], options: [])
@@ -158,13 +239,26 @@ enum ImportPipeline {
             let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             let destination = target.appendingPathComponent(name)
             if isDirectory {
-                try copyFolder(item, to: destination, cancel: cancel, status: status, copied: &copied)
+                try copyFolder(item, to: destination, cancel: cancel, status: status, copied: &copied, total: total)
             } else {
                 try coordinatedCopy(item, to: destination)
                 copied += 1
                 if copied % 50 == 0 { status("Copying… \(copied) files") }
+                cancel.report(.copying, "\(name) · \(copied)/\(total)", Double(copied) / Double(total))
             }
         }
+    }
+
+    /// Counts the files in a picked folder (iCloud placeholders included) so copying can show a percentage.
+    private static func countFiles(in folder: URL) -> Int {
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
+                                                          options: [], errorHandler: { _, _ in true }) else { return 0 }
+        var count = 0
+        for case let item as URL in walker {
+            let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if !isDirectory { count += 1 }
+        }
+        return count
     }
 
     private static func coordinatedCopy(_ source: URL, to target: URL) throws {
@@ -215,6 +309,7 @@ enum ImportPipeline {
         let (encoding, label) = chooseEncoding(entries)
         let fm = FileManager.default
         var count = 0
+        let total = max(entries.count, 1)
         for entry in entries {
             if count % 50 == 0 { try cancel.check() }
             count += 1
@@ -227,6 +322,7 @@ enum ImportPipeline {
             if parts.first == "__MACOSX" || parts.last == ".DS_Store" { continue }
             var target = destination
             for part in parts { target.appendPathComponent(part) }
+            cancel.report(.extracting, "\(parts.last ?? "") · \(count)/\(total)", Double(count) / Double(total))
             switch entry.type {
             case .directory:
                 try mapSpace { try fm.createDirectory(at: target, withIntermediateDirectories: true) }

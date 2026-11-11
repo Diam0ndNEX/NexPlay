@@ -66,6 +66,9 @@ final class LibraryStore: ObservableObject {
         await DataStores.wipe(for: game)
         try? FileManager.default.removeItem(at: Paths.folder(for: game))
         try? FileManager.default.removeItem(at: Paths.backupFolder(for: game))
+        try? FileManager.default.removeItem(at: Paths.customCoverURL(for: game))
+        Gallery.removeAll(for: game)
+        CoverCache.forget(game)
         games.removeAll { $0.id == game.id }
         save()
         AppLog.log("deleted \(game.name)")
@@ -89,6 +92,8 @@ final class LibraryStore: ObservableObject {
 
     /// Status text for the progress card while importing.
     @Published var importStatus = ""
+    /// Stage, detail and percentage for the floating import card.
+    @Published var importProgress = ImportProgress()
     /// Asks whether an import with the title of an installed game updates it or is added as a new game.
     @Published var pendingUpdate: PendingUpdate?
     private var importCancel: ImportCancel?
@@ -115,9 +120,20 @@ final class LibraryStore: ObservableObject {
         let cancel = ImportCancel()
         importCancel = cancel
         var notes: [String] = []
+        importProgress = ImportProgress(stage: .preparing, detail: "", fraction: 0, item: 1, itemCount: urls.count,
+                                        itemName: urls.first?.lastPathComponent ?? "")
+        cancel.onProgress { stage, detail, fraction in
+            Task { @MainActor in
+                self.importProgress.stage = stage
+                self.importProgress.detail = detail
+                if let fraction { self.importProgress.fraction = fraction }
+            }
+        }
 
-        for url in urls {
+        for (index, url) in urls.enumerated() {
             if cancel.isCancelled { break }
+            importProgress = ImportProgress(stage: .preparing, detail: url.lastPathComponent, fraction: 0,
+                                            item: index + 1, itemCount: urls.count, itemName: url.lastPathComponent)
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
@@ -139,6 +155,10 @@ final class LibraryStore: ObservableObject {
                 }
 
                 importStatus = "Installing \(staged.title)…"
+                importProgress.itemName = staged.title
+                importProgress.stage = choice == .update ? .updating : .installing
+                importProgress.detail = staged.title
+                importProgress.fraction = ImportStage.installing.span.0
                 var lines: [String] = []
                 if choice == .update, let existing {
                     let updated = try await Task.detached(priority: .userInitiated) {
@@ -161,6 +181,7 @@ final class LibraryStore: ObservableObject {
                         rescueOffer = RescueOffer(gameID: game.id, gameName: game.name, folder: folder)
                     }
                 }
+                importProgress.fraction = 1
                 if let note = staged.encodingNote { lines.append(note) }
                 lines += staged.warnings
                 if !lines.isEmpty || urls.count > 1 {

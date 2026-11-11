@@ -181,34 +181,89 @@ final class PluginsFeature: PlayerFeature {
 // MARK: - Cheats
 
 final class CheatsFeature: PlayerFeature {
-    private var god = false
-    private var through = false
-    private var noEncounters = false
-
     static let script = #"""
     (function () {
         function ready() { return typeof $gameParty !== 'undefined' && $gameParty && typeof $gamePlayer !== 'undefined' && $gamePlayer; }
-        window.__nexCheat = function (name, a, b) {
+        function table(kind) { return kind === 1 ? $dataWeapons : kind === 2 ? $dataArmors : $dataItems; }
+        window.__nexCheat = function (name, a, b, c) {
             try {
                 if (!ready()) return 'Start or load a game first.';
+                a = Number(a) || 0; b = Number(b) || 0; c = Number(c) || 0;
                 switch (name) {
-                case 'gold': $gameParty.gainGold(Number(a) || 0); break;
+                case 'gold': $gameParty.gainGold(a); break;
+                case 'setgold': $gameParty.gainGold(Math.max(0, a) - $gameParty.gold()); break;
                 case 'heal': $gameParty.members().forEach(function (m) { m.recoverAll(); }); break;
                 case 'item': case 'weapon': case 'armor':
-                    var table = name === 'item' ? $dataItems : name === 'weapon' ? $dataWeapons : $dataArmors;
-                    var thing = table && table[Number(a)];
+                    var list = name === 'item' ? $dataItems : name === 'weapon' ? $dataWeapons : $dataArmors;
+                    var thing = list && list[a];
                     if (!thing) return 'No ' + name + ' with id ' + a + '.';
-                    $gameParty.gainItem(thing, Number(b) || 1);
+                    $gameParty.gainItem(thing, b || 1);
+                    break;
+                case 'setitem':
+                    var entry = table(a) && table(a)[b];
+                    if (!entry) return 'No such item.';
+                    $gameParty.gainItem(entry, Math.max(0, c) - $gameParty.numItems(entry), false);
+                    break;
+                case 'level':
+                    var actor = $gameActors.actor(a);
+                    if (!actor) return 'No actor with id ' + a + '.';
+                    actor.changeLevel(Math.max(1, Math.min(b, actor.maxLevel())), false);
+                    actor.recoverAll();
+                    break;
+                case 'recover':
+                    var who = $gameActors.actor(a);
+                    if (who) who.recoverAll();
                     break;
                 case 'through': window.__nexThrough = !!a; $gamePlayer.setThrough(!!a); break;
                 case 'encounters': window.__nexNoEncounters = !!a; break;
                 case 'god': window.__nexGod = !!a; break;
-                case 'switch': $gameSwitches.setValue(Number(a), !!b); break;
-                case 'variable': $gameVariables.setValue(Number(a), Number(b) || 0); break;
+                case 'onehit': window.__nexOneHit = !!a; break;
+                case 'speed': $gamePlayer.setMoveSpeed(Math.max(1, Math.min(6, a))); break;
+                case 'switch': $gameSwitches.setValue(a, !!b); break;
+                case 'variable': $gameVariables.setValue(a, b); break;
+                case 'save': if (typeof Scene_Save !== 'undefined') SceneManager.push(Scene_Save); break;
+                case 'menu': if (typeof Scene_Menu !== 'undefined') SceneManager.push(Scene_Menu); break;
                 default: return 'Unknown cheat.';
                 }
                 return 'ok';
             } catch (e) { return String(e); }
+        };
+        // Everything the cheat engine shows, as JSON.
+        window.__nexCheatSnapshot = function () {
+            if (!ready()) return '';
+            var out = { gold: Number($gameParty.gold()) || 0, speed: Number($gamePlayer.moveSpeed ? $gamePlayer.moveSpeed() : 4) || 4,
+                god: !!window.__nexGod, through: !!window.__nexThrough, noEncounters: !!window.__nexNoEncounters,
+                oneHit: !!window.__nexOneHit, party: [], items: [], switches: [], variables: [] };
+            $gameParty.members().forEach(function (m) {
+                function n(x) { x = Number(x); return isFinite(x) ? x : 0; }
+                out.party.push({ id: m.actorId(), name: String(m.name()), level: Math.round(n(m.level)),
+                    maxLevel: Math.round(Math.min(n(m.maxLevel()) || 99, 9999)),
+                    hp: n(m.hp), mhp: n(m.mhp), mp: n(m.mp), mmp: n(m.mmp),
+                    job: m.currentClass() ? String(m.currentClass().name) : '' });
+            });
+            [0, 1, 2].forEach(function (kind) {
+                var list = table(kind) || [];
+                for (var i = 1; i < list.length && i < 4000; i++) {
+                    var d = list[i];
+                    if (!d || !d.name) continue;
+                    out.items.push({ kind: kind, id: i, name: String(d.name), count: Math.round(Number($gameParty.numItems(d)) || 0),
+                        note: String(d.description || '').slice(0, 120) });
+                }
+            });
+            var sw = ($dataSystem && $dataSystem.switches) || [];
+            for (var s = 1; s < sw.length && s < 5000; s++) {
+                var on = !!$gameSwitches.value(s);
+                if (sw[s] || on) out.switches.push({ id: s, name: String(sw[s] || ''), on: on });
+            }
+            var vars = ($dataSystem && $dataSystem.variables) || [];
+            for (var v = 1; v < vars.length && v < 5000; v++) {
+                var value = $gameVariables.value(v);
+                if (vars[v] || value) {
+                    out.variables.push({ id: v, name: String(vars[v] || ''), value: typeof value === 'number' && isFinite(value) ? value : 0,
+                        text: String(value) });
+                }
+            }
+            return JSON.stringify(out);
         };
         (function hook() {
             if (typeof Game_Player === 'undefined' || typeof Game_Battler === 'undefined') { setTimeout(hook, 500); return; }
@@ -221,6 +276,7 @@ final class CheatsFeature: PlayerFeature {
             var gainHp = Game_Battler.prototype.gainHp;
             Game_Battler.prototype.gainHp = function (value) {
                 if (window.__nexGod && this.isActor && this.isActor() && value < 0) value = 0;
+                if (window.__nexOneHit && this.isEnemy && this.isEnemy() && value < 0) value = -this.hp;
                 return gainHp.call(this, value);
             };
             var isThrough = Game_Player.prototype.isThrough;
@@ -236,78 +292,434 @@ final class CheatsFeature: PlayerFeature {
         return [WKUserScript(source: CheatsFeature.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)]
     }
 
-    override func didFinishLoad() {
-        god = false
-        through = false
-        noEncounters = false
-    }
-
     override func menuItems(for game: Game) -> [UIMenuElement] {
         guard game.engine.isRPGMaker else { return [] }
-        let toggles: [UIMenuElement] = [
-            UIAction(title: "God Mode", state: god ? .on : .off) { [weak self] _ in
-                guard let self else { return }
-                self.god.toggle()
-                self.run("god", self.god ? "1" : "0")
+        return [UIMenu(title: "Cheats", image: UIImage(systemName: "wand.and.stars"), children: [
+            UIAction(title: "Cheat Engine…", image: UIImage(systemName: "slider.horizontal.3")) { [weak self] _ in
+                self?.openEngine()
             },
-            UIAction(title: "Walk Through Walls", state: through ? .on : .off) { [weak self] _ in
+            UIAction(title: "Heal Party", image: UIImage(systemName: "cross.case.fill")) { [weak self] _ in
                 guard let self else { return }
-                self.through.toggle()
-                self.run("through", self.through ? "1" : "0")
+                Task { _ = await self.run("heal") }
             },
-            UIAction(title: "No Random Encounters", state: noEncounters ? .on : .off) { [weak self] _ in
+            UIAction(title: "Save Anywhere", image: UIImage(systemName: "square.and.arrow.down")) { [weak self] _ in
                 guard let self else { return }
-                self.noEncounters.toggle()
-                self.run("encounters", self.noEncounters ? "1" : "0")
+                Task { _ = await self.run("save") }
             },
-        ]
-        let actions: [UIMenuElement] = [
-            UIAction(title: "Add Gold…") { [weak self] _ in self?.ask("Add gold", fields: ["Amount"]) { self?.run("gold", $0[0]) } },
-            UIAction(title: "Heal Party") { [weak self] _ in self?.run("heal", "0") },
-            UIAction(title: "Give Item…") { [weak self] _ in self?.ask("Give item", fields: ["Item ID", "Amount"]) { self?.run("item", $0[0], $0[1]) } },
-            UIAction(title: "Give Weapon…") { [weak self] _ in self?.ask("Give weapon", fields: ["Weapon ID", "Amount"]) { self?.run("weapon", $0[0], $0[1]) } },
-            UIAction(title: "Give Armor…") { [weak self] _ in self?.ask("Give armor", fields: ["Armor ID", "Amount"]) { self?.run("armor", $0[0], $0[1]) } },
-            UIAction(title: "Set Switch…") { [weak self] _ in self?.ask("Set switch", fields: ["Switch ID", "1 = on, 0 = off"]) { self?.run("switch", $0[0], $0[1]) } },
-            UIAction(title: "Set Variable…") { [weak self] _ in self?.ask("Set variable", fields: ["Variable ID", "Value"]) { self?.run("variable", $0[0], $0[1]) } },
-        ]
-        return [UIMenu(title: "Cheats", image: UIImage(systemName: "wand.and.stars"),
-                       children: [UIMenu(options: .displayInline, children: toggles)] + actions)]
+        ])]
     }
 
-    /// Calls window.__nexCheat with numbers only, so nothing typed can run as script.
-    private func run(_ name: String, _ a: String, _ b: String = "0") {
-        let first = Double(a.trimmingCharacters(in: .whitespaces)) ?? 0
-        let second = Double(b.trimmingCharacters(in: .whitespaces)) ?? 0
-        let numbers = "\(first), \(second)"
-        let script = "window.__nexCheat ? window.__nexCheat('\(name)', \(numbers)) : 'Cheats are not ready.'"
-        context.webView?.evaluateJavaScript(script) { [weak self] result, _ in
-            if let text = result as? String, text != "ok" {
-                self?.show(text)
+    /// Opens the cheat engine sheet. The game pauses while it is open.
+    func openEngine() {
+        guard context.game().engine.isRPGMaker else { return }
+        let model = CheatEngineModel(feature: self)
+        let view = CheatEngineView(model: model)
+        let host = UIHostingController(rootView: view)
+        host.modalPresentationStyle = .pageSheet
+        if let sheet = host.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        context.evaluate("window.__nex && window.__nex.pause()")
+        model.onClose = { [weak self] in self?.context.evaluate("window.__nex && window.__nex.resume()") }
+        context.present(host)
+    }
+
+    /// Calls window.__nexCheat with numbers only, so nothing typed can run as script. Returns an error text or nil.
+    func run(_ name: String, _ a: Double = 0, _ b: Double = 0, _ c: Double = 0) async -> String? {
+        guard context.webView != nil else { return "The game isn't running." }
+        let safeName = name.filter { $0.isLetter }
+        func number(_ value: Double) -> String { value.isFinite ? String(value) : "0" }
+        let script = "window.__nexCheat ? window.__nexCheat('\(safeName)', \(number(a)), \(number(b)), \(number(c))) : 'Cheats are not ready.'"
+        let result = await evaluateString(script)
+        if let text = result, text != "ok" { return text }
+        context.gameLog.add("cheat: \(safeName)")
+        return nil
+    }
+
+    func snapshot() async -> CheatSnapshot? {
+        let result = await evaluateString("window.__nexCheatSnapshot ? window.__nexCheatSnapshot() : ''")
+        guard let text = result, !text.isEmpty, let data = text.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(CheatSnapshot.self, from: data)
+    }
+
+    /// Runs a script that returns a string. The completion-handler API is used because the async one traps when
+    /// a script returns nothing on some iOS versions.
+    private func evaluateString(_ script: String) async -> String? {
+        guard let webView = context.webView else { return nil }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            webView.evaluateJavaScript(script) { result, _ in
+                continuation.resume(returning: result as? String)
+            }
+        }
+    }
+}
+
+// MARK: - Cheat engine
+
+struct CheatSnapshot: Decodable {
+    struct Member: Decodable, Identifiable {
+        let id: Int
+        let name: String
+        let level: Int
+        let maxLevel: Int
+        let hp: Double
+        let mhp: Double
+        let mp: Double
+        let mmp: Double
+        let job: String
+    }
+
+    struct Item: Decodable, Identifiable {
+        let kind: Int
+        let id: Int
+        let name: String
+        let count: Int
+        let note: String
+        var key: String { "\(kind)-\(id)" }
+    }
+
+    struct Switch: Decodable, Identifiable {
+        let id: Int
+        let name: String
+        let on: Bool
+    }
+
+    struct Variable: Decodable, Identifiable {
+        let id: Int
+        let name: String
+        let value: Double
+        let text: String
+    }
+
+    let gold: Double
+    let speed: Double
+    let god: Bool
+    let through: Bool
+    let noEncounters: Bool
+    let oneHit: Bool
+    let party: [Member]
+    let items: [Item]
+    let switches: [Switch]
+    let variables: [Variable]
+}
+
+@MainActor
+final class CheatEngineModel: ObservableObject {
+    @Published var snapshot: CheatSnapshot?
+    @Published var loading = true
+    @Published var message: String?
+    var onClose: () -> Void = {}
+    private weak var feature: CheatsFeature?
+
+    init(feature: CheatsFeature) {
+        self.feature = feature
+    }
+
+    func reload() async {
+        snapshot = await feature?.snapshot()
+        loading = false
+    }
+
+    func run(_ name: String, _ a: Double = 0, _ b: Double = 0, _ c: Double = 0) {
+        Task {
+            if let error = await feature?.run(name, a, b, c) {
+                message = error
             } else {
-                self?.context.gameLog.add("cheat: \(name)")
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+            await reload()
+        }
+    }
+}
+
+struct CheatEngineView: View {
+    enum Tab: String, CaseIterable, Identifiable {
+        case quick = "Quick", party = "Party", items = "Items", switches = "Switches", variables = "Variables"
+        var id: String { rawValue }
+    }
+
+    @ObservedObject var model: CheatEngineModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var tab: Tab = .quick
+    @State private var search = ""
+    @State private var editing: EditRequest?
+
+    struct EditRequest: Identifiable {
+        let id = UUID()
+        let title: String
+        let value: String
+        let apply: (Double) -> Void
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Picker("Section", selection: $tab) {
+                    ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                content
+            }
+            .navigationTitle("Cheat Engine")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { Task { await model.reload() } } label: { Image(systemName: "arrow.clockwise") }
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Resume") { dismiss() } }
+            }
+        }
+        .environment(\.colorScheme, .dark)
+        .task { await model.reload() }
+        .onDisappear { model.onClose() }
+        .alert("Cheats", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(model.message ?? "") }
+        .sheet(item: $editing) { request in
+            NumberEntrySheet(title: request.title, initial: request.value) { value in request.apply(value) }
+                .presentationDetents([.height(220)])
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if model.loading {
+            Spacer()
+            ProgressView()
+            Spacer()
+        } else if let snap = model.snapshot {
+            switch tab {
+            case .quick: quick(snap)
+            case .party: party(snap)
+            case .items: items(snap)
+            case .switches: switches(snap)
+            case .variables: variables(snap)
+            }
+        } else {
+            VStack(spacing: 10) {
+                Spacer()
+                Image(systemName: "wand.and.stars").font(.system(size: 40)).foregroundStyle(NexStyle.accent)
+                Text("Start or load a game first").font(.headline)
+                Text("The cheat engine works once you are on the map or in a battle.")
+                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Spacer()
+            }
+            .padding()
+        }
+    }
+
+    private func quick(_ snap: CheatSnapshot) -> some View {
+        List {
+            Section("Money") {
+                Button {
+                    editing = EditRequest(title: "Gold", value: String(Int(snap.gold))) { model.run("setgold", $0) }
+                } label: {
+                    LabeledContent { Text("\(Int(snap.gold))").monospacedDigit() } label: { Label("Gold", systemImage: "dollarsign.circle.fill") }
+                }
+                HStack {
+                    ForEach([1000, 10000, 100000], id: \.self) { amount in
+                        Button("+\(amount)") { model.run("gold", Double(amount)) }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            Section("Toggles") {
+                Toggle(isOn: Binding(get: { snap.god }, set: { model.run("god", $0 ? 1 : 0) })) {
+                    Label("God Mode", systemImage: "shield.fill")
+                }
+                Toggle(isOn: Binding(get: { snap.oneHit }, set: { model.run("onehit", $0 ? 1 : 0) })) {
+                    Label("One-Hit Kills", systemImage: "bolt.fill")
+                }
+                Toggle(isOn: Binding(get: { snap.through }, set: { model.run("through", $0 ? 1 : 0) })) {
+                    Label("Walk Through Walls", systemImage: "figure.walk")
+                }
+                Toggle(isOn: Binding(get: { snap.noEncounters }, set: { model.run("encounters", $0 ? 1 : 0) })) {
+                    Label("No Random Encounters", systemImage: "eye.slash.fill")
+                }
+                Stepper(value: Binding(get: { snap.speed }, set: { model.run("speed", $0) }), in: 1...6) {
+                    Label("Walk Speed: \(Int(snap.speed))", systemImage: "hare.fill")
+                }
+            }
+            Section("Actions") {
+                Button { model.run("heal") } label: { Label("Heal Party", systemImage: "cross.case.fill") }
+                Button {
+                    model.run("save")
+                    dismiss()
+                } label: { Label("Open Save Menu", systemImage: "square.and.arrow.down.fill") }
+                Button {
+                    model.run("menu")
+                    dismiss()
+                } label: { Label("Open Main Menu", systemImage: "list.bullet") }
             }
         }
     }
 
-    private func ask(_ title: String, fields: [String], done: @escaping ([String]) -> Void) {
-        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
-        for field in fields {
-            alert.addTextField { text in
-                text.placeholder = field
-                text.keyboardType = .numbersAndPunctuation
+    private func party(_ snap: CheatSnapshot) -> some View {
+        List(snap.party) { member in
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(member.name).font(.headline)
+                    if !member.job.isEmpty { Text(member.job).font(.caption).foregroundStyle(.secondary) }
+                    Spacer()
+                    Text("Lv \(member.level)").font(.subheadline.weight(.bold)).foregroundStyle(NexStyle.accent)
+                }
+                bar("HP", member.hp, member.mhp, .green)
+                bar("MP", member.mp, member.mmp, .blue)
+                HStack {
+                    Button("Level…") {
+                        editing = EditRequest(title: "Level for \(member.name) (max \(member.maxLevel))", value: String(member.level)) {
+                            model.run("level", Double(member.id), $0)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Max Level") { model.run("level", Double(member.id), Double(member.maxLevel)) }
+                        .buttonStyle(.bordered)
+                    Button("Heal") { model.run("recover", Double(member.id)) }
+                        .buttonStyle(.bordered)
+                }
+                .font(.caption)
             }
+            .padding(.vertical, 4)
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert] _ in
-            let values = (alert?.textFields ?? []).map { $0.text ?? "" }
-            done(values + ["", ""])
-        })
-        context.present(alert)
     }
 
-    private func show(_ message: String) {
-        let alert = UIAlertController(title: "Cheats", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        context.present(alert)
+    private func bar(_ title: String, _ value: Double, _ maximum: Double, _ color: Color) -> some View {
+        HStack(spacing: 8) {
+            Text(title).font(.caption2.weight(.bold)).frame(width: 22, alignment: .leading)
+            ProgressView(value: maximum > 0 ? min(value / maximum, 1) : 0).tint(color)
+            Text("\(Int(value))/\(Int(maximum))").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+        }
+    }
+
+    private func filtered<T>(_ list: [T], _ name: (T) -> String, _ id: (T) -> Int) -> [T] {
+        let query = search.trimmingCharacters(in: .whitespaces)
+        if query.isEmpty { return list }
+        return list.filter { name($0).localizedCaseInsensitiveContains(query) || String(id($0)) == query }
+    }
+
+    private func searchField() -> some View {
+        HStack {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search by name or ID", text: $search)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+        }
+        .padding(10)
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 6)
+    }
+
+    private func items(_ snap: CheatSnapshot) -> some View {
+        let kinds = ["Item", "Weapon", "Armor"]
+        let list = filtered(snap.items, { $0.name }, { $0.id })
+        return VStack(spacing: 0) {
+            searchField()
+            List(list, id: \.key) { item in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.name).lineLimit(1)
+                        Text("\(kinds[min(max(item.kind, 0), 2)]) #\(item.id)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button { model.run("setitem", Double(item.kind), Double(item.id), Double(max(item.count - 1, 0))) } label: {
+                        Image(systemName: "minus.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    Button {
+                        editing = EditRequest(title: "How many \(item.name)?", value: String(item.count)) {
+                            model.run("setitem", Double(item.kind), Double(item.id), $0)
+                        }
+                    } label: {
+                        Text("\(item.count)").font(.body.monospacedDigit()).frame(minWidth: 34)
+                    }
+                    .buttonStyle(.borderless)
+                    Button { model.run("setitem", Double(item.kind), Double(item.id), Double(item.count + 1)) } label: {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .foregroundStyle(item.count > 0 ? Color.primary : Color.secondary)
+            }
+        }
+    }
+
+    private func switches(_ snap: CheatSnapshot) -> some View {
+        let list = filtered(snap.switches, { $0.name }, { $0.id })
+        return VStack(spacing: 0) {
+            searchField()
+            List(list) { item in
+                Toggle(isOn: Binding(get: { item.on }, set: { model.run("switch", Double(item.id), $0 ? 1 : 0) })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.name.isEmpty ? "Switch \(item.id)" : item.name).lineLimit(1)
+                        Text("#\(item.id)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func variables(_ snap: CheatSnapshot) -> some View {
+        let list = filtered(snap.variables, { $0.name }, { $0.id })
+        return VStack(spacing: 0) {
+            searchField()
+            List(list) { item in
+                Button {
+                    editing = EditRequest(title: item.name.isEmpty ? "Variable \(item.id)" : item.name, value: item.text) {
+                        model.run("variable", Double(item.id), $0)
+                    }
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.name.isEmpty ? "Variable \(item.id)" : item.name).lineLimit(1).foregroundStyle(.primary)
+                            Text("#\(item.id)").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(item.text).font(.body.monospacedDigit()).lineLimit(1).foregroundStyle(NexStyle.accent)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Asks for one number.
+struct NumberEntrySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let initial: String
+    let onDone: (Double) -> Void
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text(title).font(.headline).multilineTextAlignment(.center)
+            TextField("Value", text: $text)
+                .keyboardType(.numbersAndPunctuation)
+                .font(.title2.monospacedDigit())
+                .multilineTextAlignment(.center)
+                .padding(12)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .focused($focused)
+            HStack {
+                Button("Cancel") { dismiss() }.buttonStyle(.bordered).frame(maxWidth: .infinity)
+                Button("Set") {
+                    if let value = Double(text.trimmingCharacters(in: .whitespaces)) { onDone(value) }
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(20)
+        .onAppear {
+            text = initial
+            focused = true
+        }
     }
 }

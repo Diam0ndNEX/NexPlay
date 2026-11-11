@@ -32,6 +32,7 @@ enum ArchiveExtractor {
         guard opened == ok else { throw PipelineError.archiveFailed(archiveName, errorText(reader)) }
 
         let fm = FileManager.default
+        let archiveBytes = (try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
         var entry: OpaquePointer?
         var entryCount = 0
         var fileCount = 0
@@ -73,6 +74,10 @@ enum ArchiveExtractor {
                 continue
             }
             if fileCount % 25 == 0 { status("Unpacking \(parts.last ?? archiveName)…") }
+            // How far into the archive file libarchive has read (-1 = the raw file), as the percentage.
+            let consumed = archive_filter_bytes(reader, -1)
+            let fraction: Double? = archiveBytes > 0 && consumed >= 0 ? Double(consumed) / Double(archiveBytes) : nil
+            cancel.report(.extracting, "\(parts.last ?? archiveName) · \(fileCount + 1) files", fraction)
             fileCount += 1
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try writeEntry(reader, to: target, archiveName: archiveName)

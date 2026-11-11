@@ -116,7 +116,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                                                injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         if game.engine.isRPGMaker {
-            let runtime = PageScripts.rpgRuntime(pixelated: defaults.bool(forKey: SettingsKey.pixelatedScaling))
+            let runtime = PageScripts.rpgRuntime(pixelated: defaults.bool(forKey: SettingsKey.pixelatedScaling),
+                                                 scaling: ScreenScaling.resolved(for: game))
             content.addUserScript(WKUserScript(source: runtime, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         content.addUserScript(WKUserScript(source: PageScripts.noSelect, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
@@ -281,7 +282,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private func configureControlBar() {
         controlBar.frame = view.bounds
         controlBar.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        controlBar.configure(prefs: prefs, showFastForward: game.engine.isRPGMaker && prefs.showFastForward)
+        var icon: UIImage?
+        if let url = Paths.coverURL(for: game) { icon = UIImage(contentsOfFile: url.path) }
+        controlBar.configure(prefs: prefs, showFastForward: game.engine.isRPGMaker && prefs.showFastForward,
+                             showCheats: game.engine.isRPGMaker && prefs.showCheats, icon: icon)
         controlBar.menuProvider = { [weak self] in self?.buildMenuItems() ?? [] }
         controlBar.onItem = { [weak self] item in self?.barItem(item) }
         view.addSubview(controlBar)
@@ -446,6 +450,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             editControls()
         case .fastForward:
             handleAction(.fastForward, true)
+        case .cheats:
+            for feature in features {
+                if let cheats = feature as? CheatsFeature { cheats.openEngine() }
+            }
         }
     }
 
@@ -485,9 +493,24 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                 self.showAlert("Screenshot failed", error?.localizedDescription ?? "No image.")
                 return
             }
-            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-            self.gameLog.add("screenshot saved to Photos")
+            if UserDefaults.standard.object(forKey: SettingsKey.screenshotsToPhotos) as? Bool ?? true {
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+            }
+            let target = self.game
+            Task.detached(priority: .utility) { Gallery.add(image, for: target) }
+            self.gameLog.add("screenshot saved to the game's gallery")
+            self.flashScreen()
         }
+    }
+
+    /// A short white flash, like the system screenshot.
+    private func flashScreen() {
+        let flash = UIView(frame: view.bounds)
+        flash.backgroundColor = .white
+        flash.alpha = 0.7
+        flash.isUserInteractionEnabled = false
+        view.addSubview(flash)
+        UIView.animate(withDuration: 0.35, animations: { flash.alpha = 0 }, completion: { _ in flash.removeFromSuperview() })
     }
 
     // MARK: - Menu

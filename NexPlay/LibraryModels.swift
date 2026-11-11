@@ -21,7 +21,7 @@ extension SettingsKey {
     static let all: [String] = [
         librarySort, silentModeAudio, showMenuButton, keepScreenAwake, desktopMode, pixelatedScaling, nwMode,
         hapticsEnabled, hapticStrength, controllerMode, librarySortOrder, libraryLayout, titleUnderCard,
-        showContinueCard, theme, autoBackup, backupRetention, defaultFastForward,
+        showContinueCard, theme, autoBackup, backupRetention, defaultFastForward, screenScaling, screenshotsToPhotos,
     ]
 }
 

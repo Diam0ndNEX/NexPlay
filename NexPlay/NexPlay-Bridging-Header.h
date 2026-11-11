@@ -21,6 +21,7 @@ int archive_read_data_block(struct archive *a, const void **buff, size_t *size, 
 int archive_read_data_skip(struct archive *);
 int archive_read_free(struct archive *);
 const char *archive_error_string(struct archive *);
+int64_t archive_filter_bytes(struct archive *, int);
 
 const char *archive_entry_pathname(struct archive_entry *);
 const char *archive_entry_pathname_utf8(struct archive_entry *);

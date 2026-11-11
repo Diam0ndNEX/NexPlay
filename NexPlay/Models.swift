@@ -103,6 +103,18 @@ struct Game: Identifiable, Codable, Hashable {
     var savesMigrated: Bool?
     /// Speed the fast-forward button switches to (2...9). nil means 2.
     var fastForwardSpeed: Int?
+    /// Per-game screen scaling (ScreenScaling raw value); nil follows the app setting.
+    var screenScaling: String?
+    /// Where the player is with this game; nil means backlog.
+    var status: GameStatus?
+    /// A colour tag (GameColor raw value) shown on the card; nil means none.
+    var colorTag: String?
+    /// Free text the player keeps about the game.
+    var notes: String?
+    /// The game's version, as the player typed it.
+    var version: String?
+    /// Developer or publisher, as the player typed it.
+    var developer: String?
 
     /// The hostname used in nexplay://<host>/ URLs. Unique per game, so every game has its own web storage.
     var host: String { id.uuidString.lowercased() }
@@ -112,6 +124,102 @@ struct Game: Identifiable, Codable, Hashable {
         guard engine.isRPGMaker else { return false }
         return nwMode ?? UserDefaults.standard.bool(forKey: SettingsKey.nwMode)
     }
+}
+
+/// How an RPG Maker game fills a screen whose shape differs from the game's.
+enum ScreenScaling: String, CaseIterable, Identifiable {
+    case fit, fill, stretch
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fit: return "Fit"
+        case .fill: return "Fill"
+        case .stretch: return "Stretch"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .fit: return "rectangle.center.inset.filled"
+        case .fill: return "rectangle.inset.filled"
+        case .stretch: return "arrow.left.and.right.square"
+        }
+    }
+
+    static var global: ScreenScaling {
+        ScreenScaling(rawValue: UserDefaults.standard.string(forKey: SettingsKey.screenScaling) ?? "fit") ?? .fit
+    }
+
+    /// The game's own choice, else the app setting.
+    static func resolved(for game: Game) -> ScreenScaling {
+        if let raw = game.screenScaling, let mode = ScreenScaling(rawValue: raw) { return mode }
+        return global
+    }
+}
+
+/// Play status shown on the card and in the detail page (RPGPlayer has "Backlog"; NexPlay adds the rest).
+enum GameStatus: String, Codable, CaseIterable, Identifiable {
+    case backlog, playing, onHold, completed, dropped
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .backlog: return "Backlog"
+        case .playing: return "Playing"
+        case .onHold: return "On Hold"
+        case .completed: return "Completed"
+        case .dropped: return "Dropped"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .backlog: return "tray.full.fill"
+        case .playing: return "play.circle.fill"
+        case .onHold: return "pause.circle.fill"
+        case .completed: return "checkmark.seal.fill"
+        case .dropped: return "xmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .backlog: return .gray
+        case .playing: return .purple
+        case .onHold: return .orange
+        case .completed: return .green
+        case .dropped: return .red
+        }
+    }
+}
+
+/// Colour tags for games.
+enum GameColor: String, CaseIterable, Identifiable {
+    case red, orange, yellow, green, mint, cyan, blue, purple, pink
+
+    var id: String { rawValue }
+
+    var color: Color {
+        switch self {
+        case .red: return Color(red: 1, green: 0.27, blue: 0.3)
+        case .orange: return Color(red: 1, green: 0.58, blue: 0.2)
+        case .yellow: return Color(red: 1, green: 0.84, blue: 0.1)
+        case .green: return Color(red: 0.2, green: 0.8, blue: 0.4)
+        case .mint: return Color(red: 0.1, green: 0.85, blue: 0.75)
+        case .cyan: return Color(red: 0.1, green: 0.8, blue: 0.95)
+        case .blue: return Color(red: 0.25, green: 0.5, blue: 1)
+        case .purple: return Color(red: 0.62, green: 0.45, blue: 1)
+        case .pink: return Color(red: 1, green: 0.4, blue: 0.7)
+        }
+    }
+}
+
+extension Game {
+    var playStatus: GameStatus { status ?? .backlog }
+    var tagColor: Color? { colorTag.flatMap { GameColor(rawValue: $0) }?.color }
 }
 
 enum SettingsKey {
@@ -130,4 +238,8 @@ enum SettingsKey {
     static let hapticStrength = "hapticStrength"
     /// "keys" (controllers send keys, default) or "gamepadAPI" (leave controllers to the game).
     static let controllerMode = "controllerMode"
+    /// Screen scaling for RPG Maker games: "fit" (default), "fill" or "stretch".
+    static let screenScaling = "screenScaling"
+    /// Screenshots also go to the Photos library (default on); they always go to the game's gallery.
+    static let screenshotsToPhotos = "screenshotsToPhotos"
 }

@@ -402,6 +402,8 @@ struct ControlsSettings: View {
     @AppStorage(SettingsKey.barShowFastForward) private var showFastForward = true
     @AppStorage(SettingsKey.barShowScreenshot) private var showScreenshot = true
     @AppStorage(SettingsKey.barShowKeyboard) private var showKeyboard = true
+    @AppStorage(SettingsKey.barShowCheats) private var showCheats = true
+    @AppStorage(SettingsKey.screenshotsToPhotos) private var screenshotsToPhotos = true
     @AppStorage(SettingsKey.hapticsEnabled) private var haptics = true
     @AppStorage(SettingsKey.hapticStrength) private var hapticStrength = 1
     @AppStorage(SettingsKey.physicalControllerEnabled) private var physical = true
@@ -449,6 +451,10 @@ struct ControlsSettings: View {
                 }
                 Toggle(isOn: $showFastForward) { SettingLabel("Show Fast Forward Button", "RPG Maker games only.") }
                 Toggle("Show Screenshot Button", isOn: $showScreenshot)
+                Toggle(isOn: $screenshotsToPhotos) {
+                    SettingLabel("Also Save Screenshots to Photos", "Screenshots always go to the game's Gallery.")
+                }
+                Toggle(isOn: $showCheats) { SettingLabel("Show Cheat Engine Button", "RPG Maker MV/MZ games only.") }
                 Toggle(isOn: $showKeyboard) { SettingLabel("Show Keyboard Button", "Type letters and numbers into the game, for name entry and the like.") }
                 Button("Reset Control Bar Position") {
                     UserDefaults.standard.removeObject(forKey: SettingsKey.barPosition)
@@ -457,7 +463,7 @@ struct ControlsSettings: View {
             } header: {
                 SettingsHeader(title: "Control Bar", symbol: "square.grid.2x2.fill", color: .purple)
             } footer: {
-                Text("In a game, drag the round handle anywhere and tap it to open the bar: exit, keyboard, on-screen controls, game menu, screenshot, edit controls and fast forward.")
+                Text("In a game, drag the bubble with the game's cover anywhere and tap it to open the bar: exit, keyboard, on-screen controls, game menu, screenshot, edit controls, fast forward and the cheat engine.")
             }
 
             Section {
@@ -515,6 +521,7 @@ struct GameplaySettings: View {
     @AppStorage(SettingsKey.desktopMode) private var desktopMode = true
     @AppStorage(SettingsKey.pixelatedScaling) private var pixelatedScaling = false
     @AppStorage(SettingsKey.nwMode) private var nwMode = true
+    @AppStorage(SettingsKey.screenScaling) private var screenScaling = "fit"
 
     @State private var message: String?
 
@@ -538,6 +545,13 @@ struct GameplaySettings: View {
                     SettingLabel("Auto-rotate Outside Games", "Let the library and settings follow how you hold your phone.")
                 }
                 .onChange(of: autoRotateOutside) { _ in OrientationManager.unlock() }
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingLabel("Screen Scaling", "How RPG Maker games fill a screen of another shape. Fit keeps black bars, Fill crops the edges, Stretch changes the aspect.")
+                    Picker("Screen Scaling", selection: $screenScaling) {
+                        ForEach(ScreenScaling.allCases) { mode in Text(mode.title).tag(mode.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                }
                 ValueSlider(title: "Portrait Game Position", value: $offset, range: 0...0.3) { value in
                     value < 0.005 ? "Centered" : "−\(Int((value * 100).rounded()))%"
                 }

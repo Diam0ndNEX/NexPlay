@@ -12,6 +12,7 @@ extension SettingsKey {
     static let barShowFastForward = "barShowFastForward"
     static let barShowScreenshot = "barShowScreenshot"
     static let barShowKeyboard = "barShowKeyboard"
+    static let barShowCheats = "barShowCheats"
     static let barPosition = "barPosition"                   // [x, y] normalized to the safe area
     static let touchPadScale = "touchPadScale"               // 0.6...1.6, multiplies every control's size
     static let touchPadOpacity = "touchPadOpacity"           // 0.2...1, multiplies every control's opacity
@@ -27,7 +28,7 @@ extension SettingsKey {
     /// Keys from this file that Reset to Defaults clears.
     static let playerKeys: [String] = [
         barOpacity, barScale, barDrawer, barGlass, barAutoHide, barShowFastForward, barShowScreenshot, barShowKeyboard,
-        barPosition, touchPadScale, touchPadOpacity, touchDirectionalType, physicalControllerEnabled,
+        barShowCheats, barPosition, touchPadScale, touchPadOpacity, touchDirectionalType, physicalControllerEnabled,
         hidePadWithController, barWithController, autoRotateInGames, newGameOrientation, autoRotateOutside,
         portraitGameOffset,
     ]
@@ -43,6 +44,7 @@ struct ControlPrefs {
     var showFastForward: Bool
     var showScreenshot: Bool
     var showKeyboard: Bool
+    var showCheats: Bool
     var padScale: Double
     var padOpacity: Double
     var directional: String
@@ -69,6 +71,7 @@ struct ControlPrefs {
             showFastForward: flag(SettingsKey.barShowFastForward, true),
             showScreenshot: flag(SettingsKey.barShowScreenshot, true),
             showKeyboard: flag(SettingsKey.barShowKeyboard, true),
+            showCheats: flag(SettingsKey.barShowCheats, true),
             padScale: number(SettingsKey.touchPadScale, 1, 0.6...1.6),
             padOpacity: number(SettingsKey.touchPadOpacity, 1, 0.2...1),
             directional: defaults.string(forKey: SettingsKey.touchDirectionalType) ?? "layout",
@@ -120,7 +123,7 @@ struct ControlPrefs {
 /// player wakes it when the screen is tapped.
 final class ControlBarView: UIView {
     enum Item {
-        case close, keyboard, gamepad, settings, screenshot, edit, fastForward
+        case close, keyboard, gamepad, settings, screenshot, edit, fastForward, cheats
     }
 
     var onItem: ((Item) -> Void)?
@@ -131,6 +134,9 @@ final class ControlBarView: UIView {
 
     private let handle = UIButton(type: .system)
     private var handleBackground = UIView()
+    /// The game's cover inside the handle bubble (RPGPlayer idea); the grid symbol shows when there is none.
+    private let iconView = UIImageView()
+    private let ringLayer = CAShapeLayer()
     private let drawer = UIView()
     private var drawerBackground = UIView()
     private var buttons: [(item: Item, button: UIButton)] = []
@@ -154,12 +160,24 @@ final class ControlBarView: UIView {
         handle.accessibilityLabel = "Game controls"
         handle.addTarget(self, action: #selector(handleTapped), for: .touchUpInside)
         handle.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(dragHandle(_:))))
+        iconView.contentMode = .scaleAspectFill
+        iconView.clipsToBounds = true
+        iconView.isUserInteractionEnabled = false
+        iconView.layer.magnificationFilter = .nearest
+        handle.addSubview(iconView)
+        ringLayer.fillColor = UIColor.clear.cgColor
+        ringLayer.strokeColor = UIColor(red: 0.62, green: 0.48, blue: 1, alpha: 1).cgColor
+        ringLayer.lineWidth = 2.5
+        ringLayer.opacity = 0
+        handle.layer.addSublayer(ringLayer)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(prefs: ControlPrefs, showFastForward: Bool) {
+    func configure(prefs: ControlPrefs, showFastForward: Bool, showCheats: Bool = false, icon: UIImage? = nil) {
         self.prefs = prefs
+        iconView.image = icon
+        iconView.isHidden = icon == nil
         handleBackground.removeFromSuperview()
         handleBackground = makeBackground()
         handle.insertSubview(handleBackground, at: 0)
@@ -176,6 +194,7 @@ final class ControlBarView: UIView {
         if prefs.showScreenshot { items.append(.screenshot) }
         items.append(.edit)
         if showFastForward { items.append(.fastForward) }
+        if showCheats { items.append(.cheats) }
         for item in items {
             let button = makeButton(for: item)
             drawer.addSubview(button)
@@ -278,6 +297,7 @@ final class ControlBarView: UIView {
         case .screenshot: return "Screenshot"
         case .edit: return "Edit controls"
         case .fastForward: return "Fast forward"
+        case .cheats: return "Cheat engine"
         }
     }
 
@@ -290,6 +310,7 @@ final class ControlBarView: UIView {
         case .screenshot: return "camera.fill"
         case .edit: return "pencil"
         case .fastForward: return "forward.fill"
+        case .cheats: return "wand.and.stars"
         }
     }
 
@@ -307,8 +328,16 @@ final class ControlBarView: UIView {
             }
         }
         let handleConfig = UIImage.SymbolConfiguration(pointSize: 18 * scale, weight: .bold)
-        let handleSymbol = expanded ? "minus" : "square.grid.2x2.fill"
-        handle.setImage(UIImage(systemName: handleSymbol, withConfiguration: handleConfig), for: .normal)
+        if iconView.image != nil {
+            handle.setImage(nil, for: .normal)
+            ringLayer.opacity = expanded ? 1 : 0
+            UIView.animate(withDuration: 0.2) {
+                self.iconView.transform = self.expanded ? CGAffineTransform(scaleX: 0.86, y: 0.86) : .identity
+            }
+        } else {
+            let handleSymbol = expanded ? "minus" : "square.grid.2x2.fill"
+            handle.setImage(UIImage(systemName: handleSymbol, withConfiguration: handleConfig), for: .normal)
+        }
     }
 
     // MARK: - Layout
@@ -331,6 +360,14 @@ final class ControlBarView: UIView {
         handle.layer.cornerRadius = half
         handleBackground.frame = handle.bounds
         handleBackground.layer.cornerRadius = half
+        let inset = 4 * scale
+        let iconTransform = iconView.transform
+        iconView.transform = .identity
+        iconView.frame = handle.bounds.insetBy(dx: inset, dy: inset)
+        iconView.layer.cornerRadius = iconView.bounds.width / 2
+        iconView.transform = iconTransform
+        ringLayer.frame = handle.bounds
+        ringLayer.path = UIBezierPath(ovalIn: handle.bounds.insetBy(dx: 1.5, dy: 1.5)).cgPath
 
         let size = 40 * scale
         let gap = 6 * scale

@@ -1,6 +1,14 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Pages the game page opens.
+enum GameRoute: String, Identifiable {
+    case settings, saves, gallery, plugins
+    var id: String { rawValue }
+}
+
+/// The page before a game starts: big cover over a blurred copy of it, title, engine and status, stats, Play,
+/// and tiles for Saves, Gallery, Plugins and Settings. Layout idea from RPGPlayer; NexPlay's own code.
 struct GameDetailView: View {
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var collections: CollectionStore
@@ -11,351 +19,261 @@ struct GameDetailView: View {
     /// Called with the game when the user taps Play.
     let onPlay: (Game) -> Void
 
+    @State private var cover: UIImage?
     @State private var sizeText = "…"
-    @State private var saveInfo = SaveInfo()
-    @State private var confirmDelete = false
-    @State private var confirmWipe = false
-    @State private var confirmDeleteSaves = false
-    @State private var shareURL: URL?
-    @State private var pickingZip = false
-    @State private var pendingRestore: URL?
-    @State private var message: String?
-    @State private var backupList: [BackupEntry] = []
-    @State private var pendingBackupRestore: BackupEntry?
-    @State private var showPlugins = false
+    @State private var saveCount = 0
+    @State private var shotCount = 0
+    @State private var route: GameRoute?
+    @State private var appeared = false
 
     private var game: Game? { store.game(id: gameID) }
 
-    private func binding<T>(_ keyPath: WritableKeyPath<Game, T>, default fallback: T) -> Binding<T> {
-        Binding(
-            get: { game?[keyPath: keyPath] ?? fallback },
-            set: { value in store.mutate(gameID) { $0[keyPath: keyPath] = value } }
-        )
-    }
-
     var body: some View {
-        NavigationStack {
+        ZStack {
             if let game {
-                detailView(game)
+                backdrop(game)
+                page(game)
+            } else {
+                Color.black.ignoresSafeArea()
+            }
+        }
+        .environment(\.colorScheme, .dark)
+        .task { await refresh() }
+        .sheet(item: $route, onDismiss: { Task { await refresh() } }) { page in
+            if let game {
+                routeView(page, game)
+                    .environmentObject(store)
+                    .environmentObject(collections)
+                    .environmentObject(privacy)
             }
         }
     }
 
-    // MARK: - Body pieces (split up so the compiler can type-check them quickly)
-
-    private func detailView(_ game: Game) -> some View {
-        dangerDialogs(saveDialogs(formView(game), game), game)
-    }
-
-    private func formView(_ game: Game) -> some View {
-        Form {
-            headerSection(game)
-            nameSection
-            playSection(game)
-            organizeSection
-            if game.engine.isRPGMaker {
-                nwSection(game)
-            }
-            if game.usesNWMode {
-                savesSection(game)
-                backupsSection(game)
-            }
-            deleteSection
-        }
-        .navigationTitle(game.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
-        }
-        .task { await refresh(game) }
-        .sheet(item: Binding(
-            get: { shareURL.map { ShareItem(url: $0) } },
-            set: { if $0 == nil { shareURL = nil } }
-        )) { item in
-            ActivityView(items: [item.url])
-        }
-        .fileImporter(isPresented: $pickingZip, allowedContentTypes: [.zip]) { result in
-            if case .success(let url) = result { pendingRestore = url }
-        }
-    }
-
-    private func saveDialogs<Content: View>(_ content: Content, _ game: Game) -> some View {
-        content
-        .confirmationDialog("Restore saves into \(game.name)?", isPresented: Binding(
-            get: { pendingRestore != nil },
-            set: { if !$0 { pendingRestore = nil } }
-        ), titleVisibility: .visible) {
-            Button("Restore") {
-                if let url = pendingRestore { restore(url, into: game) }
-                pendingRestore = nil
-            }
-        } message: {
-            Text("Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.")
-        }
-        .confirmationDialog("Delete the save files of \(game.name)?", isPresented: $confirmDeleteSaves, titleVisibility: .visible) {
-            Button("Delete Saves", role: .destructive) { deleteSaves(of: game) }
-        } message: {
-            Text("A backup ZIP is kept in the app's Backups folder.")
-        }
-        .confirmationDialog("Delete browser data for \(game.name)?", isPresented: $confirmWipe, titleVisibility: .visible) {
-            Button("Delete Browser Data", role: .destructive) {
-                Task { await DataStores.wipe(for: game) }
-            }
-        } message: {
-            Text("This removes the game's web storage (browser-mode saves). Save files are not touched. This can't be undone.")
-        }
-    }
-
-    private func dangerDialogs<Content: View>(_ content: Content, _ game: Game) -> some View {
-        content
-        .confirmationDialog("Delete \(game.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete Game", role: .destructive) {
-                Task {
-                    await store.delete(game)
-                    collections.forget(game.id)
-                    privacy.setHidden(game.id, false)
-                    LayoutStore.delete(for: game.id)
-                    dismiss()
-                }
-            }
-        } message: {
-            Text("The game, its layout and its backups are removed. Its save files are kept in Rescued Saves.")
-        }
-        .sheet(isPresented: $showPlugins) { PluginListView(game: game) }
-        .confirmationDialog("Restore this backup into \(game.name)?", isPresented: Binding(
-            get: { pendingBackupRestore != nil },
-            set: { if !$0 { pendingBackupRestore = nil } }
-        ), titleVisibility: .visible) {
-            Button("Restore") {
-                if let entry = pendingBackupRestore { restore(entry.url, into: game) }
-                pendingBackupRestore = nil
-            }
-        } message: {
-            Text("Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.")
-        }
-        .alert("Saves", isPresented: Binding(
-            get: { message != nil },
-            set: { if !$0 { message = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(message ?? "")
-        }
-    }
-
-    // MARK: - Sections
-
-    private func headerSection(_ game: Game) -> some View {
-        Section {
-            HStack(spacing: 14) {
-                CoverView(game: game).frame(width: 84)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(game.engine.title).font(.subheadline).foregroundStyle(.secondary)
-                    Text(sizeText).font(.caption).foregroundStyle(.secondary)
-                    Text("Played \(game.playCount)× · \(formatDuration(game.playSeconds))")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Button {
+    @ViewBuilder
+    private func routeView(_ page: GameRoute, _ game: Game) -> some View {
+        switch page {
+        case .settings:
+            GameSettingsView(gameID: game.id) {
+                route = nil
                 dismiss()
-                onPlay(game)
-            } label: {
-                Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+        case .saves:
+            GameSavesView(gameID: game.id)
+        case .gallery:
+            GalleryView(game: game)
+        case .plugins:
+            PluginListView(game: game)
         }
     }
 
-    private var nameSection: some View {
-        Section("Name") {
-            TextField("Name", text: binding(\.name, default: ""))
+    // MARK: - Pieces
+
+    private func backdrop(_ game: Game) -> some View {
+        ZStack {
+            AppBackground()
+            if let cover {
+                Image(uiImage: cover)
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: 50)
+                    .opacity(0.55)
+                    .clipped()
+            }
+            LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.55), .black.opacity(0.9)],
+                           startPoint: .top, endPoint: .bottom)
         }
+        .ignoresSafeArea()
     }
 
-    private var statsBinding: Binding<Bool> {
-        Binding<Bool>(
-            get: { game?.statsOverlay ?? false },
-            set: { value in store.mutate(gameID) { $0.statsOverlay = value } }
-        )
-    }
-
-    private var fastForwardBinding: Binding<Int> {
-        Binding<Int>(
-            get: { game?.fastForwardSpeed ?? 2 },
-            set: { value in store.mutate(gameID) { $0.fastForwardSpeed = value } }
-        )
-    }
-
-    private func playSection(_ game: Game) -> some View {
-        Section("Play") {
-            Picker("Orientation", selection: binding(\.orientation, default: OrientationMode.auto)) {
-                ForEach(OrientationMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
+    private func page(_ game: Game) -> some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                topBar
+                coverCard(game)
+                titleBlock(game)
+                statsRow(game)
+                playButton(game)
+                tiles(game)
+                if let notes = game.notes, !notes.isEmpty {
+                    notesCard(notes)
                 }
             }
-            Toggle("On-screen controls", isOn: binding(\.gamepad, default: false))
-            Toggle("Stats overlay (FPS, battery)", isOn: statsBinding)
-            Toggle("Block internet", isOn: binding(\.blockNetwork, default: false))
+            .padding(.horizontal, 20)
+            .padding(.bottom, 32)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private var topBar: some View {
+        HStack {
+            circleButton("xmark", label: "Close") { dismiss() }
+            Spacer()
+            circleButton("gearshape.fill", label: "Game settings") { route = .settings }
+        }
+        .padding(.top, 12)
+    }
+
+    private func circleButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().stroke(NexStyle.cardStroke))
+        }
+        .buttonStyle(PressScaleStyle())
+        .accessibilityLabel(label)
+    }
+
+    private func coverCard(_ game: Game) -> some View {
+        let glow = game.tagColor ?? NexStyle.accent
+        return CoverView(game: game)
+            .frame(maxWidth: 300)
+            .padding(10)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(game.tagColor ?? NexStyle.cardStroke,
+                                                                                 lineWidth: game.tagColor == nil ? 1 : 2))
+            .shadow(color: glow.opacity(0.45), radius: 24, y: 10)
+            .scaleEffect(appeared ? 1 : 0.92)
+            .opacity(appeared ? 1 : 0)
+            .onAppear {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) { appeared = true }
+            }
+    }
+
+    private func titleBlock(_ game: Game) -> some View {
+        VStack(spacing: 10) {
+            Text(game.name)
+                .font(.system(size: 30, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .minimumScaleFactor(0.7)
+            if let subtitle = subtitle(game) {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+            HStack(spacing: 8) {
+                Text(game.engine.badge)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.14), in: Capsule())
+                statusMenu(game)
+                Button {
+                    store.toggleFavorite(game)
+                } label: {
+                    Image(systemName: game.isFavorite ? "heart.fill" : "heart")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(game.isFavorite ? .pink : .white)
+                        .padding(8)
+                        .background(Color.white.opacity(0.14), in: Circle())
+                }
+                .accessibilityLabel(game.isFavorite ? "Remove from favorites" : "Add to favorites")
+            }
+        }
+    }
+
+    private func subtitle(_ game: Game) -> String? {
+        var parts: [String] = []
+        if let developer = game.developer, !developer.isEmpty { parts.append(developer) }
+        if let version = game.version, !version.isEmpty { parts.append("v" + version) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func statusMenu(_ game: Game) -> some View {
+        Menu {
+            ForEach(GameStatus.allCases) { status in
+                Button {
+                    store.mutate(game.id) { $0.status = status }
+                } label: {
+                    Label(status.title, systemImage: status.symbol)
+                }
+            }
+        } label: {
+            Label(game.playStatus.title, systemImage: game.playStatus.symbol)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(game.playStatus.color.opacity(0.35), in: Capsule())
+        }
+    }
+
+    private func statsRow(_ game: Game) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                StatChip(symbol: "clock.fill", text: formatDuration(game.playSeconds))
+                if let last = game.lastPlayed {
+                    StatChip(symbol: "calendar", text: last.formatted(.relative(presentation: .named)))
+                }
+                StatChip(symbol: "internaldrive.fill", text: sizeText)
+                if game.usesNWMode {
+                    StatChip(symbol: "square.and.arrow.down.fill", text: saveCount == 1 ? "1 save" : "\(saveCount) saves")
+                }
+                if game.playCount > 0 {
+                    StatChip(symbol: "play.fill", text: "\(game.playCount)×")
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+
+    private func playButton(_ game: Game) -> some View {
+        Button {
+            dismiss()
+            onPlay(game)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "play.fill")
+                Text(game.lastPlayed == nil ? "Play" : "Continue")
+            }
+        }
+        .buttonStyle(PlayButtonStyle())
+        .padding(.top, 4)
+    }
+
+    private func tiles(_ game: Game) -> some View {
+        let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12),
+                       GridItem(.flexible(), spacing: 12)]
+        return LazyVGrid(columns: columns, spacing: 12) {
+            ActionTile(title: "Saves", symbol: "externaldrive.fill", tint: NexStyle.accent,
+                       badge: saveCount > 0 ? "\(saveCount)" : nil) { route = .saves }
+            ActionTile(title: "Gallery", symbol: "photo.on.rectangle.angled", tint: .cyan,
+                       badge: shotCount > 0 ? "\(shotCount)" : nil) { route = .gallery }
             if game.engine.isRPGMaker {
-                rpgMakerPlayRows(game)
+                ActionTile(title: "Plugins", symbol: "puzzlepiece.extension.fill", tint: .orange) { route = .plugins }
+            } else {
+                ActionTile(title: "Settings", symbol: "slider.horizontal.3", tint: .orange) { route = .settings }
             }
         }
     }
 
-    @ViewBuilder
-    private func rpgMakerPlayRows(_ game: Game) -> some View {
-        let speed = game.fastForwardSpeed ?? 2
-        Stepper("Fast-forward button: \(speed)×", value: fastForwardBinding, in: 2...9)
-        Button("Plugins…") { showPlugins = true }
-        Button("Use Default Touch Layout") { LayoutStore.reset(gameID) }
-            .disabled(!LayoutStore.hasGameLayout(gameID))
-    }
-
-    private var hiddenBinding: Binding<Bool> {
-        Binding<Bool>(
-            get: { privacy.isHidden(gameID) },
-            set: { value in privacy.setHidden(gameID, value) }
-        )
-    }
-
-    private func collectionBinding(_ collection: GameCollection) -> Binding<Bool> {
-        Binding<Bool>(
-            get: { collection.gameIDs.contains(gameID) },
-            set: { _ in collections.toggle(gameID, in: collection.id) }
-        )
-    }
-
-    private var organizeSection: some View {
-        Section("Organize") {
-            Toggle("Hidden (Face ID)", isOn: hiddenBinding)
-            ForEach(collections.collections) { collection in
-                Toggle(collection.name, isOn: collectionBinding(collection))
-            }
+    private func notesCard(_ notes: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Notes", systemImage: "note.text").font(.footnote.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+            Text(notes).font(.subheadline).foregroundStyle(.white)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onTapGesture { route = .settings }
     }
 
-    private var nwBinding: Binding<Bool> {
-        Binding<Bool>(
-            get: { game?.usesNWMode ?? false },
-            set: { value in store.mutate(gameID) { $0.nwMode = value } }
-        )
-    }
-
-    private func nwSection(_ game: Game) -> some View {
-        Section {
-            Toggle("NW.js mode (saves as files)", isOn: nwBinding)
-            if game.nwMode != nil {
-                Button("Use the app setting") { store.mutate(gameID) { $0.nwMode = nil } }
-            }
-        } footer: {
-            Text("In NW.js mode the game runs as on a PC and keeps its saves as files in save/. The first start in this mode copies old browser saves into files; the old data is kept.")
-        }
-    }
-
-    private var deleteSection: some View {
-        Section {
-            Button("Delete Browser Data", role: .destructive) { confirmWipe = true }
-            Button("Delete Game", role: .destructive) { confirmDelete = true }
-        } footer: {
-            Text("Deleting a game moves its save files to Rescued Saves; importing the same game again offers to put them back. Browser data (saves of games not in NW.js mode) is deleted with the game: back it up from the game menu first.")
-        }
-    }
-
-    @ViewBuilder
-    private func savesSection(_ game: Game) -> some View {
-        Section {
-            LabeledContent("Save files", value: "\(saveInfo.count)")
-            LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: saveInfo.bytes, countStyle: .file))
-            if let newest = saveInfo.newest {
-                LabeledContent("Last save", value: newest.formatted(date: .abbreviated, time: .shortened))
-            }
-            if saveInfo.displaced > 0 {
-                LabeledContent("Displaced copies", value: "\(saveInfo.displaced)")
-            }
-            Button { export(game) } label: { Label("Export Saves (ZIP)", systemImage: "square.and.arrow.up") }
-                .disabled(saveInfo.count == 0)
-            Button { pickingZip = true } label: { Label("Import Saves (ZIP)", systemImage: "square.and.arrow.down") }
-            Button(role: .destructive) { confirmDeleteSaves = true } label: { Label("Delete Saves", systemImage: "trash") }
-                .disabled(saveInfo.count == 0)
-        } header: {
-            Text("Saves")
-        } footer: {
-            if saveInfo.displaced > 0 {
-                Text("Displaced copies (.nex-displaced.bak) are older saves kept when a restore replaced them.")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func backupsSection(_ game: Game) -> some View {
-        Section {
-            Button { backUpNow(game) } label: { Label("Back Up Now", systemImage: "clock.arrow.circlepath") }
-                .disabled(saveInfo.count == 0)
-            ForEach(backupList) { entry in
-                Button { pendingBackupRestore = entry } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.date.formatted(date: .abbreviated, time: .shortened))
-                        Text(entry.name.hasPrefix("before-") ? "Safety copy · \(entry.name)" : ByteCountFormatter.string(fromByteCount: entry.bytes, countStyle: .file))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
-        } header: {
-            Text("Backups")
-        } footer: {
-            Text(backupList.isEmpty ? "No backups yet." : "Tap a backup to restore it.")
-        }
-    }
-
-    private func backUpNow(_ game: Game) {
-        Task {
-            _ = await Task.detached { AutoBackup.run(game, force: true) }.value
-            await refresh(game)
-        }
-    }
-
-    private func refresh(_ game: Game) async {
-        let folder = Paths.folder(for: game)
+    private func refresh() async {
+        guard let game else { return }
         let target = game
-        let result = await Task.detached { (GameScanner.size(of: folder), SaveArchive.info(for: target)) }.value
+        cover = await CoverCache.load(for: target)
+        let folder = Paths.folder(for: target)
+        let result = await Task.detached { () -> (Int64, Int, Int) in
+            (GameScanner.size(of: folder), SaveArchive.info(for: target).count, Gallery.count(for: target))
+        }.value
         sizeText = ByteCountFormatter.string(fromByteCount: result.0, countStyle: .file)
-        saveInfo = result.1
-        backupList = await Task.detached { SaveArchive.backups(for: target) }.value
-    }
-
-    private func export(_ game: Game) {
-        Task {
-            do {
-                shareURL = try await Task.detached { try SaveArchive.exportZip(for: game) }.value
-            } catch {
-                message = error.localizedDescription
-            }
-        }
-    }
-
-    private func restore(_ url: URL, into game: Game) {
-        Task {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            do {
-                let count = try await Task.detached { try SaveArchive.restore(zip: url, into: game) }.value
-                message = "Restored \(count) save file(s)."
-            } catch {
-                message = "Restore failed: \(error.localizedDescription)"
-            }
-            await refresh(game)
-        }
-    }
-
-    private func deleteSaves(of game: Game) {
-        Task {
-            do {
-                try await Task.detached { try SaveArchive.deleteSaves(of: game) }.value
-            } catch {
-                message = error.localizedDescription
-            }
-            await refresh(game)
-        }
+        saveCount = result.1
+        shotCount = result.2
     }
 }
 

@@ -14,6 +14,10 @@ enum Paths {
     static let backups: URL = subfolder("Backups")
     /// Saves kept when a game is deleted: Rescued Saves/<name>-<uuid>/
     static let rescuedSaves: URL = subfolder("Rescued Saves")
+    /// Covers the user picked: Covers/<game-uuid>.png (wins over the game's own icon).
+    static let covers: URL = subfolder("Covers")
+    /// Screenshots taken in a game: Gallery/<game-uuid>/<date>.png
+    static let gallery: URL = subfolder("Gallery")
 
     private static func subfolder(_ name: String) -> URL {
         let dir = support.appendingPathComponent(name, isDirectory: true)
@@ -40,8 +44,18 @@ enum Paths {
     }
 
     static func coverURL(for game: Game) -> URL? {
+        let custom = customCoverURL(for: game)
+        if FileManager.default.fileExists(atPath: custom.path) { return custom }
         let url = entryDirectory(for: game).appendingPathComponent("icon/icon.png")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    static func customCoverURL(for game: Game) -> URL {
+        covers.appendingPathComponent(game.id.uuidString + ".png")
+    }
+
+    static func galleryFolder(for game: Game) -> URL {
+        gallery.appendingPathComponent(game.id.uuidString, isDirectory: true)
     }
 
     /// A name that is safe to use as a file name.
