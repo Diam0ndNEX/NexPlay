@@ -19,7 +19,15 @@ final class LibraryStore: ObservableObject {
         guard let data = try? Data(contentsOf: fileURL) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        games = (try? decoder.decode([Game].self, from: data)) ?? []
+        do {
+            games = try decoder.decode([Game].self, from: data)
+        } catch {
+            // Never overwrite a library we could not read: keep a copy for recovery.
+            let copy = Paths.support.appendingPathComponent("library-unreadable-\(Int(Date().timeIntervalSince1970)).json")
+            try? FileManager.default.copyItem(at: fileURL, to: copy)
+            AppLog.log("library.json could not be read (\(error.localizedDescription)); copy kept as \(copy.lastPathComponent)")
+            games = []
+        }
     }
 
     private func save() {
@@ -47,12 +55,13 @@ final class LibraryStore: ObservableObject {
         mutate(game.id) { $0.isFavorite.toggle() }
     }
 
-    /// Removes the game's files. `keepSaves` is false by default: its web data (saves) goes too.
+    /// Removes the game's files and its web data.
     func delete(_ game: Game) async {
         await DataStores.wipe(for: game)
         try? FileManager.default.removeItem(at: Paths.folder(for: game))
         games.removeAll { $0.id == game.id }
         save()
+        AppLog.log("deleted \(game.name)")
     }
 
     // MARK: - Import
@@ -60,7 +69,6 @@ final class LibraryStore: ObservableObject {
     func importItems(_ urls: [URL]) async {
         guard !urls.isEmpty else { return }
         isImporting = true
-        var added = 0
         var problems: [String] = []
 
         for url in urls {
@@ -71,9 +79,10 @@ final class LibraryStore: ObservableObject {
                 }.value
                 games.append(game)
                 save()
-                added += 1
+                AppLog.log("imported \(game.name) (\(game.engine.badge)) from \(url.lastPathComponent)")
             } catch {
                 problems.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                AppLog.log("import failed for \(url.lastPathComponent): \(error.localizedDescription)")
             }
             if scoped { url.stopAccessingSecurityScopedResource() }
         }

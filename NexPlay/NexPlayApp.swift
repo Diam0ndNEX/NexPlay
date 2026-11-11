@@ -33,6 +33,7 @@ enum OrientationManager {
 struct NexPlayApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = LibraryStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         UserDefaults.standard.register(defaults: [
@@ -42,6 +43,7 @@ struct NexPlayApp: App {
             SettingsKey.desktopMode: true,
             SettingsKey.pixelatedScaling: false,
         ])
+        AppLog.noteLaunch()
     }
 
     var body: some Scene {
@@ -54,6 +56,16 @@ struct NexPlayApp: App {
                         await store.importItems([url])
                         // Files opened from other apps are copied into an Inbox folder; remove that copy.
                         if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }
+                    }
+                }
+                .onChange(of: scenePhase) { phase in
+                    switch phase {
+                    case .active:
+                        AppLog.noteActive()
+                    case .background:
+                        AppLog.noteBackground()
+                    default:
+                        break
                     }
                 }
         }

@@ -29,15 +29,25 @@ final class LogReceiver: NSObject, WKScriptMessageHandler {
     }
 }
 
-/// Shows the game log with a share button, so a log can be sent along with a bug report.
+/// Shows a log with a share button, so a log can be sent along with a bug report.
+/// Used for a game's log and for the app log.
 final class LogViewController: UIViewController {
-    private let log: GameLog
+    private let textProvider: () -> String
+    private let emptyText: String
     private let textView = UITextView()
 
     init(log: GameLog, gameName: String) {
-        self.log = log
+        self.textProvider = { log.text }
+        self.emptyText = "Nothing logged yet. Console output, script errors and files that failed to load show up here."
         super.init(nibName: nil, bundle: nil)
         title = gameName
+    }
+
+    init(title: String, emptyText: String, text: @escaping () -> String) {
+        self.textProvider = text
+        self.emptyText = emptyText
+        super.init(nibName: nil, bundle: nil)
+        self.title = title
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -48,9 +58,8 @@ final class LogViewController: UIViewController {
         textView.isEditable = false
         textView.alwaysBounceVertical = true
         textView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        textView.text = log.lines.isEmpty
-            ? "Nothing logged yet. Console output, script errors and files that failed to load show up here."
-            : log.text
+        let current = textProvider()
+        textView.text = current.isEmpty ? emptyText : current
         textView.frame = view.bounds
         textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(textView)
@@ -62,7 +71,7 @@ final class LogViewController: UIViewController {
     @objc private func close() { dismiss(animated: true) }
 
     @objc private func share() {
-        let sheet = UIActivityViewController(activityItems: [log.text], applicationActivities: nil)
+        let sheet = UIActivityViewController(activityItems: [textProvider()], applicationActivities: nil)
         sheet.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItem
         present(sheet, animated: true)
     }

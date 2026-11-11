@@ -20,7 +20,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 ## Layout
 - `project.yml`: XcodeGen config (the Xcode project is generated in CI, never committed).
 - `tools/make_icon.py`: draws the app icon during the build.
-- `docs/SPEC.md`, `docs/PROMPT.md`: plan and prompt.
+- `docs/SPEC.md`, `docs/RESEARCH.md`, `docs/PROMPT.md`: plan, research digest and prompt.
 - `NexPlay/`: all Swift sources.
   - `Models.swift`: `Game`, `GameEngine`, `OrientationMode`, settings keys.
   - `FileUtils.swift`: paths, MIME types, `GameScanner` (engine detection, titles, sizes).
@@ -29,6 +29,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
   - `SaveTools.swift`: per-game data stores, save backup/restore/clear through JS.
   - `PageBridge.swift`: injected scripts (diagnostics, key bridge, FPS, RPG Maker runtime with speed/pause).
   - `GameLog.swift`: in-app game log (console, errors, failed file loads) and its viewer. Use it to debug without a Mac.
+  - `AppLog.swift`: app-wide log (imports, backups, crash notes) in memory + `Caches/NexPlay-app.log`; Settings > Advanced > App Log shares it. Also notes an unclean exit at launch (idea from Empo's CrashTracker).
   - `GamepadOverlay.swift`: on-screen D-pad and buttons.
   - `PlayerViewController.swift`: the game screen and its menu.
   - `LibraryView.swift`, `GameDetailView.swift`, `SettingsView.swift`: SwiftUI screens.
@@ -38,15 +39,23 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 - Compare resolved paths when computing relative paths (iOS reports `/var` as `/private/var`).
 - Engine detection: `js/rmmz_core.js` = MZ, `js/rpg_core.js` = MV, otherwise HTML5. The game root can be up to two folders deep.
 - Never lose a save: atomic writes, back up before migrating, confirm before deleting.
+- An unreadable `library.json` is copied aside (`library-unreadable-<time>.json`) before anything overwrites it.
 - Do not override `navigator.getGamepads`: physical controllers reach the game through the Gamepad API here.
 - Write boring, explicit Swift (nothing is compiled before pushing). Re-read changed files for imports, labels, `self.` and `@MainActor` mistakes.
+- Use `GameLog` for game problems and `AppLog` for app problems.
 
 ## Roadmap (details in docs/SPEC.md)
 - 1.1.0 done: hardened file server, RPG Maker runtime (speed, pause/resume, focus), desktop mode, sharp pixels, game log, prompt() dialogs, credits.
-- 1.1.x: fixes from the first device tests.
+- 1.1.4 done: base check, AppLog, crash note, library.json safety.
 - 1.2: NW.js shim and file-based saves (backup as zip).
 - 1.3: Controls (editor, per-game layouts, haptics, controller bindings, portrait position).
 - 1.4: Library (collections, Face ID lock, auto save backups, settings rebuilt like RPGPlayer).
 - 1.5: Import 7z/RAR, media conversion. 1.6: Translation.
 - 2.0: RPG Maker XP/VX/Ace through mkxp-z, following Empo's core pattern.
 - 3.0: RPG Maker 2000/2003 (EasyRPG), back burner.
+
+## Decisions
+(Defaults chosen during the 2.0.0 run; change them if a device test says otherwise.)
+
+## Not built
+(Filled during the 2.0.0 run.)

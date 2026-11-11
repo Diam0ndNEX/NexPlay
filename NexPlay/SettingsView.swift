@@ -37,6 +37,10 @@ struct SettingsView: View {
                     Text("Desktop mode lets MV and MZ games run as they do on a PC: normal audio files, full update rate, full screen height. Turn it off if a game misbehaves. Sharp pixels stops smoothing when the picture is scaled. Both apply the next time a game starts.")
                 }
 
+                Section("Advanced") {
+                    NavigationLink("App Log") { AppLogView() }
+                }
+
                 Section("About") {
                     LabeledContent("Version", value: version)
                     LabeledContent("Supports", value: "RPG Maker MV/MZ, HTML5")
@@ -56,5 +60,29 @@ struct SettingsView: View {
                 ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
             }
         }
+    }
+}
+
+/// Shows the app log (imports, backups, crash notes) with a share button.
+struct AppLogView: View {
+    @State private var text = ""
+
+    var body: some View {
+        ScrollView {
+            Text(text.isEmpty ? "Nothing logged yet." : text)
+                .font(.system(size: 11, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+        }
+        .navigationTitle("App Log")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                ShareLink(item: text) { Image(systemName: "square.and.arrow.up") }
+                    .accessibilityLabel("Share log")
+            }
+        }
+        .onAppear { text = AppLog.shared.text }
     }
 }
