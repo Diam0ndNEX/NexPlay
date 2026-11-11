@@ -21,40 +21,40 @@ enum ArchiveExtractor {
 
     /// Unpacks `url` into `destination`. Self-extracting .exe files work when the payload is 7z, RAR or ZIP.
     static func extract(_ url: URL, to destination: URL, cancel: ImportCancel, status: (String) -> Void) throws {
-        let name = url.lastPathComponent
+        let archiveName = url.lastPathComponent
         guard let reader = archive_read_new() else {
-            throw PipelineError.archiveFailed(name, "libarchive could not start")
+            throw PipelineError.archiveFailed(archiveName, "libarchive could not start")
         }
         defer { _ = archive_read_free(reader) }
         _ = archive_read_support_filter_all(reader)
         _ = archive_read_support_format_all(reader)
         let opened = url.path.withCString { archive_read_open_filename(reader, $0, 1 << 20) }
-        guard opened == ok else { throw PipelineError.archiveFailed(name, message(reader)) }
+        guard opened == ok else { throw PipelineError.archiveFailed(archiveName, errorText(reader)) }
 
         let fm = FileManager.default
         var entry: OpaquePointer?
-        var count = 0
-        var files = 0
+        var entryCount = 0
+        var fileCount = 0
         while true {
-            if count % 20 == 0 { try cancel.check() }
+            if entryCount % 20 == 0 { try cancel.check() }
             let result = archive_read_next_header(reader, &entry)
             if result == eof { break }
             if result == retry { continue }
-            if result < warn { throw PipelineError.archiveFailed(name, message(reader)) }
+            if result < warn { throw PipelineError.archiveFailed(archiveName, errorText(reader)) }
             guard let entry else { continue }
-            count += 1
+            entryCount += 1
 
-            guard let raw = path(of: entry) else {
+            guard let rawName = entryName(of: entry) else {
                 _ = archive_read_data_skip(reader)
                 continue
             }
-            let path = raw.replacingOccurrences(of: "\\", with: "/")
-            let parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+            let relative = rawName.replacingOccurrences(of: "\\", with: "/")
+            let parts = relative.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
             if parts.isEmpty {
                 _ = archive_read_data_skip(reader)
                 continue
             }
-            if parts.contains("..") || path.hasPrefix("/") { throw PipelineError.unsafePath(path) }
+            if parts.contains("..") || relative.hasPrefix("/") { throw PipelineError.unsafePath(relative) }
             if parts.first == "__MACOSX" || parts.last == ".DS_Store" {
                 _ = archive_read_data_skip(reader)
                 continue
@@ -62,37 +62,37 @@ enum ArchiveExtractor {
             var target = destination
             for part in parts { target.appendPathComponent(part) }
 
-            let type = Int(archive_entry_filetype(entry)) & 0o170000
-            if type == 0o040000 {
+            let kind = Int(archive_entry_filetype(entry)) & 0o170000
+            if kind == 0o040000 {
                 try fm.createDirectory(at: target, withIntermediateDirectories: true)
                 continue
             }
             // Regular files only (0 is what some formats report for them); links and devices are skipped.
-            if type != 0o100000 && type != 0 {
+            if kind != 0o100000 && kind != 0 {
                 _ = archive_read_data_skip(reader)
                 continue
             }
-            if files % 25 == 0 { status("Unpacking \(parts.last ?? name)…") }
-            files += 1
+            if fileCount % 25 == 0 { status("Unpacking \(parts.last ?? archiveName)…") }
+            fileCount += 1
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try write(reader, to: target, archiveName: name)
+            try writeEntry(reader, to: target, archiveName: archiveName)
         }
-        if files == 0 { throw PipelineError.archiveFailed(name, "no files inside") }
+        if fileCount == 0 { throw PipelineError.archiveFailed(archiveName, "no files inside") }
     }
 
     /// The entry's path as UTF-8 (7z and RAR5 store Unicode names), else the raw name.
-    private static func path(of entry: OpaquePointer) -> String? {
+    private static func entryName(of entry: OpaquePointer) -> String? {
         if let utf8 = archive_entry_pathname_utf8(entry) { return String(cString: utf8) }
         if let plain = archive_entry_pathname(entry) { return String(cString: plain) }
         return nil
     }
 
-    private static func message(_ reader: OpaquePointer) -> String {
+    private static func errorText(_ reader: OpaquePointer) -> String {
         guard let text = archive_error_string(reader) else { return "unknown error" }
         return String(cString: text)
     }
 
-    private static func write(_ reader: OpaquePointer, to target: URL, archiveName: String) throws {
+    private static func writeEntry(_ reader: OpaquePointer, to target: URL, archiveName: String) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: target.path) { try? fm.removeItem(at: target) }
         guard let stream = OutputStream(url: target, append: false) else {
@@ -106,20 +106,20 @@ enum ArchiveExtractor {
             var offset: Int64 = 0
             let result = archive_read_data_block(reader, &buffer, &size, &offset)
             if result == eof { break }
-            if result < warn { throw PipelineError.archiveFailed(archiveName, message(reader)) }
+            if result < warn { throw PipelineError.archiveFailed(archiveName, errorText(reader)) }
             guard size > 0, let buffer else { continue }
             var written = 0
             while written < size {
                 let pointer = buffer.advanced(by: written).assumingMemoryBound(to: UInt8.self)
-                let count = stream.write(pointer, maxLength: size - written)
-                if count <= 0 {
-                    let error = stream.streamError as NSError?
-                    if let error, error.domain == NSPOSIXErrorDomain, error.code == Int(ENOSPC) {
+                let wrote = stream.write(pointer, maxLength: size - written)
+                if wrote <= 0 {
+                    let streamError: NSError? = stream.streamError.map { $0 as NSError }
+                    if let streamError, streamError.domain == NSPOSIXErrorDomain, streamError.code == Int(ENOSPC) {
                         throw PipelineError.outOfSpace
                     }
-                    throw PipelineError.archiveFailed(archiveName, error?.localizedDescription ?? "write failed")
+                    throw PipelineError.archiveFailed(archiveName, streamError?.localizedDescription ?? "write failed")
                 }
-                written += count
+                written += wrote
             }
         }
     }
