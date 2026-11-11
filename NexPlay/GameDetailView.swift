@@ -3,6 +3,8 @@ import UniformTypeIdentifiers
 
 struct GameDetailView: View {
     @EnvironmentObject private var store: LibraryStore
+    @EnvironmentObject private var collections: CollectionStore
+    @EnvironmentObject private var privacy: PrivacyLock
     @Environment(\.dismiss) private var dismiss
 
     let gameID: UUID
@@ -18,6 +20,9 @@ struct GameDetailView: View {
     @State private var pickingZip = false
     @State private var pendingRestore: URL?
     @State private var message: String?
+    @State private var backupList: [BackupEntry] = []
+    @State private var pendingBackupRestore: BackupEntry?
+    @State private var showPlugins = false
 
     private var game: Game? { store.game(id: gameID) }
 
@@ -63,6 +68,28 @@ struct GameDetailView: View {
                             set: { value in store.mutate(gameID) { $0.statsOverlay = value } }
                         ))
                         Toggle("Block internet", isOn: binding(\.blockNetwork, default: false))
+                        if game.engine.isRPGMaker {
+                            Stepper("Fast-forward button: \(game.fastForwardSpeed ?? 2)×", value: Binding(
+                                get: { game.fastForwardSpeed ?? 2 },
+                                set: { value in store.mutate(gameID) { $0.fastForwardSpeed = value } }
+                            ), in: 2...9)
+                            Button("Plugins…") { showPlugins = true }
+                            Button("Use Default Touch Layout") { LayoutStore.reset(gameID) }
+                                .disabled(!LayoutStore.hasGameLayout(gameID))
+                        }
+                    }
+
+                    Section("Organize") {
+                        Toggle("Hidden (Face ID)", isOn: Binding(
+                            get: { privacy.isHidden(gameID) },
+                            set: { privacy.setHidden(gameID, $0) }
+                        ))
+                        ForEach(collections.collections) { collection in
+                            Toggle(collection.name, isOn: Binding(
+                                get: { collection.gameIDs.contains(gameID) },
+                                set: { _ in collections.toggle(gameID, in: collection.id) }
+                            ))
+                        }
                     }
 
                     if game.engine.isRPGMaker {
@@ -81,6 +108,7 @@ struct GameDetailView: View {
 
                     if game.usesNWMode {
                         savesSection(game)
+                        backupsSection(game)
                     }
 
                     Section {
@@ -132,11 +160,26 @@ struct GameDetailView: View {
                     Button("Delete Game", role: .destructive) {
                         Task {
                             await store.delete(game)
+                            collections.forget(game.id)
+                            privacy.setHidden(game.id, false)
+                            LayoutStore.delete(for: game.id)
                             dismiss()
                         }
                     }
                 } message: {
-                    Text("The game is removed. Its save files are kept in Rescued Saves.")
+                    Text("The game, its layout and its backups are removed. Its save files are kept in Rescued Saves.")
+                }
+                .sheet(isPresented: $showPlugins) { PluginListView(game: game) }
+                .confirmationDialog("Restore this backup into \(game.name)?", isPresented: Binding(
+                    get: { pendingBackupRestore != nil },
+                    set: { if !$0 { pendingBackupRestore = nil } }
+                ), titleVisibility: .visible) {
+                    Button("Restore") {
+                        if let entry = pendingBackupRestore { restore(entry.url, into: game) }
+                        pendingBackupRestore = nil
+                    }
+                } message: {
+                    Text("Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.")
                 }
                 .alert("Saves", isPresented: Binding(
                     get: { message != nil },
@@ -175,12 +218,41 @@ struct GameDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private func backupsSection(_ game: Game) -> some View {
+        Section {
+            Button { backUpNow(game) } label: { Label("Back Up Now", systemImage: "clock.arrow.circlepath") }
+                .disabled(saveInfo.count == 0)
+            ForEach(backupList) { entry in
+                Button { pendingBackupRestore = entry } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.date.formatted(date: .abbreviated, time: .shortened))
+                        Text(entry.name.hasPrefix("before-") ? "Safety copy · \(entry.name)" : ByteCountFormatter.string(fromByteCount: entry.bytes, countStyle: .file))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("Backups")
+        } footer: {
+            Text(backupList.isEmpty ? "No backups yet." : "Tap a backup to restore it.")
+        }
+    }
+
+    private func backUpNow(_ game: Game) {
+        Task {
+            _ = await Task.detached { AutoBackup.run(game, force: true) }.value
+            await refresh(game)
+        }
+    }
+
     private func refresh(_ game: Game) async {
         let folder = Paths.folder(for: game)
         let target = game
         let result = await Task.detached { (GameScanner.size(of: folder), SaveArchive.info(for: target)) }.value
         sizeText = ByteCountFormatter.string(fromByteCount: result.0, countStyle: .file)
         saveInfo = result.1
+        backupList = await Task.detached { SaveArchive.backups(for: target) }.value
     }
 
     private func export(_ game: Game) {
