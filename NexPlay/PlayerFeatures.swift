@@ -47,13 +47,13 @@ enum PlayerFeatures {
     /// Every feature the player runs.
     @MainActor
     static func make(context: PlayerContext) -> [PlayerFeature] {
-        []
+        [PluginsFeature(context: context), CheatsFeature(context: context)]
     }
 
     /// Replacement file contents the scheme handler serves for a game (relative path, lowercased), or nil.
     /// Called on the file queue.
     static func fileOverride(for game: Game) -> ((String) -> Data?)? {
-        nil
+        PluginManager.fileOverride(for: game)
     }
 }
 
