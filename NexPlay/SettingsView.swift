@@ -20,6 +20,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.nwMode) private var nwMode = true
     @AppStorage(SettingsKey.autoBackup) private var autoBackup = true
     @AppStorage(SettingsKey.backupRetention) private var retention = 10
+    @AppStorage(SettingsKey.translationEnabled) private var translation = false
 
     @State private var search = ""
     @State private var showControllerMap = false
@@ -46,6 +47,7 @@ struct SettingsView: View {
                 controls
                 gameplay
                 backups
+                translationSection
                 advanced
                 about
                 if show("reset defaults") {
@@ -169,6 +171,18 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder private var translationSection: some View {
+        if show("translation translate mtool language") {
+            Section {
+                Toggle("Translate MV/MZ games", isOn: $translation)
+            } header: {
+                SettingsHeader(title: "Translation", symbol: "character.bubble.fill", color: .indigo)
+            } footer: {
+                Text("Uses an MTool TranslateFile.json from the game folder or imported in the game menu (Translation…). Works offline; nothing is sent anywhere. Each game can override this. Turn it on before starting a game.")
+            }
+        }
+    }
+
     @ViewBuilder private var advanced: some View {
         if show("advanced app log diagnostics") {
             Section {
@@ -181,7 +195,7 @@ struct SettingsView: View {
         if show("about version credits licenses") {
             Section {
                 LabeledContent("Version", value: version)
-                LabeledContent("Supports", value: "RPG Maker MV/MZ, HTML5")
+                LabeledContent("Supports", value: "RPG Maker MV/MZ, HTML5 (XP/VX/Ace with the mkxp core build)")
                 NavigationLink("Credits") { CreditsView() }
             } header: { SettingsHeader(title: "About", symbol: "info.circle.fill", color: .teal) }
         }
@@ -241,6 +255,9 @@ struct CreditsView: View {
             }
             Section("Libraries") {
                 Text("ZIPFoundation, Copyright (c) 2017-2026 Thomas Zoechling, https://github.com/weichsel/ZIPFoundation (MIT).")
+            }
+            Section("RPG Maker XP/VX/Ace core (only in builds with the mkxp core)") {
+                Text("mkxp-z, https://github.com/mkxp-z/mkxp-z (GPLv2 or later), built for iOS by mkxp-z-apple-mobile, https://github.com/mateo-m/mkxp-z-apple-mobile (GPL), with Ruby (Ruby license / BSD-2-Clause), SDL (zlib), ANGLE (BSD-3-Clause), FluidSynth (LGPL-2.1) and the other libraries its licenses.json lists. Core contract and build scripts from Empo (GPL-3.0-only with additional terms).")
             }
             Section("Ideas only (no code)") {
                 Text("RPGPlayer, ArkRPG, JoiPlay, Runa, QuestPlay, RPGEmu: feature ideas such as collections, plugin manager, cheats, storage manager, MTool translation files and encoding repair.")

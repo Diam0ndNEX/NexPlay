@@ -38,7 +38,7 @@ jobs:
 
       - name: Build the mkxp core (XP/VX/Ace)
         if: env.NEXPLAY_MKXP == '1'
-        run: tools/fetch_mkxp_core.sh
+        run: bash tools/fetch_mkxp_core.sh
 
       - name: Generate Xcode project
         run: xcodegen generate
