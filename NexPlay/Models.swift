@@ -42,7 +42,13 @@ enum GameEngine: String, Codable {
         }
     }
 
-    var isRPGMaker: Bool { self != .web }
+    /// RPG Maker MV or MZ (web engines with the NexPlay runtime).
+    var isRPGMaker: Bool {
+        switch self {
+        case .rpgMV, .rpgMZ: return true
+        case .web: return false
+        }
+    }
 }
 
 enum LibrarySort: String, CaseIterable, Identifiable {
@@ -77,9 +83,19 @@ struct Game: Identifiable, Codable, Hashable {
     var blockNetwork: Bool = false
     /// Shows a small overlay with frame rate, battery and time.
     var statsOverlay: Bool?
+    /// Per-game NW.js mode override (nil follows the app setting). RPG Maker only.
+    var nwMode: Bool?
+    /// True once browser-mode saves were copied into save/ files.
+    var savesMigrated: Bool?
 
     /// The hostname used in nexplay://<host>/ URLs. Unique per game, so every game has its own web storage.
     var host: String { id.uuidString.lowercased() }
+
+    /// RPG Maker games run with the NW.js shim and keep saves as files in save/ when this is true.
+    var usesNWMode: Bool {
+        guard engine.isRPGMaker else { return false }
+        return nwMode ?? UserDefaults.standard.bool(forKey: SettingsKey.nwMode)
+    }
 }
 
 enum SettingsKey {
@@ -91,4 +107,6 @@ enum SettingsKey {
     static let desktopMode = "desktopMode"
     /// Sharp pixels instead of smoothed scaling for RPG Maker games (default off).
     static let pixelatedScaling = "pixelatedScaling"
+    /// RPG Maker games run as under NW.js and keep saves as files (default on).
+    static let nwMode = "nwMode"
 }

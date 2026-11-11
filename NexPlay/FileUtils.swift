@@ -9,11 +9,17 @@ enum Paths {
         return dir
     }()
 
-    static let games: URL = {
-        let dir = support.appendingPathComponent("Games", isDirectory: true)
+    static let games: URL = subfolder("Games")
+    /// Save backups: Backups/<game-uuid>/<date>.zip
+    static let backups: URL = subfolder("Backups")
+    /// Saves kept when a game is deleted: Rescued Saves/<name>-<uuid>/
+    static let rescuedSaves: URL = subfolder("Rescued Saves")
+
+    private static func subfolder(_ name: String) -> URL {
+        let dir = support.appendingPathComponent(name, isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
-    }()
+    }
 
     static func folder(for game: Game) -> URL {
         games.appendingPathComponent(game.id.uuidString, isDirectory: true)
@@ -24,9 +30,32 @@ enum Paths {
         folder(for: game).appendingPathComponent(game.entry).deletingLastPathComponent()
     }
 
+    /// Where RPG Maker keeps file saves in NW.js mode (next to index.html, like on a PC).
+    static func saveFolder(for game: Game) -> URL {
+        entryDirectory(for: game).appendingPathComponent("save", isDirectory: true)
+    }
+
+    static func backupFolder(for game: Game) -> URL {
+        backups.appendingPathComponent(game.id.uuidString, isDirectory: true)
+    }
+
     static func coverURL(for game: Game) -> URL? {
         let url = entryDirectory(for: game).appendingPathComponent("icon/icon.png")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// A name that is safe to use as a file name.
+    static func safeName(_ name: String) -> String {
+        let cleaned = name.components(separatedBy: CharacterSet(charactersIn: "/\\:?%*|\"<>\n\r\t")).joined(separator: "-")
+        let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Game" : String(trimmed.prefix(80))
+    }
+
+    static func timestamp(_ date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        return formatter.string(from: date)
     }
 }
 
