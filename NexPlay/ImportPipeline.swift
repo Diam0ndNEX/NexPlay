@@ -31,6 +31,9 @@ enum PipelineError: LocalizedError {
     case outOfSpace
     case unsafePath(String)
     case archive(String)
+    case archiveFailed(String, String)
+    case unknownType(String)
+    case emptyFolder
 
     var errorDescription: String? {
         switch self {
@@ -38,7 +41,14 @@ enum PipelineError: LocalizedError {
         case .outOfSpace: return "Not enough free space on this iPhone. Free some space and import again."
         case .unsafePath(let path): return "The archive holds a file that would land outside the game folder (\(path)). Nothing was imported."
         case .archive(let ext):
-            return "NexPlay can't open .\(ext) archives yet. Unpack it in the Files app (or another app) and import the folder, or make a ZIP."
+            return "NexPlay can't open .\(ext) archives. Unpack it in the Files app (or another app) and import the folder, or make a ZIP."
+        case .archiveFailed(let name, let detail):
+            return "Couldn't unpack \(name) (\(detail)). The archive may be damaged, password-protected or split into parts (part1, part2…). Join or unpack it in another app and import the folder."
+        case .unknownType(let ext):
+            let kind = ext.isEmpty ? "This file" : "A .\(ext) file"
+            return "\(kind) can't be imported. Import a ZIP, 7z or RAR archive, a game folder, or an HTML file."
+        case .emptyFolder:
+            return "The folder is empty or its files couldn't be read. If it's in iCloud Drive, long-press it in the Files app, tap Download Now, then import it again."
         }
     }
 }
@@ -95,19 +105,24 @@ enum ImportPipeline {
             if isDirectory.boolValue {
                 fallbackName = url.lastPathComponent
                 status("Copying \(url.lastPathComponent)…")
-                for child in try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) {
-                    try cancel.check()
-                    try mapSpace { try fm.copyItem(at: child, to: folder.appendingPathComponent(child.lastPathComponent)) }
-                }
-            } else if ext == "zip" {
+                var copied = 0
+                try copyFolder(url, to: folder, cancel: cancel, status: status, copied: &copied)
+                if copied == 0 { throw PipelineError.emptyFolder }
+            } else if ext == "zip" || ext == "jgp" {
                 status("Unpacking \(url.lastPathComponent)…")
-                encodingNote = try extractZip(url, to: folder, cancel: cancel)
+                do {
+                    encodingNote = try extractZip(url, to: folder, cancel: cancel)
+                } catch ImportError.unsupported(_) {
+                    // A ZIP that ZIPFoundation can't open (or a renamed archive): let libarchive try.
+                    try ArchiveExtractor.extract(url, to: folder, cancel: cancel, status: status)
+                }
             } else if ["html", "htm"].contains(ext) {
                 try mapSpace { try fm.copyItem(at: url, to: folder.appendingPathComponent(url.lastPathComponent)) }
-            } else if ["7z", "rar", "exe", "jgp", "tar", "gz", "xz", "bz2"].contains(ext) {
-                throw PipelineError.archive(ext)
+            } else if ArchiveExtractor.extensions.contains(ext) {
+                status("Unpacking \(url.lastPathComponent)…")
+                try ArchiveExtractor.extract(url, to: folder, cancel: cancel, status: status)
             } else {
-                throw ImportError.unsupported(ext)
+                throw PipelineError.unknownType(ext)
             }
 
             try cancel.check()
@@ -121,6 +136,50 @@ enum ImportPipeline {
             try? fm.removeItem(at: folder)
             throw error
         }
+    }
+
+    /// Copies a picked folder file by file. Folders in iCloud Drive or another storage provider can hold files that
+    /// are not downloaded yet (iCloud shows them as hidden ".name.icloud" placeholders); each file is read through
+    /// NSFileCoordinator, which downloads it first.
+    private static func copyFolder(_ source: URL, to target: URL, cancel: ImportCancel,
+                                   status: (String) -> Void, copied: inout Int) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        let kids = try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey], options: [])
+        for kid in kids {
+            try cancel.check()
+            var name = kid.lastPathComponent
+            var item = kid
+            if name.hasPrefix("."), name.hasSuffix(".icloud"), name.count > 8 {
+                name = String(name.dropFirst().dropLast(7))
+                item = source.appendingPathComponent(name)
+            }
+            if name == ".DS_Store" || name == "__MACOSX" { continue }
+            let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            let destination = target.appendingPathComponent(name)
+            if isDirectory {
+                try copyFolder(item, to: destination, cancel: cancel, status: status, copied: &copied)
+            } else {
+                try coordinatedCopy(item, to: destination)
+                copied += 1
+                if copied % 50 == 0 { status("Copying… \(copied) files") }
+            }
+        }
+    }
+
+    private static func coordinatedCopy(_ source: URL, to target: URL) throws {
+        try? FileManager.default.startDownloadingUbiquitousItem(at: source)
+        var coordinationError: NSError?
+        var copyError: Error?
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: source, options: [], error: &coordinationError) { readable in
+            do {
+                try mapSpace { try FileManager.default.copyItem(at: readable, to: target) }
+            } catch {
+                copyError = error
+            }
+        }
+        if let copyError { throw copyError }
+        if let coordinationError { throw coordinationError }
     }
 
     /// Runs file work and turns "disk full" into a clear error.
@@ -338,7 +397,8 @@ enum ImportPipeline {
             game.orientation = .auto
             game.gamepad = false
         } else {
-            game.orientation = .landscape
+            let raw = UserDefaults.standard.string(forKey: SettingsKey.newGameOrientation) ?? "landscape"
+            game.orientation = OrientationMode(rawValue: raw) ?? .landscape
             game.gamepad = true
         }
         try mapSpace { try FileManager.default.moveItem(at: staged.folder, to: Paths.folder(for: game)) }

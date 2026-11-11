@@ -7,8 +7,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "2.0.1"
-    CURRENT_PROJECT_VERSION: "14"
+    MARKETING_VERSION: "2.1.0"
+    CURRENT_PROJECT_VERSION: "15"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
     # The XP/VX/Ace core is off by default. The workflow turns it on with
@@ -34,3 +34,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        # libarchive ships with iOS (7z, RAR, TAR...). NexPlay-Bridging-Header.h declares the functions
+        # ArchiveExtractor.swift uses, because the iOS SDK has no libarchive headers.
+        SWIFT_OBJC_BRIDGING_HEADER: NexPlay/NexPlay-Bridging-Header.h
+        OTHER_LDFLAGS: "$(inherited) -larchive"
