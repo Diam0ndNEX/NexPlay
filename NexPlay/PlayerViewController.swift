@@ -21,7 +21,8 @@ struct PlayerScreen: UIViewControllerRepresentable {
     }
 }
 
-final class PlayerViewController: GCEventViewController, WKNavigationDelegate, WKUIDelegate, UIDocumentPickerDelegate {
+final class PlayerViewController: GCEventViewController, WKNavigationDelegate, WKUIDelegate, UIDocumentPickerDelegate,
+    UIGestureRecognizerDelegate {
     private enum PickPurpose {
         case jsonRestore
         case zipRestore
@@ -32,21 +33,29 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private let onExit: () -> Void
 
     private var webView: WKWebView!
+    private var webTop: NSLayoutConstraint?
+    private var webBottom: NSLayoutConstraint?
     private let statsReceiver = StatsReceiver()
     private let logReceiver = LogReceiver()
     private let exitReceiver = MessageReceiver()
     private let gameLog = GameLog()
     private let gamepad = GamepadOverlayView()
-    private let menuButton = UIButton(type: .custom)
+    private let controlBar = ControlBarView()
+    private let keySender = KeySenderField(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+    private let banner = UILabel()
     private let statsLabel = UILabel()
+    private let prefs = ControlPrefs.current()
 
     private var speed = 1
     private var currentFPS = 0
     private var statsTimer: Timer?
+    private var bannerTimer: Timer?
     private var sessionStart: Date?
+    private var loadStart: Date?
     private var didCountPlay = false
-    private var didPlaceMenuButton = false
     private var isShutDown = false
+    private var isEditingControls = false
+    private var controllerConnected = false
     private var loadTask: Task<Void, Never>?
     private var pickPurpose: PickPurpose = .jsonRestore
     private var didWarnAboutMemory = false
@@ -71,6 +80,11 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private static var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+    }
+
+    /// Auto-rotate in games (Settings) wins over the game's own orientation lock.
+    private var playOrientation: OrientationMode {
+        UserDefaults.standard.bool(forKey: SettingsKey.autoRotateInGames) ? .auto : game.orientation
     }
 
     // MARK: - View lifecycle
@@ -127,7 +141,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             }
         }
         statsReceiver.onFPS = { [weak self] fps in self?.currentFPS = fps }
-        logReceiver.onLine = { [weak self] line in self?.gameLog.add(line) }
+        logReceiver.onLine = { [weak self] line in self?.noteLine(line) }
         exitReceiver.onMessage = { [weak self] _ in
             self?.gameLog.add("the game asked to quit")
             self?.exitGame()
@@ -151,55 +165,35 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         view.addSubview(webView)
 
         let guide = view.safeAreaLayoutGuide
+        let top = webView.topAnchor.constraint(equalTo: guide.topAnchor)
+        let bottom = webView.bottomAnchor.constraint(equalTo: guide.bottomAnchor)
+        webTop = top
+        webBottom = bottom
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: guide.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: guide.bottomAnchor),
+            top,
+            bottom,
             webView.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
         ])
 
-        gamepad.frame = view.bounds
-        gamepad.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        gamepad.isHidden = !game.gamepad
-        gamepad.setProfile(LayoutStore.load(for: game.id))
-        gamepad.onKey = { [weak self] key, down in self?.keyRouter.press(key, down) }
-        gamepad.onAction = { [weak self] action, down in self?.handleAction(action, down) }
-        let gameID = game.id
-        gamepad.onSave = { profile in LayoutStore.save(profile, for: gameID) }
-        gamepad.onReset = {
-            LayoutStore.reset(gameID)
-            return LayoutStore.load(for: gameID)
-        }
-        gamepad.onEditingChanged = { [weak self] editing in
-            guard let self else { return }
-            self.menuButton.isHidden = editing
-            if !editing { self.gamepad.isHidden = !self.game.gamepad }
-        }
-        view.addSubview(gamepad)
+        configureGamepad()
+        configureControllers()
+        configureControlBar()
+        configureLabels()
+        configureKeySender()
 
-        if UserDefaults.standard.string(forKey: SettingsKey.controllerMode) != "gamepadAPI" {
-            let manager = PhysicalControllerManager(gameID: game.id)
-            manager.onKey = { [weak self] key, down in self?.keyRouter.press(key, down) }
-            manager.onAction = { [weak self] action, down in self?.handleAction(action, down) }
-            manager.start()
-            controllers = manager
-        }
+        let wake = UITapGestureRecognizer(target: self, action: #selector(screenTapped))
+        wake.cancelsTouchesInView = false
+        wake.delaysTouchesBegan = false
+        wake.delaysTouchesEnded = false
+        wake.delegate = self
+        view.addGestureRecognizer(wake)
 
-        statsLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
-        statsLabel.textColor = .white
-        statsLabel.backgroundColor = UIColor(white: 0, alpha: 0.55)
-        statsLabel.layer.cornerRadius = 6
-        statsLabel.clipsToBounds = true
-        statsLabel.textAlignment = .center
-        statsLabel.isHidden = true
-        view.addSubview(statsLabel)
-
-        configureMenuButton()
-
-        NotificationCenter.default.addObserver(self, selector: #selector(appWillResign),
-                                               name: UIApplication.willResignActiveNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive),
-                                               name: UIApplication.didBecomeActiveNotification, object: nil)
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(appWillResign), name: UIApplication.willResignActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(controllersChanged), name: .GCControllerDidConnect, object: nil)
+        center.addObserver(self, selector: #selector(controllersChanged), name: .GCControllerDidDisconnect, object: nil)
 
         gameLog.add(game.usesNWMode ? "NW.js mode: saves are files in save/" : "browser mode: saves are in web storage")
         prepareAndLoad()
@@ -207,7 +201,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        OrientationManager.lock(game.orientation)
+        OrientationManager.lock(playOrientation)
         UIApplication.shared.isIdleTimerDisabled = UserDefaults.standard.bool(forKey: SettingsKey.keepScreenAwake)
     }
 
@@ -225,18 +219,21 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         super.viewDidLayoutSubviews()
         let insets = view.safeAreaInsets
         statsLabel.frame = CGRect(x: insets.left + 10, y: insets.top + 8, width: 210, height: 22)
+        layoutBanner()
 
-        if !didPlaceMenuButton {
-            didPlaceMenuButton = true
-            menuButton.center = CGPoint(x: view.bounds.width - insets.right - 34, y: insets.top + 34)
+        // Portrait game position: move the game up so the touch controls cover less of it.
+        let portrait = view.bounds.height > view.bounds.width
+        let shift = portrait ? -CGFloat(prefs.portraitOffset) * view.bounds.height : 0
+        if let webTop, webTop.constant != shift {
+            webTop.constant = shift
+            webBottom?.constant = shift
         }
-        keepMenuButtonInside()
     }
 
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { .all }
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { game.orientation.mask }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { playOrientation.mask }
 
     // MARK: - Setup helpers
 
@@ -244,6 +241,79 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         guard UserDefaults.standard.bool(forKey: SettingsKey.silentModeAudio) else { return }
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
         try? AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    private func configureGamepad() {
+        let prefs = self.prefs
+        gamepad.frame = view.bounds
+        gamepad.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        gamepad.isHidden = !game.gamepad
+        gamepad.setProfile(prefs.display(LayoutStore.load(for: game.id)))
+        gamepad.onKey = { [weak self] key, down in self?.keyRouter.press(key, down) }
+        gamepad.onAction = { [weak self] action, down in self?.handleAction(action, down) }
+        let gameID = game.id
+        gamepad.onSave = { profile in LayoutStore.save(prefs.stored(profile), for: gameID) }
+        gamepad.onReset = {
+            LayoutStore.reset(gameID)
+            return prefs.display(LayoutStore.load(for: gameID))
+        }
+        gamepad.onEditingChanged = { [weak self] editing in
+            guard let self else { return }
+            self.isEditingControls = editing
+            self.controlBar.isHidden = editing
+            if !editing { self.updateOverlays() }
+        }
+        view.addSubview(gamepad)
+    }
+
+    private func configureControllers() {
+        let mode = UserDefaults.standard.string(forKey: SettingsKey.controllerMode)
+        if prefs.physicalControllers && mode != "gamepadAPI" {
+            let manager = PhysicalControllerManager(gameID: game.id)
+            manager.onKey = { [weak self] key, down in self?.keyRouter.press(key, down) }
+            manager.onAction = { [weak self] action, down in self?.handleAction(action, down) }
+            manager.start()
+            controllers = manager
+        }
+        controllerConnected = prefs.physicalControllers && !GCController.controllers().isEmpty
+    }
+
+    private func configureControlBar() {
+        controlBar.frame = view.bounds
+        controlBar.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controlBar.configure(prefs: prefs, showFastForward: game.engine.isRPGMaker && prefs.showFastForward)
+        controlBar.menuProvider = { [weak self] in self?.buildMenuItems() ?? [] }
+        controlBar.onItem = { [weak self] item in self?.barItem(item) }
+        view.addSubview(controlBar)
+        updateOverlays()
+    }
+
+    private func configureLabels() {
+        statsLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        statsLabel.textColor = .white
+        statsLabel.backgroundColor = UIColor(white: 0, alpha: 0.55)
+        statsLabel.layer.cornerRadius = 6
+        statsLabel.clipsToBounds = true
+        statsLabel.textAlignment = .center
+        statsLabel.isHidden = true
+        view.addSubview(statsLabel)
+
+        banner.font = .systemFont(ofSize: 12, weight: .medium)
+        banner.textColor = .white
+        banner.backgroundColor = UIColor.systemRed.withAlphaComponent(0.88)
+        banner.numberOfLines = 5
+        banner.textAlignment = .center
+        banner.layer.cornerRadius = 10
+        banner.clipsToBounds = true
+        banner.isHidden = true
+        banner.isUserInteractionEnabled = true
+        banner.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bannerTapped)))
+        view.addSubview(banner)
+    }
+
+    private func configureKeySender() {
+        keySender.onKey = { [weak self] key in self?.typeKey(key) }
+        view.addSubview(keySender)
     }
 
     private var gameURL: URL? {
@@ -266,6 +336,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             }
             if let url = gameURL {
                 gameLog.add("--- loading \(url.absoluteString)")
+                loadStart = Date()
+                banner.isHidden = true
                 webView.load(URLRequest(url: url))
             }
         }
@@ -276,16 +348,125 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         store.mutate(game.id, change)
     }
 
+    // MARK: - Overlays
+
+    /// On-screen controls and the control bar follow the game setting and connected controllers.
+    private func updateOverlays() {
+        guard !isEditingControls else { return }
+        let hidePad = controllerConnected && prefs.hidePadWithController
+        gamepad.isHidden = !game.gamepad || hidePad
+        if gamepad.isHidden {
+            gamepad.releaseAll()
+        }
+        controlBar.update(controllerConnected: controllerConnected)
+        controlBar.setState(gamepadOn: game.gamepad, fastForwardOn: fastForwardOn)
+    }
+
+    @objc private func controllersChanged() {
+        controllerConnected = prefs.physicalControllers && !GCController.controllers().isEmpty
+        updateOverlays()
+    }
+
+    @objc private func screenTapped() {
+        controlBar.wake()
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let touched = touch.view else { return true }
+        if touched.isDescendant(of: controlBar) || touched.isDescendant(of: banner) { return false }
+        // Pressing an on-screen control is playing, not asking for the bar.
+        if touched !== gamepad && touched.isDescendant(of: gamepad) { return false }
+        return true
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        true
+    }
+
+    // MARK: - Problems on screen
+
+    /// Every page message goes to the game log; script errors in the first 30 seconds also show a banner, so a black
+    /// screen says why.
+    private func noteLine(_ line: String) {
+        gameLog.add(line)
+        guard let start = loadStart, Date().timeIntervalSince(start) < 30 else { return }
+        let lower = line.lowercased()
+        if lower.hasPrefix("error:") || lower.hasPrefix("unhandled rejection") || lower.hasPrefix("failed to load") {
+            showBanner("Game error: " + line)
+        }
+    }
+
+    private func showBanner(_ text: String) {
+        guard banner.isHidden else { return }
+        banner.text = String(text.prefix(220)) + "\nTap to open the game log."
+        banner.isHidden = false
+        view.setNeedsLayout()
+        bannerTimer?.invalidate()
+        bannerTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.banner.isHidden = true }
+        }
+    }
+
+    private func layoutBanner() {
+        guard !banner.isHidden else { return }
+        let insets = view.safeAreaInsets
+        let width = min(view.bounds.width - insets.left - insets.right - 24, 560)
+        let fit = banner.sizeThatFits(CGSize(width: width - 16, height: 200))
+        banner.frame = CGRect(x: (view.bounds.width - width) / 2, y: insets.top + 8,
+                              width: width, height: min(fit.height + 16, 140))
+    }
+
+    @objc private func bannerTapped() {
+        banner.isHidden = true
+        showLog()
+    }
+
     // MARK: - Input
 
     /// App actions from on-screen controls and controller buttons.
     private func handleAction(_ action: ControlAction, _ down: Bool) {
         guard action == .fastForward, down, game.engine.isRPGMaker else { return }
-        fastForwardOn.toggle()
-        setSpeed(fastForwardOn ? max(2, game.fastForwardSpeed ?? 2) : 1)
+        setSpeed(fastForwardOn ? 1 : max(2, game.fastForwardSpeed ?? 2))
+    }
+
+    private func barItem(_ item: ControlBarView.Item) {
+        switch item {
+        case .close:
+            confirmExit()
+        case .keyboard:
+            toggleKeyboard()
+        case .gamepad:
+            toggleGamepad()
+        case .settings:
+            break
+        case .screenshot:
+            takeScreenshot()
+        case .edit:
+            editControls()
+        case .fastForward:
+            handleAction(.fastForward, true)
+        }
+    }
+
+    private func toggleKeyboard() {
+        if keySender.isFirstResponder {
+            keySender.resignFirstResponder()
+        } else {
+            keySender.becomeFirstResponder()
+        }
+    }
+
+    /// A typed key goes down, then up a moment later, so the game sees it in at least one frame.
+    private func typeKey(_ key: PadKey) {
+        keyRouter.press(key, true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            self?.keyRouter.press(key, false)
+        }
     }
 
     private func editControls() {
+        keySender.resignFirstResponder()
         gamepad.isHidden = false
         gamepad.beginEditing()
     }
@@ -311,39 +492,6 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     // MARK: - Menu
 
-    private func configureMenuButton() {
-        menuButton.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
-        menuButton.setImage(UIImage(systemName: "ellipsis.circle.fill"), for: .normal)
-        menuButton.tintColor = .white
-        menuButton.backgroundColor = UIColor(white: 0, alpha: 0.35)
-        menuButton.layer.cornerRadius = 22
-        menuButton.accessibilityLabel = "Game menu"
-        let visible = UserDefaults.standard.bool(forKey: SettingsKey.showMenuButton)
-        menuButton.alpha = visible ? 0.85 : 0.15
-        menuButton.showsMenuAsPrimaryAction = true
-        menuButton.menu = UIMenu(children: [
-            UIDeferredMenuElement.uncached { [weak self] completion in
-                completion(self?.buildMenuItems() ?? [])
-            },
-        ])
-        menuButton.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(dragMenuButton(_:))))
-        view.addSubview(menuButton)
-    }
-
-    @objc private func dragMenuButton(_ gesture: UIPanGestureRecognizer) {
-        let move = gesture.translation(in: view)
-        menuButton.center = CGPoint(x: menuButton.center.x + move.x, y: menuButton.center.y + move.y)
-        gesture.setTranslation(.zero, in: view)
-        keepMenuButtonInside()
-    }
-
-    private func keepMenuButtonInside() {
-        let half = menuButton.bounds.width / 2
-        let x = min(max(menuButton.center.x, half), view.bounds.width - half)
-        let y = min(max(menuButton.center.y, half), view.bounds.height - half)
-        menuButton.center = CGPoint(x: x, y: y)
-    }
-
     private func buildMenuItems() -> [UIMenuElement] {
         var items: [UIMenuElement] = []
 
@@ -360,6 +508,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             items.append(UIMenu(title: "Fast Forward", image: UIImage(systemName: "forward.fill"), children: speeds))
         }
 
+        let profilePrefs = prefs
         items.append(UIMenu(title: "Controls", image: UIImage(systemName: "gamecontroller"), children: [
             UIAction(title: "Show On-Screen Controls", state: game.gamepad ? .on : .off) { [weak self] _ in
                 self?.toggleGamepad()
@@ -367,14 +516,17 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             UIAction(title: "Edit Controls", image: UIImage(systemName: "slider.horizontal.3")) { [weak self] _ in
                 self?.editControls()
             },
+            UIAction(title: "Type with Keyboard", image: UIImage(systemName: "keyboard")) { [weak self] _ in
+                self?.toggleKeyboard()
+            },
             UIAction(title: "Use as Default Layout", image: UIImage(systemName: "square.on.square")) { [weak self] _ in
                 guard let self else { return }
-                LayoutStore.save(self.gamepad.profile, for: nil)
+                LayoutStore.save(profilePrefs.stored(self.gamepad.profile), for: nil)
             },
             UIAction(title: "Use Default Layout", image: UIImage(systemName: "arrow.uturn.backward")) { [weak self] _ in
                 guard let self else { return }
                 LayoutStore.reset(self.game.id)
-                self.gamepad.setProfile(LayoutStore.load(for: self.game.id))
+                self.gamepad.setProfile(profilePrefs.display(LayoutStore.load(for: self.game.id)))
             },
             UIAction(title: "Controller Buttons…", image: UIImage(systemName: "gamecontroller.fill")) { [weak self] _ in
                 self?.showControllerMap()
@@ -439,7 +591,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private func setSpeed(_ value: Int) {
         speed = value
+        fastForwardOn = value > 1
         applySpeed()
+        controlBar.setState(gamepadOn: game.gamepad, fastForwardOn: fastForwardOn)
     }
 
     private func applySpeed() {
@@ -454,11 +608,11 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private func toggleGamepad() {
         update { $0.gamepad.toggle() }
-        gamepad.isHidden = !game.gamepad
         if !game.gamepad {
             gamepad.releaseAll()
             keyRouter.releaseAll()
         }
+        updateOverlays()
     }
 
     private func setOrientation(_ mode: OrientationMode) {
@@ -504,6 +658,14 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         prepareAndLoad()
     }
 
+    private func confirmExit() {
+        let alert = UIAlertController(title: "Exit \(game.name)?", message: "Progress since your last save is lost.",
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.controlBar.wake() })
+        alert.addAction(UIAlertAction(title: "Exit", style: .destructive) { [weak self] _ in self?.exitGame() })
+        presentOnTop(alert)
+    }
+
     private func exitGame() {
         shutdown()
         onExit()
@@ -513,8 +675,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private func share(_ file: URL, onDone: (() -> Void)? = nil) {
         let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
-        sheet.popoverPresentationController?.sourceView = menuButton
-        sheet.popoverPresentationController?.sourceRect = menuButton.bounds
+        sheet.popoverPresentationController?.sourceView = controlBar.anchor
+        sheet.popoverPresentationController?.sourceRect = controlBar.anchor.bounds
         sheet.completionWithItemsHandler = { _, _, _, _ in onDone?() }
         presentOnTop(sheet)
     }
@@ -686,6 +848,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         AppLog.noteGame(nil)
         statsTimer?.invalidate()
         statsTimer = nil
+        bannerTimer?.invalidate()
+        bannerTimer = nil
+        controlBar.stop()
+        keySender.resignFirstResponder()
         loadTask?.cancel()
         gamepad.releaseAll()
         controllers?.stop()
@@ -711,6 +877,28 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         applyStats()
         migrateSavesIfNeeded()
         features.forEach { $0.didFinishLoad() }
+        checkStartPage()
+    }
+
+    /// A start page served as plain text means the file server answered with an error (missing file, no access):
+    /// the page would be black text on black.
+    private func checkStartPage() {
+        let script = "document.contentType + '|' + (document.body ? document.body.innerText.slice(0, 120) : '')"
+        webView.evaluateJavaScript(script) { [weak self] result, _ in
+            guard let self, let text = result as? String, text.hasPrefix("text/plain") else { return }
+            let body = text.split(separator: "|", maxSplits: 1).last.map(String.init) ?? ""
+            let detail = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.gameLog.add("the start page could not be served: \(detail)")
+            self.showBanner("The game's start page could not be opened (\(detail)). Delete the game and import it again.")
+        }
+        guard game.engine.isRPGMaker else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+            guard let self, !self.isShutDown else { return }
+            let probe = "(typeof SceneManager !== 'undefined' && SceneManager._scene) ? SceneManager._scene.constructor.name : 'no scene yet'"
+            self.webView.evaluateJavaScript(probe) { [weak self] result, _ in
+                if let name = result as? String { self?.gameLog.add("15 s after loading the game is at: \(name)") }
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
