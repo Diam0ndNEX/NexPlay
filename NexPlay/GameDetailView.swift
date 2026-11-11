@@ -36,160 +36,228 @@ struct GameDetailView: View {
     var body: some View {
         NavigationStack {
             if let game {
-                Form {
-                    Section {
-                        HStack(spacing: 14) {
-                            CoverView(game: game).frame(width: 84)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(game.engine.title).font(.subheadline).foregroundStyle(.secondary)
-                                Text(sizeText).font(.caption).foregroundStyle(.secondary)
-                                Text("Played \(game.playCount)× · \(formatDuration(game.playSeconds))")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        Button {
-                            dismiss()
-                            onPlay(game)
-                        } label: { Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity) }
-                            .buttonStyle(.borderedProminent)
-                    }
+                detailView(game)
+            }
+        }
+    }
 
-                    Section("Name") {
-                        TextField("Name", text: binding(\.name, default: ""))
-                    }
+    // MARK: - Body pieces (split up so the compiler can type-check them quickly)
 
-                    Section("Play") {
-                        Picker("Orientation", selection: binding(\.orientation, default: .auto)) {
-                            ForEach(OrientationMode.allCases) { Text($0.title).tag($0) }
-                        }
-                        Toggle("On-screen controls", isOn: binding(\.gamepad, default: false))
-                        Toggle("Stats overlay (FPS, battery)", isOn: Binding(
-                            get: { game.statsOverlay ?? false },
-                            set: { value in store.mutate(gameID) { $0.statsOverlay = value } }
-                        ))
-                        Toggle("Block internet", isOn: binding(\.blockNetwork, default: false))
-                        if game.engine.isRPGMaker {
-                            Stepper("Fast-forward button: \(game.fastForwardSpeed ?? 2)×", value: Binding(
-                                get: { game.fastForwardSpeed ?? 2 },
-                                set: { value in store.mutate(gameID) { $0.fastForwardSpeed = value } }
-                            ), in: 2...9)
-                            Button("Plugins…") { showPlugins = true }
-                            Button("Use Default Touch Layout") { LayoutStore.reset(gameID) }
-                                .disabled(!LayoutStore.hasGameLayout(gameID))
-                        }
-                    }
+    private func detailView(_ game: Game) -> some View {
+        dangerDialogs(saveDialogs(formView(game), game), game)
+    }
 
-                    Section("Organize") {
-                        Toggle("Hidden (Face ID)", isOn: Binding(
-                            get: { privacy.isHidden(gameID) },
-                            set: { privacy.setHidden(gameID, $0) }
-                        ))
-                        ForEach(collections.collections) { collection in
-                            Toggle(collection.name, isOn: Binding(
-                                get: { collection.gameIDs.contains(gameID) },
-                                set: { _ in collections.toggle(gameID, in: collection.id) }
-                            ))
-                        }
-                    }
+    private func formView(_ game: Game) -> some View {
+        Form {
+            headerSection(game)
+            nameSection
+            playSection(game)
+            organizeSection
+            if game.engine.isRPGMaker {
+                nwSection(game)
+            }
+            if game.usesNWMode {
+                savesSection(game)
+                backupsSection(game)
+            }
+            deleteSection
+        }
+        .navigationTitle(game.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
+        }
+        .task { await refresh(game) }
+        .sheet(item: Binding(
+            get: { shareURL.map { ShareItem(url: $0) } },
+            set: { if $0 == nil { shareURL = nil } }
+        )) { item in
+            ActivityView(items: [item.url])
+        }
+        .fileImporter(isPresented: $pickingZip, allowedContentTypes: [.zip]) { result in
+            if case .success(let url) = result { pendingRestore = url }
+        }
+    }
 
-                    if game.engine.isRPGMaker {
-                        Section {
-                            Toggle("NW.js mode (saves as files)", isOn: Binding(
-                                get: { game.usesNWMode },
-                                set: { value in store.mutate(gameID) { $0.nwMode = value } }
-                            ))
-                            if game.nwMode != nil {
-                                Button("Use the app setting") { store.mutate(gameID) { $0.nwMode = nil } }
-                            }
-                        } footer: {
-                            Text("In NW.js mode the game runs as on a PC and keeps its saves as files in save/. The first start in this mode copies old browser saves into files; the old data is kept.")
-                        }
-                    }
+    private func saveDialogs<Content: View>(_ content: Content, _ game: Game) -> some View {
+        content
+        .confirmationDialog("Restore saves into \(game.name)?", isPresented: Binding(
+            get: { pendingRestore != nil },
+            set: { if !$0 { pendingRestore = nil } }
+        ), titleVisibility: .visible) {
+            Button("Restore") {
+                if let url = pendingRestore { restore(url, into: game) }
+                pendingRestore = nil
+            }
+        } message: {
+            Text("Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.")
+        }
+        .confirmationDialog("Delete the save files of \(game.name)?", isPresented: $confirmDeleteSaves, titleVisibility: .visible) {
+            Button("Delete Saves", role: .destructive) { deleteSaves(of: game) }
+        } message: {
+            Text("A backup ZIP is kept in the app's Backups folder.")
+        }
+        .confirmationDialog("Delete browser data for \(game.name)?", isPresented: $confirmWipe, titleVisibility: .visible) {
+            Button("Delete Browser Data", role: .destructive) {
+                Task { await DataStores.wipe(for: game) }
+            }
+        } message: {
+            Text("This removes the game's web storage (browser-mode saves). Save files are not touched. This can't be undone.")
+        }
+    }
 
-                    if game.usesNWMode {
-                        savesSection(game)
-                        backupsSection(game)
-                    }
-
-                    Section {
-                        Button("Delete Browser Data", role: .destructive) { confirmWipe = true }
-                        Button("Delete Game", role: .destructive) { confirmDelete = true }
-                    } footer: {
-                        Text("Deleting a game moves its save files to Rescued Saves; importing the same game again offers to put them back. Browser data (saves of games not in NW.js mode) is deleted with the game: back it up from the game menu first.")
-                    }
-                }
-                .navigationTitle(game.name)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
-                }
-                .task { await refresh(game) }
-                .sheet(item: Binding(
-                    get: { shareURL.map { ShareItem(url: $0) } },
-                    set: { if $0 == nil { shareURL = nil } }
-                )) { item in
-                    ActivityView(items: [item.url])
-                }
-                .fileImporter(isPresented: $pickingZip, allowedContentTypes: [.zip]) { result in
-                    if case .success(let url) = result { pendingRestore = url }
-                }
-                .confirmationDialog("Restore saves into \(game.name)?", isPresented: Binding(
-                    get: { pendingRestore != nil },
-                    set: { if !$0 { pendingRestore = nil } }
-                ), titleVisibility: .visible) {
-                    Button("Restore") {
-                        if let url = pendingRestore { restore(url, into: game) }
-                        pendingRestore = nil
-                    }
-                } message: {
-                    Text("Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.")
-                }
-                .confirmationDialog("Delete the save files of \(game.name)?", isPresented: $confirmDeleteSaves, titleVisibility: .visible) {
-                    Button("Delete Saves", role: .destructive) { deleteSaves(of: game) }
-                } message: {
-                    Text("A backup ZIP is kept in the app's Backups folder.")
-                }
-                .confirmationDialog("Delete browser data for \(game.name)?", isPresented: $confirmWipe, titleVisibility: .visible) {
-                    Button("Delete Browser Data", role: .destructive) {
-                        Task { await DataStores.wipe(for: game) }
-                    }
-                } message: {
-                    Text("This removes the game's web storage (browser-mode saves). Save files are not touched. This can't be undone.")
-                }
-                .confirmationDialog("Delete \(game.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                    Button("Delete Game", role: .destructive) {
-                        Task {
-                            await store.delete(game)
-                            collections.forget(game.id)
-                            privacy.setHidden(game.id, false)
-                            LayoutStore.delete(for: game.id)
-                            dismiss()
-                        }
-                    }
-                } message: {
-                    Text("The game, its layout and its backups are removed. Its save files are kept in Rescued Saves.")
-                }
-                .sheet(isPresented: $showPlugins) { PluginListView(game: game) }
-                .confirmationDialog("Restore this backup into \(game.name)?", isPresented: Binding(
-                    get: { pendingBackupRestore != nil },
-                    set: { if !$0 { pendingBackupRestore = nil } }
-                ), titleVisibility: .visible) {
-                    Button("Restore") {
-                        if let entry = pendingBackupRestore { restore(entry.url, into: game) }
-                        pendingBackupRestore = nil
-                    }
-                } message: {
-                    Text("Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.")
-                }
-                .alert("Saves", isPresented: Binding(
-                    get: { message != nil },
-                    set: { if !$0 { message = nil } }
-                )) {
-                    Button("OK", role: .cancel) {}
-                } message: {
-                    Text(message ?? "")
+    private func dangerDialogs<Content: View>(_ content: Content, _ game: Game) -> some View {
+        content
+        .confirmationDialog("Delete \(game.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete Game", role: .destructive) {
+                Task {
+                    await store.delete(game)
+                    collections.forget(game.id)
+                    privacy.setHidden(game.id, false)
+                    LayoutStore.delete(for: game.id)
+                    dismiss()
                 }
             }
+        } message: {
+            Text("The game, its layout and its backups are removed. Its save files are kept in Rescued Saves.")
+        }
+        .sheet(isPresented: $showPlugins) { PluginListView(game: game) }
+        .confirmationDialog("Restore this backup into \(game.name)?", isPresented: Binding(
+            get: { pendingBackupRestore != nil },
+            set: { if !$0 { pendingBackupRestore = nil } }
+        ), titleVisibility: .visible) {
+            Button("Restore") {
+                if let entry = pendingBackupRestore { restore(entry.url, into: game) }
+                pendingBackupRestore = nil
+            }
+        } message: {
+            Text("Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.")
+        }
+        .alert("Saves", isPresented: Binding(
+            get: { message != nil },
+            set: { if !$0 { message = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(message ?? "")
+        }
+    }
+
+    // MARK: - Sections
+
+    private func headerSection(_ game: Game) -> some View {
+        Section {
+            HStack(spacing: 14) {
+                CoverView(game: game).frame(width: 84)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(game.engine.title).font(.subheadline).foregroundStyle(.secondary)
+                    Text(sizeText).font(.caption).foregroundStyle(.secondary)
+                    Text("Played \(game.playCount)× · \(formatDuration(game.playSeconds))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Button {
+                dismiss()
+                onPlay(game)
+            } label: {
+                Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private var nameSection: some View {
+        Section("Name") {
+            TextField("Name", text: binding(\.name, default: ""))
+        }
+    }
+
+    private var statsBinding: Binding<Bool> {
+        Binding<Bool>(
+            get: { game?.statsOverlay ?? false },
+            set: { value in store.mutate(gameID) { $0.statsOverlay = value } }
+        )
+    }
+
+    private var fastForwardBinding: Binding<Int> {
+        Binding<Int>(
+            get: { game?.fastForwardSpeed ?? 2 },
+            set: { value in store.mutate(gameID) { $0.fastForwardSpeed = value } }
+        )
+    }
+
+    private func playSection(_ game: Game) -> some View {
+        Section("Play") {
+            Picker("Orientation", selection: binding(\.orientation, default: OrientationMode.auto)) {
+                ForEach(OrientationMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            Toggle("On-screen controls", isOn: binding(\.gamepad, default: false))
+            Toggle("Stats overlay (FPS, battery)", isOn: statsBinding)
+            Toggle("Block internet", isOn: binding(\.blockNetwork, default: false))
+            if game.engine.isRPGMaker {
+                rpgMakerPlayRows(game)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rpgMakerPlayRows(_ game: Game) -> some View {
+        let speed = game.fastForwardSpeed ?? 2
+        Stepper("Fast-forward button: \(speed)×", value: fastForwardBinding, in: 2...9)
+        Button("Plugins…") { showPlugins = true }
+        Button("Use Default Touch Layout") { LayoutStore.reset(gameID) }
+            .disabled(!LayoutStore.hasGameLayout(gameID))
+    }
+
+    private var hiddenBinding: Binding<Bool> {
+        Binding<Bool>(
+            get: { privacy.isHidden(gameID) },
+            set: { value in privacy.setHidden(gameID, value) }
+        )
+    }
+
+    private func collectionBinding(_ collection: GameCollection) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { collection.gameIDs.contains(gameID) },
+            set: { _ in collections.toggle(gameID, in: collection.id) }
+        )
+    }
+
+    private var organizeSection: some View {
+        Section("Organize") {
+            Toggle("Hidden (Face ID)", isOn: hiddenBinding)
+            ForEach(collections.collections) { collection in
+                Toggle(collection.name, isOn: collectionBinding(collection))
+            }
+        }
+    }
+
+    private var nwBinding: Binding<Bool> {
+        Binding<Bool>(
+            get: { game?.usesNWMode ?? false },
+            set: { value in store.mutate(gameID) { $0.nwMode = value } }
+        )
+    }
+
+    private func nwSection(_ game: Game) -> some View {
+        Section {
+            Toggle("NW.js mode (saves as files)", isOn: nwBinding)
+            if game.nwMode != nil {
+                Button("Use the app setting") { store.mutate(gameID) { $0.nwMode = nil } }
+            }
+        } footer: {
+            Text("In NW.js mode the game runs as on a PC and keeps its saves as files in save/. The first start in this mode copies old browser saves into files; the old data is kept.")
+        }
+    }
+
+    private var deleteSection: some View {
+        Section {
+            Button("Delete Browser Data", role: .destructive) { confirmWipe = true }
+            Button("Delete Game", role: .destructive) { confirmDelete = true }
+        } footer: {
+            Text("Deleting a game moves its save files to Rescued Saves; importing the same game again offers to put them back. Browser data (saves of games not in NW.js mode) is deleted with the game: back it up from the game menu first.")
         }
     }
 

@@ -13,14 +13,19 @@ on:
 permissions:
   contents: write
 
-env:
-  NEXPLAY_MKXP: ${{ github.event_name == 'workflow_dispatch' && inputs.mkxp && '1' || '0' }}
-
 jobs:
   build:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Choose build type
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.mkxp }}" = "true" ]; then
+            echo "NEXPLAY_MKXP=1" >> "$GITHUB_ENV"
+          else
+            echo "NEXPLAY_MKXP=0" >> "$GITHUB_ENV"
+          fi
 
       - name: Generate app icon
         run: python3 tools/make_icon.py NexPlay/Assets.xcassets/AppIcon.appiconset/icon-1024.png
@@ -75,4 +80,3 @@ jobs:
           tag_name: build-${{ github.run_number }}${{ env.NEXPLAY_MKXP == '1' && '-mkxp' || '' }}
           name: NexPlay build ${{ github.run_number }}${{ env.NEXPLAY_MKXP == '1' && ' (XP/VX/Ace core)' || '' }}
           files: ${{ env.IPA_NAME }}.ipa
-          
