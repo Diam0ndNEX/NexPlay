@@ -70,6 +70,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var localServer: LocalGameServer?
     private var serverPort: UInt16?
     private var scrollTimer: Timer?
+    /// Page the local server starts with instead of the entry (the Godot launcher for desktop games).
+    private var launchPath: String?
 
     init(game: Game, store: LibraryStore, onExit: @escaping () -> Void) {
         self.game = game
@@ -348,9 +350,47 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         let path = game.entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? game.entry
         if game.engine.usesLocalServer {
             guard let port = serverPort else { return nil }
+            if let launchPath { return URL(string: "http://127.0.0.1:\(port)/\(launchPath)") }
             return URL(string: "http://127.0.0.1:\(port)/\(path)")
         }
         return URL(string: "\(NexSchemeHandler.scheme)://\(game.host)/\(path)")
+    }
+
+    /// Desktop Godot game: finds the pack's engine version, unpacks the matching bundled web runtime and serves it
+    /// under __godot/, with a launcher page that loads the game's .pck. Returns false (with a banner) on failure.
+    private func prepareGodotRuntime(on server: LocalGameServer) async -> Bool {
+        let target = game
+        let result = await Task.detached(priority: .userInitiated) { () -> Result<(GodotVersion, GodotVersion, URL), Error> in
+            let pack = Paths.folder(for: target).appendingPathComponent(target.entry)
+            guard FileManager.default.fileExists(atPath: pack.path) else { return .failure(GodotRuntime.RuntimeError.noPack) }
+            guard let version = GodotRuntime.packVersion(pack) else { return .failure(GodotRuntime.RuntimeError.unknownVersion) }
+            guard let runtime = GodotRuntime.runtime(for: version) else {
+                return .failure(GodotRuntime.RuntimeError.noRuntime(version.description, GodotRuntime.bundled.map { $0.description }))
+            }
+            do {
+                let folder = try GodotRuntime.prepare(runtime)
+                return .success((version, runtime, folder))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        switch result {
+        case .success(let (version, runtime, folder)):
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+            for name in names {
+                server.virtualFiles["__godot/" + name] = folder.appendingPathComponent(name).path
+            }
+            let encoded = game.entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? game.entry
+            let threads = runtime.major == 4 && runtime.minor < 3
+            server.virtualPages["__nexplay/godot.html"] = GodotRuntime.launcherPage(packPath: encoded, title: game.name, threads: threads)
+            launchPath = "__nexplay/godot.html"
+            gameLog.add("Godot \(version) game on the Godot \(runtime) web runtime")
+            return true
+        case .failure(let error):
+            gameLog.add("Godot runtime: \(error.localizedDescription)")
+            showBanner(error.localizedDescription)
+            return false
+        }
     }
 
     /// Starts the loopback server once for games that use it.
@@ -358,6 +398,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         guard game.engine.usesLocalServer, localServer == nil else { return }
         let server = LocalGameServer(root: Paths.folder(for: game))
         server.overlay = ModStore.overlay(for: game)
+        if game.isGodotDesktop {
+            guard await prepareGodotRuntime(on: server) else { return }
+        }
         let log = gameLog
         server.log = { line in DispatchQueue.main.async { log.add(line) } }
         localServer = server

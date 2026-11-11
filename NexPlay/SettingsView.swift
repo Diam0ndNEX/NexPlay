@@ -734,6 +734,7 @@ struct CreditsView: View {
             Section("Libraries") {
                 Text("ZIPFoundation, Copyright (c) 2017-2026 Thomas Zoechling, https://github.com/weichsel/ZIPFoundation (MIT).")
                 Text("libarchive (part of iOS), https://www.libarchive.org (BSD-2-Clause): 7z, RAR and TAR import.")
+                Text("Godot Engine web runtimes (official export templates), Copyright (c) 2014-present Godot Engine contributors, https://godotengine.org/license (MIT): run desktop Godot games.")
                 Text("Departure Mono, Copyright 2022–2024 Helena Zhang, https://departuremono.com (SIL Open Font License 1.1): the pixel font.")
             }
             Section("RPG Maker XP/VX/Ace core (only in builds with the mkxp core)") {

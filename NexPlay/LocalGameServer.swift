@@ -16,6 +16,11 @@ final class LocalGameServer {
     var overlay: ((String) -> String?)?
     /// Called with problems worth putting in the game log.
     var log: ((String) -> Void)?
+    /// Files served from outside the game folder: URL path without the leading "/" -> absolute file path
+    /// (the Godot web runtime under __godot/). Set before `start`.
+    var virtualFiles: [String: String] = [:]
+    /// Generated pages: URL path without the leading "/" -> content (the Godot launcher). Set before `start`.
+    var virtualPages: [String: Data] = [:]
 
     init(root: URL) {
         let standard = root.standardizedFileURL.path
@@ -105,6 +110,16 @@ final class LocalGameServer {
         var rawPath = target
         if let cut = rawPath.firstIndex(where: { $0 == "?" || $0 == "#" }) { rawPath = String(rawPath[..<cut]) }
         let decoded = rawPath.removingPercentEncoding ?? rawPath
+        let key = String(decoded.drop(while: { $0 == "/" }))
+        if let page = virtualPages[key] {
+            var headers = baseHeaders()
+            headers["Content-Type"] = "text/html; charset=utf-8"
+            headers["Content-Length"] = String(page.count)
+            return FileAnswer(status: 200, headers: headers, path: nil, range: nil, body: method == "HEAD" ? Data() : page)
+        }
+        if let file = virtualFiles[key] {
+            return fileAnswer(method: method, path: file, rangeHeader: rangeHeader)
+        }
         guard var path = resolve(decoded) else { return failure(403) }
 
         var isDirectory: ObjCBool = false
@@ -115,6 +130,10 @@ final class LocalGameServer {
         if let replaced = overlay?(relative(path).lowercased()), FileManager.default.fileExists(atPath: replaced) {
             path = replaced
         }
+        return fileAnswer(method: method, path: path, rangeHeader: rangeHeader)
+    }
+
+    private func fileAnswer(method: String, path: String, rangeHeader: String?) -> FileAnswer {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
               let sizeNumber = attributes[.size] as? NSNumber else { return failure(404) }
         let size = sizeNumber.int64Value

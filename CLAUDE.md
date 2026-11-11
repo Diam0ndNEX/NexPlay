@@ -1,7 +1,7 @@
 # NexPlay
 
 Personal iPhone game player for RPG Maker MV/MZ and HTML5 games (SwiftUI + WKWebView, iOS 16+), with RPG Maker XP/VX/Ace through the mkxp-z core in builds that turn on `NEXPLAY_MKXP`.
-Not a general web browser: everything in here is treated as a game. Version 3.0.0 (build 18). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
+Not a general web browser: everything in here is treated as a game. Version 3.1.0 (build 19). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
 
 **Read `docs/SPEC.md` for the plan, `docs/RESEARCH.md` for what the reference apps do. Paste-ready prompt for new chats: `docs/PROMPT.md`.**
 
@@ -52,6 +52,8 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
   - `GameSettingsView.swift`: Game Settings (details, cover from Files/Photos/game folder, status, collections, colour tag, hidden, controls, controller mapping, orientation, screen scaling, fast forward, FPS, block internet, NW.js, Plugin Manager, notes, delete), `GameFolderCoverPicker`, `Thumbnail`.
   - `ControlEditor.swift` (3.0): Edit Button page (name, colour, size, opacity, key mapping or joystick/D-pad + 8 directions, delete) and Select Key page (game actions, mouse wheel, letters, numbers, navigation, control keys, F-keys, symbols).
   - `LocalGameServer.swift` (3.0): loopback HTTP server (Network.framework) for Godot: GET/HEAD, ranges, COOP/COEP/CORP headers, fixed port per game (20000+FNV hash) so IndexedDB saves keep their origin.
+  - `GodotRuntime.swift` (3.1): desktop Godot games. Reads the pack version (header "GDPC", format, major, minor, patch), extracts packs embedded in .exe/.x86_64 (tail: u64 size + "GDPC") into <name>.pck at import, picks a bundled runtime (same major.minor, else the next newer minor), unpacks NexPlay.app/GodotRuntimes/godot-<v>.zip into Application Support/NexPlay/GodotRuntimes/<v>/ once, and makes the launcher page. `Game.isGodotDesktop` = engine godot with a .pck entry.
+  - `tools/fetch_godot_runtimes.py` + `tools/godot/runtimes.txt`: run by an Xcode post-build script (project.yml) that downloads only the web template out of each official export templates .tpz with curl range requests into the app; cache in build/godot-cache. `NEXPLAY_SKIP_GODOT=1` skips. Failures are warnings.
   - `Fonts/DepartureMono-Regular.otf` (OFL): pixel font, registered at launch by `NexFont.setUp()`; `Font.pixel(size)`, `NexFont.ui(size)`; setting `pixelFont`.
 
 ## Rules
@@ -91,6 +93,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 - 3.0.0: key presses are real KeyboardEvents dispatched to the focused element or the first canvas (bubbling to document/window), with keyCode/which/key/code defined, plus keypress for characters; `__nexWheel(dy)` sends wheel events (Scroll Up/Down actions repeat every 0.14 s while held).
 - 3.0.0: controls edit mode (RPGPlayer style): dashed yellow frames + move arrows, green + (Button/Joystick/D-Pad/game actions) and orange reset (confirm) at the top, red delete badge and resize grip on the selected control, tap the selected control for the Edit Button page; the control bar stays open, its pencil becomes a green check (Done = save), the other buttons rest behind dashed rings. `ControlItem.color` (ControlColor). The old EditBar (sliders, undo, grid toggle) is gone.
 - 3.0.0: Mods overlay the game's files in NexSchemeHandler (`overlay` wins over `fileOverride`) and in LocalGameServer; plugin mods are listed in the generated plugins.js after the game's own plugins.
+- 3.1.0: desktop Godot: LocalGameServer serves the runtime under `__godot/` (`virtualFiles`) and the launcher at `__nexplay/godot.html` (`virtualPages`); the launcher calls `new Engine({executable:'/__godot/godot', mainPack:'/<pck>'}).startGame()`. Runtimes: 3.5.3, 3.6.3, 4.1.4, 4.2.2 (threads), 4.3, 4.4.1, 4.5.2, 4.6.3, 4.7.2 (single-threaded). Limits: C#/.NET games and Windows GDExtensions can't run; desktop VRAM-compressed (S3TC/BPTC) 3D textures may not show on iPhone WebGL; the whole .pck is loaded into memory; encrypted packs can't be read.
 - 3.0.0: save profiles only for NW.js-mode RPG Maker games. Deleting a game moves parked profiles to Rescued Saves.
 - Control bar (2.1.0) replaces the old menu button: handle position is saved normalized (`barPosition`); the X asks before exiting; the gear opens the full game menu; auto-hide after 5 s, a tap on the game (not on a control) wakes it; hidden while a controller is connected unless "Show Control Bar With Controller". Typed keys go down and up 80 ms apart so RPG Maker sees them.
 - Global pad size/opacity/type are applied when a layout is shown and undone before it is saved, so saved layouts stay at 1×.

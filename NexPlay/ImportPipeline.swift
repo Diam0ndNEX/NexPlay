@@ -125,7 +125,7 @@ enum PipelineError: LocalizedError {
             let kind = ext.isEmpty ? "This file" : "A .\(ext) file"
             return "\(kind) can't be imported. Import a ZIP, 7z or RAR archive, a game folder, or an HTML file."
         case .desktopGodot:
-            return "This is a Godot desktop build (.pck/.exe). iPhone can only run Godot Web exports: look for the game's Web/HTML5 version (itch.io \"Run in browser\" builds), or export it with Godot's Web preset, and import that folder or ZIP."
+            return "This Godot game's .pck couldn't be read (it may be encrypted or damaged), so NexPlay can't tell which Godot version runs it."
         case .emptyFolder:
             return "The folder is empty or its files couldn't be read. If it's in iCloud Drive, long-press it in the Files app, tap Download Now, then import it again."
         }
@@ -212,6 +212,8 @@ enum ImportPipeline {
             status("Looking for the game…")
             cancel.report(.scanning, "Detecting the engine…", 0, force: true)
             GameScanner.tidy(folder)
+            // Godot games that ship as one .exe carry their .pck inside it.
+            try GodotRuntime.extractEmbeddedPacks(in: folder, cancel: cancel)
             guard let found = detect(in: folder) else {
                 if GameScanner.isDesktopGodot(folder) { throw PipelineError.desktopGodot }
                 throw ImportError.noGame
@@ -386,8 +388,12 @@ enum ImportPipeline {
     /// MV/MZ/HTML5 through GameScanner; otherwise RPG Maker XP/VX/Ace (Game.ini plus Data/Scripts or an RGSS archive).
     static func detect(in root: URL) -> DetectedGame? {
         let web = GameScanner.detect(in: root)
-        if let web, web.engine.isRPGMaker { return web }
+        if let web, web.engine.isRPGMaker || web.engine == .godot { return web }
         if let ruby = detectRuby(in: root) { return ruby }
+        // A desktop Godot game: its .pck runs on the bundled Godot web runtime (GodotRuntime.swift).
+        if let pack = GodotRuntime.mainPack(in: root), GodotRuntime.packVersion(pack) != nil {
+            return DetectedGame(engine: .godot, entry: GameScanner.relativePath(of: pack, in: root))
+        }
         return web
     }
 
@@ -465,6 +471,19 @@ enum ImportPipeline {
         case .web, .construct, .twine, .tyrano:
             if !found.entry.lowercased().hasSuffix("index.html") {
                 notes.append("No index.html: the game starts from \(found.entry).")
+            }
+        case .godot where found.entry.lowercased().hasSuffix(".pck"):
+            let pack = root.appendingPathComponent(found.entry)
+            if let version = GodotRuntime.packVersion(pack) {
+                if let runtime = GodotRuntime.runtime(for: version) {
+                    notes.append("Godot \(version) desktop game: it runs on the bundled Godot \(runtime) web runtime. 2D GDScript games work best; some 3D textures may not show.")
+                } else {
+                    let have = GodotRuntime.bundled.map { $0.description }
+                    notes.append(GodotRuntime.RuntimeError.noRuntime(version.description, have).errorDescription ?? "")
+                }
+            }
+            if GodotRuntime.usesDotNet(root) {
+                notes.append("This is a C# (.NET) Godot game. Godot can't run C# on the web runtime, so it will most likely not start.")
             }
         case .godot:
             if !names.contains(where: { $0.hasSuffix(".pck") }) {

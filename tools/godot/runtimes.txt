@@ -1,0 +1,12 @@
+# Godot web runtimes bundled into NexPlay.app/GodotRuntimes (one line each: version and the template inside the
+# official export templates .tpz). Desktop Godot games (.pck/.exe) run on the runtime of the same major.minor,
+# else the next newer minor of the same major. 4.3+ use the single-threaded build (no SharedArrayBuffer needed).
+3.5.3 templates/webassembly_release.zip
+3.6.3 templates/webassembly_release.zip
+4.1.4 templates/web_release.zip
+4.2.2 templates/web_release.zip
+4.3 templates/web_nothreads_release.zip
+4.4.1 templates/web_nothreads_release.zip
+4.5.2 templates/web_nothreads_release.zip
+4.6.3 templates/web_nothreads_release.zip
+4.7.2 templates/web_nothreads_release.zip
