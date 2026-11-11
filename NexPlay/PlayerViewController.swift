@@ -28,6 +28,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private var webView: WKWebView!
     private let statsReceiver = StatsReceiver()
+    private let logReceiver = LogReceiver()
+    private let gameLog = GameLog()
     private let gamepad = GamepadOverlayView()
     private let menuButton = UIButton(type: .custom)
     private let statsLabel = UILabel()
@@ -67,16 +69,27 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         config.mediaTypesRequiringUserActionForPlayback = []
         config.allowsAirPlayForMediaPlayback = true
 
+        let defaults = UserDefaults.standard
         let content = config.userContentController
+        content.addUserScript(WKUserScript(source: PageScripts.diagnostics, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         content.addUserScript(WKUserScript(source: PageScripts.keyBridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if game.engine.isRPGMaker {
+            let runtime = PageScripts.rpgRuntime(pixelated: defaults.bool(forKey: SettingsKey.pixelatedScaling))
+            content.addUserScript(WKUserScript(source: runtime, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         content.addUserScript(WKUserScript(source: PageScripts.noSelect, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         content.addUserScript(WKUserScript(source: PageScripts.stats, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         content.add(statsReceiver, name: "nexStats")
+        content.add(logReceiver, name: "nexLog")
         statsReceiver.onFPS = { [weak self] fps in self?.currentFPS = fps }
+        logReceiver.onLine = { [weak self] line in self?.gameLog.add(line) }
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        if game.engine.isRPGMaker && defaults.bool(forKey: SettingsKey.desktopMode) {
+            webView.customUserAgent = PageScripts.desktopUserAgent
+        }
         webView.isOpaque = false
         webView.backgroundColor = .black
         webView.scrollView.backgroundColor = .black
@@ -177,7 +190,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                     content.add(list)
                 }
             }
-            if let url = gameURL { webView.load(URLRequest(url: url)) }
+            if let url = gameURL {
+                gameLog.add("--- loading \(url.absoluteString)")
+                webView.load(URLRequest(url: url))
+            }
         }
     }
 
@@ -273,6 +289,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             self?.toggleBlockNetwork()
         })
 
+        items.append(UIAction(title: "Game Log", image: UIImage(systemName: "doc.text.magnifyingglass")) { [weak self] _ in
+            self?.showLog()
+        })
+
         items.append(UIAction(title: "Exit Game", image: UIImage(systemName: "xmark.circle"),
                               attributes: .destructive) { [weak self] _ in
             self?.exitGame()
@@ -286,8 +306,13 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     }
 
     private func applySpeed() {
-        guard game.engine.isRPGMaker, speed > 1 || webView != nil else { return }
-        webView.evaluateJavaScript(PageScripts.fastForward(speed))
+        guard game.engine.isRPGMaker else { return }
+        webView.evaluateJavaScript("window.__nex && window.__nex.setSpeed(\(speed))")
+    }
+
+    private func showLog() {
+        let nav = UINavigationController(rootViewController: LogViewController(log: gameLog, gameName: game.name))
+        presentOnTop(nav)
     }
 
     private func toggleGamepad() {
@@ -407,10 +432,16 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     // MARK: - Playtime and cleanup
 
-    @objc private func appWillResign() { accumulate() }
+    /// Pauses the game loop and its audio, then counts playtime.
+    @objc private func appWillResign() {
+        accumulate()
+        webView?.evaluateJavaScript("window.__nex && window.__nex.pause()")
+    }
 
     @objc private func appDidBecomeActive() {
-        if !isShutDown { sessionStart = Date() }
+        guard !isShutDown else { return }
+        sessionStart = Date()
+        webView?.evaluateJavaScript("window.__nex && window.__nex.resume()")
     }
 
     private func accumulate() {
@@ -433,6 +464,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         UIApplication.shared.isIdleTimerDisabled = false
         OrientationManager.unlock()
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "nexStats")
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "nexLog")
         webView?.stopLoading()
     }
 
@@ -444,15 +476,18 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        gameLog.add("load failed: \(error.localizedDescription)")
         showAlert("Couldn't load the game", error.localizedDescription)
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        gameLog.add("the web content process stopped (probably out of memory); reloading")
         webView.reload()
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        gameLog.add("alert: \(message)")
         showAlert(game.name, message) { completionHandler() }
     }
 
@@ -461,6 +496,17 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         let alert = UIAlertController(title: game.name, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(false) })
         alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(true) })
+        presentOnTop(alert)
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+        let alert = UIAlertController(title: game.name, message: prompt, preferredStyle: .alert)
+        alert.addTextField { $0.text = defaultText }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(nil) })
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert] _ in
+            completionHandler(alert?.textFields?.first?.text)
+        })
         presentOnTop(alert)
     }
 }

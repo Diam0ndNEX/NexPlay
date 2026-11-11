@@ -17,9 +17,10 @@ Not a general web browser: everything in here is treated as a game.
   - `Models.swift`: `Game`, `GameEngine`, `OrientationMode`, settings keys.
   - `FileUtils.swift`: paths, MIME types, `GameScanner` (engine detection, titles, sizes).
   - `LibraryStore.swift`: library persistence and import (ZIP, folder, single HTML). Change games only via `store.mutate(id) { ... }`.
-  - `NexSchemeHandler.swift`: serves each game at `nexplay://<game-uuid>/...` (own web origin per game, byte ranges).
+  - `NexSchemeHandler.swift`: serves each game at `nexplay://<game-uuid>/...` (own web origin per game, byte ranges, case-insensitive names, symlink-safe, reads on a background queue).
   - `SaveTools.swift`: per-game data stores, save backup/restore/clear through JS.
-  - `PageBridge.swift`: injected scripts (key bridge, fast-forward, FPS).
+  - `PageBridge.swift`: injected scripts (diagnostics, key bridge, FPS, RPG Maker runtime with speed/pause).
+  - `GameLog.swift`: in-app game log (console, errors, failed file loads) and its viewer. Use it to debug without a Mac.
   - `GamepadOverlay.swift`: on-screen D-pad and buttons.
   - `PlayerViewController.swift`: the game screen and its menu.
   - `LibraryView.swift`, `GameDetailView.swift`, `SettingsView.swift`: SwiftUI screens.
@@ -28,9 +29,15 @@ Not a general web browser: everything in here is treated as a game.
 - Codable fields added to `Game` later must be optional or have a default, so old libraries still load.
 - Compare resolved paths when computing relative paths (iOS reports `/var` as `/private/var`).
 - Engine detection: `js/rmmz_core.js` = MZ, `js/rpg_core.js` = MV, otherwise HTML5. The game root can be up to two folders deep.
+- Code adapted from Empo / mvmz-apple-mobile (Mateo M., GPL-3.0 with additional terms) keeps its attribution in the file header and in Settings > Credits. Never name this app "Empo".
+- Do not override `navigator.getGamepads`: physical controllers reach the game through the Gamepad API here.
 
 ## Roadmap
-- Phase 1 (this): RPG Maker MV/MZ and HTML5 games.
-- Audio fallback: OGG/WebM may not play on iOS; transcode OGG to WAV in the scheme handler if a game is silent.
-- Phase 2: RPG Maker XP/VX/Ace through mkxp-z. Large and risky: no iOS port exists upstream, it needs a C++/Ruby cross-compile on Actions with no local compile.
+Reference apps: Empo (github.com/mateo-m/empo-app, open source) and RPGPlayer (closed, screenshots only).
+- 1.1.0 (done): hardened file server, RPG Maker runtime (speed, pause/resume, focus), desktop mode, sharp pixels option, game log, prompt() dialogs, credits.
+- 1.2: NW.js shim (`require('fs'/'path'/'os')`, `nw.gui`, `process`) with saves as real files in the game folder, served by the scheme handler (PUT/DELETE/MKCOL/MOVE/HEAD + directory listing). Gives binary-safe save backup, ZIP export, plugin compatibility. Test 1.1 on a device first.
+- 1.3: Controls: movable/resizable on-screen controls, layouts per game and per orientation, haptics, physical controller bindings, portrait position (top/center).
+- 1.4: Library: collections, grid/list, bulk delete, Face ID lock for hidden games, automatic save backups, settings search, reset to defaults.
+- Later: import 7z/RAR, OGG to M4A conversion at import, in-game text translation.
+- Phase 2: RPG Maker XP/VX/Ace. Empo already ships mkxp-z for iOS (`cores/mkxp`, prebuilt core releases fetched in CI), so this is no longer a from-scratch port. Follow its core pattern after Phase 1 is solid.
 - Back burner: RPG Maker 2000/2003 (EasyRPG).

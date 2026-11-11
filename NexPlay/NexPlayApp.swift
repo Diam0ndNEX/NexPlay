@@ -39,6 +39,8 @@ struct NexPlayApp: App {
             SettingsKey.silentModeAudio: true,
             SettingsKey.showMenuButton: true,
             SettingsKey.keepScreenAwake: true,
+            SettingsKey.desktopMode: true,
+            SettingsKey.pixelatedScaling: false,
         ])
     }
 

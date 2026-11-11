@@ -1,47 +1,107 @@
 import Foundation
 import WebKit
 
+// The file lookup (case-insensitive names, symlink-safe root check, background reads) is adapted from
+// Empo's MvmzFileServer. Empo, Copyright (C) 2026 Mateo M., https://github.com/mateo-m/empo-app
+// (GPL-3.0-only with additional terms).
+
 /// Serves a game's files at nexplay://<game-id>/<path>.
 /// Each game has its own host, so every game gets its own web origin (separate localStorage, IndexedDB, cookies).
 final class NexSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "nexplay"
 
-    private let rootDirectory: URL
+    private struct Answer {
+        let response: HTTPURLResponse
+        let body: Data
+    }
+
+    private let rootPath: String
+    private let queue = DispatchQueue(label: "nexplay.files", qos: .userInitiated)
+    /// Tasks WebKit has stopped. Answering a stopped task throws, so they are skipped. Main thread only.
+    private let stopped = NSHashTable<AnyObject>.weakObjects()
 
     init(rootDirectory: URL) {
-        self.rootDirectory = rootDirectory.standardizedFileURL
+        let standard = rootDirectory.standardizedFileURL.path
+        rootPath = NexSchemeHandler.realPath(standard) ?? standard
+        super.init()
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        guard let requestURL = urlSchemeTask.request.url else {
+        let request = urlSchemeTask.request
+        guard let url = request.url else {
             urlSchemeTask.didFailWithError(URLError(.badURL))
             return
         }
+        let method = request.httpMethod ?? "GET"
+        let range = request.value(forHTTPHeaderField: "Range")
 
-        var path = requestURL.path.removingPercentEncoding ?? requestURL.path
-        if path.isEmpty || path == "/" { path = "/index.html" }
-
-        var fileURL = rootDirectory.appendingPathComponent(path).standardizedFileURL
-
-        // Never serve anything outside the game's folder.
-        guard fileURL.path.hasPrefix(rootDirectory.path) else {
-            respondError(urlSchemeTask, url: requestURL, status: 403)
-            return
+        queue.async { [weak self] in
+            guard let self else { return }
+            let answer = self.answer(url: url, method: method, range: range)
+            DispatchQueue.main.async {
+                if self.stopped.contains(urlSchemeTask as AnyObject) { return }
+                urlSchemeTask.didReceive(answer.response)
+                if !answer.body.isEmpty { urlSchemeTask.didReceive(answer.body) }
+                urlSchemeTask.didFinish()
+            }
         }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        stopped.add(urlSchemeTask as AnyObject)
+    }
+
+    // MARK: - Lookup
+
+    private static func realPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
+    /// The file a URL path names, or nil when it leaves the game folder.
+    /// Games made on Windows often use other capitals than the file on disk has, and iOS tells them apart,
+    /// so a name that is missing is looked up again without case. Symlinks must stay inside the game folder.
+    private func resolve(_ urlPath: String) -> String? {
+        let fm = FileManager.default
+        var path = rootPath
+        for part in urlPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init) {
+            if part == "." || part == ".." { return nil }
+            var next = (path as NSString).appendingPathComponent(part)
+            if !fm.fileExists(atPath: next),
+               let names = try? fm.contentsOfDirectory(atPath: path),
+               let match = names.first(where: { $0.caseInsensitiveCompare(part) == .orderedSame }) {
+                next = (path as NSString).appendingPathComponent(match)
+            }
+            if fm.fileExists(atPath: next) {
+                guard let real = NexSchemeHandler.realPath(next),
+                      real == rootPath || real.hasPrefix(rootPath + "/")
+                else { return nil }
+            }
+            path = next
+        }
+        return path
+    }
+
+    // MARK: - Answers
+
+    private func answer(url: URL, method: String, range rangeHeader: String?) -> Answer {
+        var urlPath = url.path
+        if urlPath.isEmpty || urlPath == "/" { urlPath = "/index.html" }
+        guard var path = resolve(urlPath) else { return failure(url, 403) }
 
         var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
-            fileURL = fileURL.appendingPathComponent("index.html")
+        if FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+            guard let index = resolve(urlPath + "/index.html") else { return failure(url, 403) }
+            path = index
         }
 
-        guard let handle = try? FileHandle(forReadingFrom: fileURL),
-              let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.int64Value
-        else {
-            respondError(urlSchemeTask, url: requestURL, status: 404)
-            return
-        }
-        defer { try? handle.close() }
+        let fileURL = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: path),
+              let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe)
+        else { return failure(url, 404) }
 
+        let size = Int64(data.count)
         var headers: [String: String] = [
             "Content-Type": MIME.type(for: fileURL),
             "Accept-Ranges": "bytes",
@@ -50,49 +110,30 @@ final class NexSchemeHandler: NSObject, WKURLSchemeHandler {
         ]
 
         var status = 200
-        var start: Int64 = 0
-        var length = size
-
+        var body = data
         // Media elements ask for byte ranges; honour them so audio and video can seek.
-        if let rangeHeader = urlSchemeTask.request.value(forHTTPHeaderField: "Range"),
-           let range = Self.parseRange(rangeHeader, fileSize: size) {
+        if let rangeHeader, let range = NexSchemeHandler.parseRange(rangeHeader, fileSize: size) {
             status = 206
-            start = range.lowerBound
-            length = range.upperBound - range.lowerBound + 1
+            body = data.subdata(in: Int(range.lowerBound)..<(Int(range.upperBound) + 1))
             headers["Content-Range"] = "bytes \(range.lowerBound)-\(range.upperBound)/\(size)"
         }
-        headers["Content-Length"] = String(length)
+        headers["Content-Length"] = String(body.count)
+        if method == "HEAD" { body = Data() }
 
-        guard let response = HTTPURLResponse(url: requestURL, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers) else {
-            urlSchemeTask.didFailWithError(URLError(.cannotParseResponse))
-            return
-        }
-
-        do {
-            try handle.seek(toOffset: UInt64(start))
-            let data = try handle.read(upToCount: Int(length)) ?? Data()
-            urlSchemeTask.didReceive(response)
-            urlSchemeTask.didReceive(data)
-            urlSchemeTask.didFinish()
-        } catch {
-            urlSchemeTask.didFailWithError(error)
-        }
+        // The status code and header values are always valid, so this initialiser cannot return nil.
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+        return Answer(response: response, body: body)
     }
 
-    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
-        // Requests are answered synchronously, so there is nothing to cancel.
-    }
-
-    private func respondError(_ task: WKURLSchemeTask, url: URL, status: Int) {
+    private func failure(_ url: URL, _ status: Int) -> Answer {
         let body = Data("\(status)".utf8)
-        let headers = ["Content-Type": "text/plain", "Content-Length": String(body.count), "Access-Control-Allow-Origin": "*"]
-        if let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers) {
-            task.didReceive(response)
-            task.didReceive(body)
-            task.didFinish()
-        } else {
-            task.didFailWithError(URLError(.fileDoesNotExist))
-        }
+        let headers = [
+            "Content-Type": "text/plain",
+            "Content-Length": String(body.count),
+            "Access-Control-Allow-Origin": "*",
+        ]
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+        return Answer(response: response, body: body)
     }
 
     /// Parses "bytes=start-end", "bytes=start-" and "bytes=-suffix".

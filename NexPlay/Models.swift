@@ -87,4 +87,8 @@ enum SettingsKey {
     static let silentModeAudio = "silentModeAudio"
     static let showMenuButton = "showMenuButton"
     static let keepScreenAwake = "keepScreenAwake"
+    /// RPG Maker games see a desktop browser (default on). Turn off if a game misbehaves.
+    static let desktopMode = "desktopMode"
+    /// Sharp pixels instead of smoothed scaling for RPG Maker games (default off).
+    static let pixelatedScaling = "pixelatedScaling"
 }
