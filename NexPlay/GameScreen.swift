@@ -44,7 +44,13 @@ protocol RubyPlayerControlling: AnyObject {
 
 enum RubyCore {
     /// The runner of this build. Builds with `NEXPLAY_MKXP` replace the stub (see NexPlay/MKXP/).
-    @MainActor static var runner: RubyGameRunner = RubyCoreStub()
+    @MainActor static var runner: RubyGameRunner = {
+        #if NEXPLAY_MKXP
+        return MkxpRunner()
+        #else
+        return RubyCoreStub()
+        #endif
+    }()
 }
 
 /// Used when the app is built without the mkxp core.

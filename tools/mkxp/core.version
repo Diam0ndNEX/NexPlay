@@ -1,0 +1,7 @@
+# The mkxp-z engine release that tools/fetch_mkxp_core.sh downloads, from
+# github.com/mateo-m/mkxp-z-apple-mobile (the core Empo uses). The release notes give the sha256.
+# EMPO_COMMIT pins the Empo files the build borrows (GameCore.h, the bridge and the framework scripts).
+MKXP_CORE_VERSION=v15
+MKXP_CORE_SHA256=5e465bd13f36f35d4381fa1e78a8fb49ff651a545fc8a9dd9cc6ff84e3fa92ea
+MKXP_CORE_ASSET=mkxp-z-ios.tar.gz
+EMPO_COMMIT=507fb1519fb9cef312b4466c76b7ef405a8d1d30

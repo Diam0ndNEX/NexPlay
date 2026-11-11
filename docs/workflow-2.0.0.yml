@@ -1,0 +1,85 @@
+# NexPlay 2.0.0 build workflow. Paste this as .github/workflows/build.yml on github.com
+# (only after a normal build of 2.0.0 has passed).
+#
+# Every push builds the normal app (no XP/VX/Ace core), exactly like before.
+# To try the RPG Maker XP/VX/Ace core: Actions > Build NexPlay > Run workflow > tick "mkxp".
+# That run downloads the mkxp-z core release and Empo's framework scripts (tools/fetch_mkxp_core.sh),
+# builds MkxpCore.framework, compiles the app with NEXPLAY_MKXP and puts the framework into the IPA.
+# Its release is named "...-mkxp". If that run fails, the normal builds are not affected.
+name: Build NexPlay
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mkxp:
+        description: "Build with the RPG Maker XP/VX/Ace core (experimental)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  NEXPLAY_MKXP: ${{ github.event_name == 'workflow_dispatch' && inputs.mkxp && '1' || '0' }}
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate app icon
+        run: python3 tools/make_icon.py NexPlay/Assets.xcassets/AppIcon.appiconset/icon-1024.png
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build the mkxp core (XP/VX/Ace)
+        if: env.NEXPLAY_MKXP == '1'
+        run: tools/fetch_mkxp_core.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          EXTRA=()
+          if [ "$NEXPLAY_MKXP" = "1" ]; then
+            EXTRA+=("SWIFT_ACTIVE_COMPILATION_CONDITIONS=NEXPLAY_MKXP" "GCC_PREPROCESSOR_DEFINITIONS=NEXPLAY_MKXP=1")
+          fi
+          xcodebuild -project NexPlay.xcodeproj -scheme NexPlay \
+            -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            "${EXTRA[@]}"
+
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/NexPlay.app Payload/
+          NAME=NexPlay-unsigned
+          if [ "$NEXPLAY_MKXP" = "1" ]; then
+            DEPS=vendor/empo/ios/Dependencies
+            mkdir -p Payload/NexPlay.app/Frameworks
+            cp -R "$DEPS/build-iphoneos-arm64/MkxpCore.framework" Payload/NexPlay.app/Frameworks/
+            if [ -d "$DEPS/ANGLE/iphoneos" ]; then
+              find "$DEPS/ANGLE/iphoneos" -maxdepth 2 -name '*.framework' -exec cp -R {} Payload/NexPlay.app/Frameworks/ \;
+            fi
+            NAME=NexPlay-mkxp-unsigned
+          fi
+          zip -qry "$NAME.ipa" Payload
+          echo "IPA_NAME=$NAME" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}
+          path: ${{ env.IPA_NAME }}.ipa
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}${{ env.NEXPLAY_MKXP == '1' && '-mkxp' || '' }}
+          name: NexPlay build ${{ github.run_number }}${{ env.NEXPLAY_MKXP == '1' && ' (XP/VX/Ace core)' || '' }}
+          files: ${{ env.IPA_NAME }}.ipa
