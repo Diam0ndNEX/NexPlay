@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Written into the binary by ldid in CI (the Xcode build is unsigned). Same set as BCD's
+	     Sideload.entitlements: only what a sideloading profile can grant. get-task-allow lets a debugger
+	     attach (built-in JIT); the two kernel keys raise the memory limit and the address space for the
+	     Windows runtime. Settings > Diagnostics shows which ones survived signing. -->
+	<key>com.apple.developer.kernel.extended-virtual-addressing</key>
+	<true/>
+	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
+	<key>get-task-allow</key>
+	<true/>
+</dict>
+</plist>

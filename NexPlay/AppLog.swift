@@ -80,6 +80,8 @@ final class AppLog {
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         log("launch NexPlay \(version) (\(build)), \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        // 6.2.0: model, iOS, TXM guess, memory, signing and JIT state (see Diagnostics.swift).
+        log(DeviceInfo.launchLine)
         defaults.set(true, forKey: sessionOpenKey)
         defaults.removeObject(forKey: sessionGameKey)
     }

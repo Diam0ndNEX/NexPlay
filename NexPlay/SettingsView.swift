@@ -4,7 +4,7 @@ import SwiftUI
 
 /// One page of Settings.
 enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
-    case appearance, controls, gameplay, translation, privacy, backup, advanced
+    case appearance, controls, gameplay, translation, privacy, backup, advanced, diagnostics
 
     var id: String { rawValue }
 
@@ -17,6 +17,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .privacy: return "Privacy"
         case .backup: return "Import & Backup"
         case .advanced: return "Advanced"
+        case .diagnostics: return "Diagnostics"
         }
     }
 
@@ -29,6 +30,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .privacy: return "Hide games and collections behind Face ID, Touch ID or a passcode"
         case .backup: return "Automatic save backups and exports"
         case .advanced: return "Engines and runtimes, storage, play stats, what's new, app log"
+        case .diagnostics: return "Device, signing, entitlements, JIT state and a report for bug reports"
         }
     }
 
@@ -41,6 +43,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .privacy: return "lock.fill"
         case .backup: return "externaldrive.fill"
         case .advanced: return "wrench.and.screwdriver.fill"
+        case .diagnostics: return "stethoscope"
         }
     }
 
@@ -53,6 +56,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .privacy: return .green
         case .backup: return .purple
         case .advanced: return .gray
+        case .diagnostics: return .mint
         }
     }
 
@@ -80,6 +84,9 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
             return ["Automatic Save Backups", "Keep Backups", "Back Up All Now", "Export All Saves"]
         case .advanced:
             return ["Engines & Runtimes", "Ren'Py", "Godot", "Flash", "Clear Runtime Cache", "Storage", "Rescued Saves", "Free Space", "Play Stats", "What's New", "App Log", "Credits"]
+        case .diagnostics:
+            return ["Device", "iOS Version", "TXM", "Memory", "Entitlements", "get-task-allow", "Increased Memory Limit",
+                    "Extended Virtual Addressing", "JIT", "Build Flags", "Copy Report", "Copy Log"]
         }
     }
 }
@@ -296,6 +303,7 @@ struct SettingsPageView: View {
             case .privacy: PrivacySettings()
             case .backup: BackupSettings()
             case .advanced: AdvancedSettings()
+            case .diagnostics: DiagnosticsView()
             }
         }
         .scrollContentBackground(.hidden)
@@ -734,6 +742,8 @@ struct CreditsView: View {
         List {
             Section("Adapted code") {
                 Text("Empo, Copyright (C) 2026 Mateo M., https://github.com/mateo-m/empo-app, and mvmz-apple-mobile, https://github.com/mateo-m/mvmz-apple-mobile (GPL-3.0-only with additional terms): RPG Maker runtime (speed, pause, focus), NW.js shim, game file server, archive extraction with the system libarchive, save rescue and displaced-copy handling, controls model and touch handling ideas, controller bindings, backup retention and import pipeline invariants.")
+                Text("Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games)")
+                Text("BCD (GPL-3.0 with the BCD additional terms and the Madeira Converter Exception) is a fork of Madeira by Will Faust, https://github.com/willfaust/Madeira (GPL-3.0-or-later): entitlement, signing and device checks (Diagnostics), entitlements set.")
             }
             Section("Libraries") {
                 Text("ZIPFoundation, Copyright (c) 2017-2026 Thomas Zoechling, https://github.com/weichsel/ZIPFoundation (MIT).")

@@ -166,6 +166,20 @@ struct Game: Identifiable, Codable, Hashable {
     /// The bundled runtime version this game runs on (Godot, Ren'Py); nil picks one automatically.
     var runtimeVersion: String?
 
+    // 6.2.0: how the game runs (Runtimes.swift). All optional, so old libraries still load.
+    /// The runtime chosen for this game; nil = automatic (its engine's native runtime).
+    var runtime: RuntimeKind?
+    /// Windows games: the main .exe, relative to the game's folder.
+    var exePath: String?
+    /// Windows games: the Wine prefix (C: drive) id; nil = the shared "Default" prefix.
+    var prefixID: String?
+    /// The owner's compatibility vote.
+    var compatibility: CompatStatus?
+    /// Where the game came from; nil = imported.
+    var source: GameSource?
+    /// The store's id for the game (Steam app id, GOG product id).
+    var storeID: String?
+
     /// The hostname used in nexplay://<host>/ URLs. Unique per game, so every game has its own web storage.
     var host: String { id.uuidString.lowercased() }
 

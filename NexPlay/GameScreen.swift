@@ -1,17 +1,15 @@
 import SwiftUI
 import UIKit
 
-/// The full-screen player for any game: the web player for MV/MZ/HTML5, the Ruby core for XP/VX/Ace.
+/// The full-screen player for any game. `GameRuntimes` (Runtimes.swift) picks how it runs: the web player for
+/// MV/MZ/HTML5 and the web runtimes, the Ruby core for XP/VX/Ace, Windows when chosen for the game.
 struct GameScreen: UIViewControllerRepresentable {
     let game: Game
     let store: LibraryStore
     let onExit: () -> Void
 
     func makeUIViewController(context: Context) -> UIViewController {
-        if game.engine.isRuby {
-            return RubyCore.runner.makeViewController(game: game, onExit: onExit)
-        }
-        return PlayerViewController(game: game, store: store, onExit: onExit)
+        GameRuntimes.runtime(for: game).makeViewController(game: game, store: store, onExit: onExit)
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
@@ -62,28 +60,6 @@ struct RubyCoreStub: RubyGameRunner {
     }
 
     func makeViewController(game: Game, onExit: @escaping () -> Void) -> UIViewController {
-        let controller = UIViewController()
-        controller.view.backgroundColor = .black
-        let label = UILabel()
-        label.text = "\(game.name)\n\n\(unavailableReason)"
-        label.textColor = .white
-        label.numberOfLines = 0
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        let button = UIButton(type: .system)
-        button.setTitle("Back to Library", for: .normal)
-        button.addAction(UIAction { _ in onExit() }, for: .touchUpInside)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        controller.view.addSubview(label)
-        controller.view.addSubview(button)
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: controller.view.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: controller.view.centerYAnchor),
-            label.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor, constant: 32),
-            label.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor, constant: -32),
-            button.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 24),
-            button.centerXAnchor.constraint(equalTo: controller.view.centerXAnchor),
-        ])
-        return controller
+        RuntimeUnavailableController.make(title: game.name, reason: unavailableReason, onExit: onExit)
     }
 }
