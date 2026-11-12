@@ -47,7 +47,8 @@ enum PlayerFeatures {
     /// Every feature the player runs.
     @MainActor
     static func make(context: PlayerContext) -> [PlayerFeature] {
-        [PluginsFeature(context: context), CheatsFeature(context: context), TranslationFeature(context: context)]
+        [PluginsFeature(context: context), CheatsFeature(context: context), TranslationFeature(context: context),
+         RenPySavesFeature(context: context)]
     }
 
     /// Replacement file contents the scheme handler serves for a game (relative path, lowercased), or nil.

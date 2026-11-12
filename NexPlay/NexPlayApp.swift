@@ -145,6 +145,10 @@ struct NexPlayApp: App {
 
     /// A ZIP of saves opened from another app goes to the backup picker; anything else is imported as a game.
     private func open(_ url: URL) {
+        if url.scheme?.lowercased() == PlayLink.scheme {
+            if let id = PlayLink.gameID(in: url) { appState.pendingPlay = id }
+            return
+        }
         let scoped = url.startAccessingSecurityScopedResource()
         if AutoBackup.looksLikeSaveBackup(url) {
             let copy = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)

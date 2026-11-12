@@ -215,6 +215,8 @@ struct LibraryView: View {
     @State private var sizes: [UUID: Int64] = [:]
     @State private var shareURL: URL?
     @State private var showStats = false
+    @State private var askingLink = false
+    @State private var linkText = ""
     @State private var showWhatsNew = false
     @AppStorage(SettingsKey.whatsNewSeen) private var whatsNewSeen = ""
 
@@ -332,6 +334,19 @@ struct LibraryView: View {
         .sheet(isPresented: $showCollections) {
             CollectionsManagerView().environmentObject(collections)
         }
+        .alert("Download a Game", isPresented: $askingLink) {
+            TextField("https://…", text: $linkText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+            Button("Cancel", role: .cancel) {}
+            Button("Download") {
+                let link = linkText
+                Task { await store.importFromLink(link) }
+            }
+        } message: {
+            Text("Paste a direct download link to a ZIP, 7z, RAR, HTML or SWF file. NexPlay downloads it and imports it.")
+        }
         .sheet(isPresented: $showStats) {
             NavigationStack {
                 StatsView()
@@ -405,6 +420,14 @@ struct LibraryView: View {
             Button("Delete", role: .destructive) { deleteNow(pendingDelete) }
         } message: {
             Text("Save files are kept in Rescued Saves. Browser-mode saves are deleted.")
+        }
+        .onChange(of: appState.pendingPlay) { id in
+            guard let id else { return }
+            appState.pendingPlay = nil
+            // Hidden games only start from a link while hidden games are shown.
+            guard let game = store.game(id: id), isVisible(game), playing == nil else { return }
+            detail = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { playing = game }
         }
         .task(id: sort) {
             guard sort.needsSizes else { return }
@@ -638,6 +661,11 @@ struct LibraryView: View {
             Menu {
                 Button { importFiles() } label: { Label("ZIP, 7z, RAR, HTML or SWF File…", systemImage: "doc.zipper") }
                 Button { importFolders() } label: { Label("Game Folder…", systemImage: "folder") }
+                Button {
+                    let pasted = UIPasteboard.general.string ?? ""
+                    linkText = pasted.lowercased().hasPrefix("http") ? pasted : ""
+                    askingLink = true
+                } label: { Label("Download from Link…", systemImage: "link.badge.plus") }
             } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add games")
         }
@@ -686,6 +714,11 @@ struct LibraryView: View {
     private func contextMenu(for game: Game) -> some View {
         Button { playing = game } label: { Label("Play", systemImage: "play.fill") }
         Button { detail = game } label: { Label("Info & Settings", systemImage: "info.circle") }
+        if let link = PlayLink.url(for: game) {
+            Button {
+                UIPasteboard.general.url = link
+            } label: { Label("Copy Play Link (for Shortcuts)", systemImage: "link") }
+        }
         Button { store.toggleFavorite(game) } label: {
             Label(game.isFavorite ? "Unfavorite" : "Favorite", systemImage: game.isFavorite ? "heart.slash" : "heart")
         }

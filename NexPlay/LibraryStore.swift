@@ -105,9 +105,12 @@ final class LibraryStore: ObservableObject {
     /// Asks whether an import with the title of an installed game updates it or is added as a new game.
     @Published var pendingUpdate: PendingUpdate?
     private var importCancel: ImportCancel?
+    /// A download from a link (LinkImport.swift), cancelled with the import card's X.
+    var downloadTask: URLSessionTask?
 
     func cancelImport() {
         importCancel?.cancel()
+        downloadTask?.cancel()
     }
 
     func answerUpdate(_ choice: UpdateChoice) {

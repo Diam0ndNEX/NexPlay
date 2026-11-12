@@ -11,7 +11,7 @@ struct WhatsNewView: View {
     let standalone: Bool
     @Environment(\.dismiss) private var dismiss
 
-    static let version = "4.0"
+    static let version = "4.1"
 
     private struct Item: Identifiable {
         let symbol: String
@@ -22,6 +22,14 @@ struct WhatsNewView: View {
     }
 
     private let items: [Item] = [
+        Item(symbol: "link.badge.plus", color: .cyan, title: "Download from Link",
+             text: "Tap + > Download from Link and paste a direct download link: NexPlay downloads the game with progress and imports it."),
+        Item(symbol: "externaldrive.fill", color: .mint, title: "Ren'Py Saves",
+             text: "In a Ren'Py game, the game menu has Ren'Py Saves: export them, back them up, or import .save files from a PC."),
+        Item(symbol: "internaldrive", color: .gray, title: "Storage",
+             text: "Settings > Advanced > Storage shows what takes space and clears runtimes, packages and leftovers. Rescued saves can be deleted there."),
+        Item(symbol: "link", color: .yellow, title: "Play Links",
+             text: "Long-press a game > Copy Play Link. Open it from the Shortcuts app or a Home Screen shortcut to start the game right away."),
         Item(symbol: "bubble.left.and.text.bubble.right.fill", color: .pink, title: "Ren'Py",
              text: "Visual novels made with Ren'Py 6, 7 and 8 run on Ren'Py's own web engine. Big games load their pictures and music only when needed, and .rpa archives are unpacked when you import."),
         Item(symbol: "bolt.fill", color: .orange, title: "Flash",

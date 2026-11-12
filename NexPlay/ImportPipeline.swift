@@ -9,10 +9,11 @@ import ZIPFoundation
 
 /// What the import is doing right now, for the progress card.
 enum ImportStage: String {
-    case preparing, copying, extracting, scanning, installing, updating
+    case downloading, preparing, copying, extracting, scanning, installing, updating
 
     var title: String {
         switch self {
+        case .downloading: return "Downloading"
         case .preparing: return "Preparing"
         case .copying: return "Copying Game"
         case .extracting: return "Extracting Archive"
@@ -24,6 +25,7 @@ enum ImportStage: String {
 
     var symbol: String {
         switch self {
+        case .downloading: return "arrow.down.circle.fill"
         case .preparing: return "hourglass"
         case .copying: return "doc.on.doc.fill"
         case .extracting: return "archivebox.fill"
@@ -36,6 +38,7 @@ enum ImportStage: String {
     /// The share of the whole import this stage covers (start, end).
     var span: (Double, Double) {
         switch self {
+        case .downloading: return (0, 1)
         case .preparing: return (0, 0.02)
         case .copying, .extracting: return (0.02, 0.88)
         case .scanning: return (0.88, 0.93)

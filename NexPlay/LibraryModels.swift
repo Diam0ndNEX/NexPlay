@@ -274,4 +274,23 @@ enum AutoBackup {
 @MainActor
 final class AppState: ObservableObject {
     @Published var pendingBackup: URL?
+    /// A game to start, from a nexplayapp://play/<game-id> link (Shortcuts, Home Screen bookmarks).
+    @Published var pendingPlay: UUID?
+}
+
+/// Links that start a game: nexplayapp://play/<game-id>. The game menu copies one for the Shortcuts app.
+enum PlayLink {
+    static let scheme = "nexplayapp"
+
+    static func url(for game: Game) -> URL? {
+        URL(string: "\(scheme)://play/\(game.id.uuidString)")
+    }
+
+    /// The game a link asks for, or nil when the URL isn't a play link.
+    static func gameID(in url: URL) -> UUID? {
+        guard url.scheme?.lowercased() == scheme else { return nil }
+        let parts = ([url.host ?? ""] + url.pathComponents).filter { $0 != "/" && !$0.isEmpty }
+        guard parts.first?.lowercased() == "play", parts.count >= 2 else { return nil }
+        return UUID(uuidString: parts[1])
+    }
 }

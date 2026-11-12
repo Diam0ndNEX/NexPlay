@@ -28,7 +28,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .translation: return "In-game text translation"
         case .privacy: return "Hide games and collections behind Face ID, Touch ID or a passcode"
         case .backup: return "Automatic save backups and exports"
-        case .advanced: return "Engines and runtimes, play stats, what's new, app log"
+        case .advanced: return "Engines and runtimes, storage, play stats, what's new, app log"
         }
     }
 
@@ -79,7 +79,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .backup:
             return ["Automatic Save Backups", "Keep Backups", "Back Up All Now", "Export All Saves"]
         case .advanced:
-            return ["Engines & Runtimes", "Ren'Py", "Godot", "Flash", "Clear Runtime Cache", "Play Stats", "What's New", "App Log", "Credits"]
+            return ["Engines & Runtimes", "Ren'Py", "Godot", "Flash", "Clear Runtime Cache", "Storage", "Rescued Saves", "Free Space", "Play Stats", "What's New", "App Log", "Credits"]
         }
     }
 }
@@ -715,6 +715,7 @@ struct AdvancedSettings: View {
         Form {
             Section {
                 NavigationLink { EnginesSettingsView() } label: { Label("Engines & Runtimes", systemImage: "cpu") }
+                NavigationLink { StorageView() } label: { Label("Storage", systemImage: "internaldrive") }
                 NavigationLink { StatsView() } label: { Label("Play Stats", systemImage: "chart.bar.fill") }
                 NavigationLink { WhatsNewView(standalone: false) } label: { Label("What's New", systemImage: "sparkles") }
                 NavigationLink("App Log") { AppLogView() }
