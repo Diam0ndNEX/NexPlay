@@ -1,7 +1,7 @@
 # NexPlay
 
 Personal iPhone game player for RPG Maker MV/MZ and HTML5 games (SwiftUI + WKWebView, iOS 16+), with RPG Maker XP/VX/Ace through the mkxp-z core in builds that turn on `NEXPLAY_MKXP`.
-Not a general web browser: everything in here is treated as a game. Version 4.1.1 (build 23). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
+Not a general web browser: everything in here is treated as a game. Version 4.1.2 (build 24). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
 
 **Read `docs/SPEC.md` for the plan, `docs/RESEARCH.md` for what the reference apps do. Paste-ready prompt for new chats: `docs/PROMPT.md`.**
 
@@ -58,7 +58,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
   - `RenPyArchive.swift` (4.0): unpacks RPA-2.0/3.0 archives at import (minimal pickle reader for the index), deletes the archives that unpacked fully; custom formats are kept with a note.
   - `StoredZipWriter.swift` (4.0): fast stored-only ZIP writer (+ CRC32) for game.zip; ZIPFoundation rewrites the central directory per entry.
   - `FlashRuntime.swift` (4.0): main .swf (named like the folder/game/main, else the largest), page-wraps-swf detection, Ruffle launcher page (`__nexplay/flash.html`, Ruffle under `__ruffle/`).
-  - `RenPySaves.swift` (4.1): `RenPySavesFeature` (game menu "Ren'Py Saves": export ZIP to the share sheet, back up into Backups/<game>/renpy-<date>.zip, import .save/persistent files, folders or ZIPs; a before-import-renpy backup first). Uses renpy.savelocation.zip_saves/unzip_saves (8.x, via renpy_exec) or Module._emSavegamesExport/Import (7.x), then FS.syncfs and a save rescan.
+  - `RenPySaves.swift` (4.1): `RenPySavesFeature` (game menu "Ren'Py Saves": export ZIP to the share sheet, back up into Backups/<game>/renpy-<date>.zip, import .save/persistent files, folders or ZIPs; a before-import-renpy backup first). 4.1.2: a few lines of Python run through renpy_exec (both 7.x and 8.x) zip/unzip renpy.config.savedir via /savegames.zip, then FS.syncfs and a save rescan; Ren'Py 7's Module._emSavegamesExport zips the whole ~/.renpy and its import expects <save_directory>/ paths, so it isn't used. Tested in Chromium on 7.8.7 and 8.3.7.
   - `LinkImport.swift` (4.1): + > Download from Link: `LinkDownloader` (URLSession delegate, progress on the import card as stage `.downloading`, Cancel cancels `store.downloadTask`), refuses HTML pages, then `importItems`.
   - `StorageView.swift` (4.1): Settings > Advanced > Storage: usage bar (games, backups, rescued saves, runtimes/packages, temp), games by size, delete rescued saves (swipe), clear runtimes / temporary files (temp disabled while importing).
   - `PlayLink` (LibraryModels, 4.1): `nexplayapp://play/<game-uuid>` (CFBundleURLTypes) starts a game; `AppState.pendingPlay`; game context menu "Copy Play Link". Hidden games only start while hidden games are shown.

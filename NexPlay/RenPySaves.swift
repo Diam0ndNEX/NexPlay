@@ -3,11 +3,10 @@ import WebKit
 import UniformTypeIdentifiers
 import ZIPFoundation
 
-// Ren'Py saves live inside RenPyWeb (IDBFS: IndexedDB of the game's local-server origin). RenPyWeb can zip them
-// (renpy.savelocation.zip_saves) and unzip a ZIP of save files (unzip_saves); the page's own ≡ menu uses the same
-// calls (renpy-pre.js onSavegamesExport/Import). Ren'Py 7 uses the C helpers Module._emSavegamesExport/Import.
-// This feature runs them from the game menu, so desktop saves (*.save + persistent) can be brought over and saves
-// can be backed up into Backups/<game-uuid>/.
+// Ren'Py saves live inside RenPyWeb (IDBFS: IndexedDB of the game's local-server origin, renpy.config.savedir).
+// This feature zips and unzips that folder with a few lines of Python run inside Ren'Py (renpy_exec, which RenPyWeb 7
+// and 8 both have), then writes IndexedDB with FS.syncfs, so desktop saves (*.save + persistent) can be brought over
+// and saves can be backed up into Backups/<game-uuid>/. Tested in a browser with the Ren'Py 7.8.7 and 8.3.7 runtimes.
 
 enum RenPySaves {
     /// Files of a Ren'Py save folder worth moving.
@@ -79,44 +78,70 @@ enum RenPySaves {
         return (zip, found.count)
     }
 
-    /// Imports a ZIP of save files into the running game. Ren'Py 8 unzips with renpy.savelocation.unzip_saves,
-    /// Ren'Py 7 with Module._emSavegamesImport; then the files are written to IndexedDB and the save list rescanned.
-    static let importScript = #"""
-    const bytes = Uint8Array.from(atob(data), function (c) { return c.charCodeAt(0); });
-    if (typeof FS === 'undefined') { throw new Error('Ren\'Py is not running yet. Wait for the main menu and try again.'); }
-    FS.writeFile('savegames.zip', bytes);
-    if (typeof Module !== 'undefined' && typeof Module._emSavegamesImport === 'function') {
-        Module._emSavegamesImport();
-    } else if (typeof renpy_exec === 'function') {
-        await renpy_exec('result = renpy.savelocation.unzip_saves()');
-    } else {
-        throw new Error('This Ren\'Py runtime has no save import.');
-    }
-    await new Promise(function (resolve, reject) { FS.syncfs(false, function (err) { if (err) { reject(err); } else { resolve(); } }); });
-    if (typeof renpy_exec === 'function') {
-        try { await renpy_exec('renpy.loadsave.location.scan()'); } catch (e) {}
-    }
-    return 'ok';
-    """#
+    /// Python run inside Ren'Py (2 or 3) through renpy_exec: zips the save folder (renpy.config.savedir, the
+    /// IndexedDB-backed folder) into /savegames.zip.
+    private static let pythonExport = """
+    import os, zipfile
+    d = renpy.config.savedir
+    n = 0
+    zf = zipfile.ZipFile('/savegames.zip', 'w', zipfile.ZIP_DEFLATED)
+    if d and os.path.isdir(d):
+        for root, dirs, files in os.walk(d):
+            for f in files:
+                p = os.path.join(root, f)
+                zf.write(p, os.path.relpath(p, d))
+                n += 1
+    zf.close()
+    result = n
+    """
 
-    /// Zips the running game's saves and returns them as base64.
-    static let exportScript = #"""
-    if (typeof FS === 'undefined') { throw new Error('Ren\'Py is not running yet. Wait for the main menu and try again.'); }
-    let made = false;
-    if (typeof Module !== 'undefined' && typeof Module._emSavegamesExport === 'function') {
-        made = !!Module._emSavegamesExport();
-    } else if (typeof renpy_exec === 'function') {
-        made = !!(await renpy_exec('result = renpy.savelocation.zip_saves()'));
+    /// Python: writes the files of /savegames.zip (flat) into the save folder.
+    private static let pythonImport = """
+    import os, zipfile
+    d = renpy.config.savedir
+    if not os.path.isdir(d):
+        os.makedirs(d)
+    zf = zipfile.ZipFile('/savegames.zip')
+    n = 0
+    for name in zf.namelist():
+        if name.endswith('/'):
+            continue
+        f = open(os.path.join(d, name.split('/')[-1]), 'wb')
+        f.write(zf.read(name))
+        f.close()
+        n += 1
+    zf.close()
+    result = n
+    """
+
+    /// Imports a ZIP of save files into the running game, writes them to IndexedDB and rescans the save list.
+    static var importScript: String {
+        """
+        if (typeof renpy_exec !== 'function' || typeof FS === 'undefined') { throw new Error("Ren'Py is not running yet. Wait for the main menu and try again."); }
+        const bytes = Uint8Array.from(atob(data), function (c) { return c.charCodeAt(0); });
+        FS.writeFile('/savegames.zip', bytes);
+        const count = await renpy_exec(\(PageScripts.jsString(pythonImport)));
+        await new Promise(function (resolve, reject) { FS.syncfs(false, function (err) { if (err) { reject(err); } else { resolve(); } }); });
+        try { await renpy_exec('renpy.loadsave.location.scan()'); } catch (e) {}
+        return String(count);
+        """
     }
-    if (!made) { throw new Error('Ren\'Py could not zip its saves.'); }
-    const bytes = FS.readFile('savegames.zip');
-    let text = '';
-    const step = 0x8000;
-    for (let i = 0; i < bytes.length; i += step) {
-        text += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+
+    /// Zips the running game's saves and returns them as base64 ("" when there are none).
+    static var exportScript: String {
+        """
+        if (typeof renpy_exec !== 'function' || typeof FS === 'undefined') { throw new Error("Ren'Py is not running yet. Wait for the main menu and try again."); }
+        const count = await renpy_exec(\(PageScripts.jsString(pythonExport)));
+        if (!count) { return ''; }
+        const bytes = FS.readFile('/savegames.zip');
+        let text = '';
+        const step = 0x8000;
+        for (let i = 0; i < bytes.length; i += step) {
+            text += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+        }
+        return btoa(text);
+        """
     }
-    return btoa(text);
-    """#
 }
 
 /// Game menu entries for Ren'Py saves: export (share sheet), back up into Backups/, import from Files.
@@ -145,7 +170,12 @@ final class RenPySavesFeature: PlayerFeature {
         Task { @MainActor in
             do {
                 let value = try await webView.callAsyncJavaScript(RenPySaves.exportScript, arguments: [:], in: nil, contentWorld: .page)
-                guard let text = value as? String, let data = Data(base64Encoded: text) else { throw SaveToolsError.badResult }
+                guard let text = value as? String else { throw SaveToolsError.badResult }
+                if text.isEmpty {
+                    alert("No saves yet", "Save in the game first, then export or back up.")
+                    return
+                }
+                guard let data = Data(base64Encoded: text) else { throw SaveToolsError.badResult }
                 let name = "\(Paths.safeName(game.name))-renpy-saves-\(Paths.timestamp()).zip"
                 if backup {
                     let folder = Paths.backupFolder(for: game)
@@ -192,7 +222,7 @@ final class RenPySavesFeature: PlayerFeature {
                 defer { try? FileManager.default.removeItem(at: collected.zip) }
                 // A safety copy of the current saves first, when the game can make one.
                 if let current = try? await webView.callAsyncJavaScript(RenPySaves.exportScript, arguments: [:], in: nil, contentWorld: .page),
-                   let text = current as? String, let data = Data(base64Encoded: text) {
+                   let text = current as? String, !text.isEmpty, let data = Data(base64Encoded: text) {
                     let folder = Paths.backupFolder(for: context.game())
                     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                     try? data.write(to: folder.appendingPathComponent("before-import-renpy-\(Paths.timestamp()).zip"), options: .atomic)
