@@ -23,11 +23,14 @@ struct BackupEntry: Identifiable, Hashable {
 enum SaveArchiveError: LocalizedError {
     case noSaves
     case notABackup
+    case wrongKind(found: String, wanted: String)
 
     var errorDescription: String? {
         switch self {
         case .noSaves: return "This game has no save files yet."
-        case .notABackup: return "This ZIP holds no RPG Maker save files."
+        case .notABackup: return "No RPG Maker save files (.rpgsave or .rmmzsave) were found in what you picked."
+        case .wrongKind(let found, let wanted):
+            return "These are \(found) save files, but this game uses \(wanted) files. They come from a different RPG Maker version."
         }
     }
 }
@@ -111,50 +114,100 @@ enum SaveArchive {
             .sorted { $0.date > $1.date }
     }
 
-    /// Restores saves from a ZIP. The current saves are backed up first (before-restore-<date>.zip),
-    /// and every file that gets replaced is kept as <name>.nex-displaced.bak. Returns how many files were restored.
+    /// Restores saves from a ZIP (a backup or an export). Same rules as `importSaves`.
     static func restore(zip: URL, into game: Game) throws -> Int {
+        try importSaves(from: [zip], into: game)
+    }
+
+    /// Imports saves from what the person picked: ZIPs, loose save files (.rpgsave / .rmmzsave, e.g. copied from a
+    /// PC's www/save folder), or folders. The current saves are backed up first (before-restore-<date>.zip), and
+    /// every file that gets replaced is kept as <name>.nex-displaced.bak. Returns how many files were imported.
+    static func importSaves(from urls: [URL], into game: Game) throws -> Int {
         let fm = FileManager.default
-        let temp = fm.temporaryDirectory.appendingPathComponent("restore-\(UUID().uuidString)", isDirectory: true)
+        let temp = fm.temporaryDirectory.appendingPathComponent("save-import-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: temp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: temp) }
-        try fm.unzipItem(at: zip, to: temp)
+
+        for (index, url) in urls.enumerated() {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            if url.pathExtension.lowercased() == "zip" {
+                let folder = temp.appendingPathComponent("zip-\(index)", isDirectory: true)
+                try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+                try fm.unzipItem(at: url, to: folder)
+            } else {
+                let target = temp.appendingPathComponent(url.lastPathComponent)
+                if fm.fileExists(atPath: target.path) { continue }
+                try fm.copyItem(at: url, to: target)
+            }
+        }
         GameScanner.tidy(temp)
 
         guard let source = saveRoot(in: temp) else { throw SaveArchiveError.notABackup }
+        try checkKind(in: source, for: game)
         try backUp(game, label: "before-restore-\(Paths.timestamp())")
-        let count = try putBack(from: source, into: Paths.saveFolder(for: game))
-        AppLog.log("restored \(count) save file(s) into \(game.name) from \(zip.lastPathComponent)")
+        // A real save/ folder comes over whole; loose files only bring their save files.
+        let wholeFolder = source.lastPathComponent.lowercased() == "save"
+        let count = try putBack(from: source, into: Paths.saveFolder(for: game), onlySaveFiles: !wholeFolder)
+        if count == 0 { throw SaveArchiveError.notABackup }
+        AppLog.log("imported \(count) save file(s) into \(game.name) from \(urls.map { $0.lastPathComponent }.joined(separator: ", "))")
         return count
     }
 
-    /// The folder in an unpacked ZIP that holds save files: save/, www/save/, or the top level.
+    /// MV saves are .rpgsave, MZ saves are .rmmzsave; saves of the other kind can't load.
+    private static func checkKind(in folder: URL, for game: Game) throws {
+        let kids = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil,
+                                                                 options: [.skipsHiddenFiles])) ?? []
+        let found = Set(kids.map { $0.pathExtension.lowercased() }).intersection(saveExtensions)
+        switch game.engine {
+        case .rpgMV where !found.contains("rpgsave") && found.contains("rmmzsave"):
+            throw SaveArchiveError.wrongKind(found: "RPG Maker MZ (.rmmzsave)", wanted: "RPG Maker MV (.rpgsave)")
+        case .rpgMZ where !found.contains("rmmzsave") && found.contains("rpgsave"):
+            throw SaveArchiveError.wrongKind(found: "RPG Maker MV (.rpgsave)", wanted: "RPG Maker MZ (.rmmzsave)")
+        default:
+            break
+        }
+    }
+
+    /// The shallowest folder in an unpacked import that holds save files directly (a folder named save wins at
+    /// the same depth). Looks up to six levels deep, so a ZIP of a whole game (Game/www/save) works too.
     static func saveRoot(in folder: URL) -> URL? {
         let fm = FileManager.default
-        var candidates = [folder.appendingPathComponent("save"), folder.appendingPathComponent("www/save"), folder]
-        // A ZIP of a folder may add one more level.
-        let kids = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
-        for kid in kids {
-            candidates.append(kid.appendingPathComponent("save"))
-            candidates.append(kid)
-        }
-        for candidate in candidates {
-            let hasSave = files(in: candidate).contains { file in
-                saveExtensions.contains(file.url.pathExtension.lowercased()) && !file.relative.contains("/")
+        var level = [folder]
+        for _ in 0...5 {
+            let holders = level.filter { hasSaveFiles($0) }
+            if let named = holders.first(where: { $0.lastPathComponent.lowercased() == "save" }) { return named }
+            if let first = holders.first { return first }
+            var next: [URL] = []
+            for dir in level {
+                let kids = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey],
+                                                        options: [.skipsHiddenFiles])) ?? []
+                next += kids.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
             }
-            if hasSave { return candidate }
+            if next.isEmpty { return nil }
+            level = next
         }
         return nil
     }
 
-    /// Copies every file from `source` into `destination`. A file that would be replaced is kept as
-    /// <name>.nex-displaced.bak first. Returns the number of files copied.
-    static func putBack(from source: URL, into destination: URL) throws -> Int {
+    private static func hasSaveFiles(_ dir: URL) -> Bool {
+        let kids = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil,
+                                                                 options: [.skipsHiddenFiles])) ?? []
+        return kids.contains { saveExtensions.contains($0.pathExtension.lowercased()) }
+    }
+
+    /// Copies every file from `source` into `destination` (only top-level .rpgsave/.rmmzsave files when
+    /// `onlySaveFiles`). A file that would be replaced is kept as <name>.nex-displaced.bak first.
+    /// Returns the number of files copied.
+    static func putBack(from source: URL, into destination: URL, onlySaveFiles: Bool = false) throws -> Int {
         let fm = FileManager.default
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
         var count = 0
         for file in files(in: source) {
             if file.relative.hasSuffix(displacedSuffix) { continue }
+            if onlySaveFiles {
+                if file.relative.contains("/") || !saveExtensions.contains(file.url.pathExtension.lowercased()) { continue }
+            }
             let target = destination.appendingPathComponent(file.relative)
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             if fm.fileExists(atPath: target.path) {

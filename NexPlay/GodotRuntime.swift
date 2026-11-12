@@ -5,8 +5,8 @@ import ZIPFoundation
 // official web export template of the same major.minor version, bundled in NexPlay.app/GodotRuntimes by
 // tools/fetch_godot_runtimes.py at build time (Godot Engine, MIT license, https://godotengine.org/license).
 // The runtime loads the game's .pck with `--main-pack`, exactly as a web export does with its own .pck.
-// Pack layout (header: "GDPC", format version, major, minor, patch; embedded: ...pck, u64 size, "GDPC" at the end)
-// follows Godot's core/io/file_access_pack.cpp.
+// Pack layout (header: "GDPC", format version, major, minor, patch; format 2+: flags, file base; embedded:
+// ...pck, u64 size, "GDPC" at the end) follows Godot's core/io/file_access_pack.cpp.
 
 struct GodotVersion: Comparable, CustomStringConvertible {
     let major: Int
@@ -35,24 +35,68 @@ struct GodotVersion: Comparable, CustomStringConvertible {
     }
 }
 
+/// What the player needs to start a desktop Godot game.
+struct GodotLaunch {
+    let version: GodotVersion
+    let runtime: GodotVersion
+    let folder: URL
+    /// Lines for the game log (pack header, repairs).
+    let notes: [String]
+}
+
 enum GodotRuntime {
     private static let magic: UInt32 = 0x4350_4447 // "GDPC" little-endian
+    static let executableExtensions: Set<String> = ["exe", "x86_64", "x86_32", "arm64", ""]
 
     // MARK: - Packs
 
-    /// The engine version a .pck was exported with, or nil when the file is not a Godot pack (or is encrypted
-    /// in a way that hides the header).
-    static func packVersion(_ url: URL) -> GodotVersion? {
+    /// The fields of a pack header that matter here. Godot 3 packs are format 1; Godot 4 packs are format 2 or 3
+    /// and add flags (1 = encrypted directory, 2 = file offsets count from the start of the pack) and the file base.
+    struct PackHeader {
+        let format: UInt32
+        let version: GodotVersion
+        let flags: UInt32
+        let fileBase: UInt64
+        let size: UInt64
+
+        var encrypted: Bool { format >= 2 && flags & 1 != 0 }
+        var relativeBase: Bool { format >= 2 && flags & 2 != 0 }
+
+        var summary: String {
+            if format >= 2 {
+                return "pack format \(format), Godot \(version), flags \(flags), file base \(fileBase), \(size) bytes"
+            }
+            return "pack format \(format), Godot \(version), \(size) bytes"
+        }
+    }
+
+    static func header(_ url: URL) -> PackHeader? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 20), data.count == 20 else { return nil }
-        func word(_ index: Int) -> UInt32 {
-            data.subdata(in: index * 4..<(index + 1) * 4).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
-        }
-        guard word(0) == magic else { return nil }
-        let major = Int(word(2)), minor = Int(word(3)), patch = Int(word(4))
+        guard let size = try? handle.seekToEnd(), size >= 32 else { return nil }
+        guard (try? handle.seek(toOffset: 0)) != nil,
+              let data = try? handle.read(upToCount: 32), data.count == 32 else { return nil }
+        guard readU32(data, 0) == magic else { return nil }
+        let format = readU32(data, 4)
+        let major = Int(readU32(data, 8)), minor = Int(readU32(data, 12)), patch = Int(readU32(data, 16))
         guard (3...9).contains(major), minor < 100, patch < 100 else { return nil }
-        return GodotVersion(major: major, minor: minor, patch: patch)
+        let flags = format >= 2 ? readU32(data, 20) : 0
+        let base = format >= 2 ? readU64(data, 24) : 0
+        return PackHeader(format: format, version: GodotVersion(major: major, minor: minor, patch: patch),
+                          flags: flags, fileBase: base, size: size)
+    }
+
+    /// The engine version a .pck was exported with, or nil when the file is not a Godot pack.
+    static func packVersion(_ url: URL) -> GodotVersion? {
+        header(url)?.version
+    }
+
+    private static func readU32(_ data: Data, _ offset: Int) -> UInt32 {
+        data.subdata(in: offset..<offset + 4).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+    }
+
+    private static func readU64(_ data: Data, _ offset: Int) -> UInt64 {
+        data.subdata(in: offset..<offset + 8).withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }
     }
 
     /// Where a pack embedded at the end of an executable starts and how long it is.
@@ -62,8 +106,8 @@ enum GodotRuntime {
         guard let size = try? handle.seekToEnd(), size > 32 else { return nil }
         guard (try? handle.seek(toOffset: size - 12)) != nil,
               let tail = try? handle.read(upToCount: 12), tail.count == 12 else { return nil }
-        let length = tail.subdata(in: 0..<8).withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }
-        let end = tail.subdata(in: 8..<12).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+        let length = readU64(tail, 0)
+        let end = readU32(tail, 8)
         guard end == magic, length > 0, length < size - 12 else { return nil }
         return (size - 12 - length, length)
     }
@@ -87,14 +131,17 @@ enum GodotRuntime {
                         continue
                     }
                     let ext = kid.pathExtension.lowercased()
-                    guard ["exe", "x86_64", "x86_32", "arm64", ""].contains(ext) else { continue }
+                    guard executableExtensions.contains(ext) else { continue }
                     let base = kid.deletingPathExtension().lastPathComponent
                     if names.contains(base.lowercased() + ".pck") { continue }
                     guard let pack = embeddedPack(in: kid) else { continue }
                     try cancel?.check()
                     cancel?.report(.scanning, "Unpacking the Godot game from \(kid.lastPathComponent)…", 0.5, force: true)
-                    try copyRange(of: kid, offset: pack.offset, length: pack.length,
-                                  to: dir.appendingPathComponent(base + ".pck"), cancel: cancel)
+                    let target = dir.appendingPathComponent(base + ".pck")
+                    try copyRange(of: kid, offset: pack.offset, length: pack.length, to: target, cancel: cancel)
+                    if let note = try? rebase(target, exeOffset: pack.offset) {
+                        AppLog.log("godot import: \(note)")
+                    }
                     extracted += 1
                 }
             }
@@ -119,6 +166,94 @@ enum GodotRuntime {
             try output.write(contentsOf: data)
             remaining -= UInt64(data.count)
         }
+    }
+
+    // MARK: - Offsets of packs cut out of an executable
+
+    /// A pack cut out of an .exe keeps file offsets that count from the start of the .exe when the export did not
+    /// mark them as relative (Godot 3 and early Godot 4 exports). Godot then reads the wrong bytes: "no main scene
+    /// defined", or a crash such as "call_indirect to a signature that does not match". This shifts the offsets so
+    /// they count from the start of the .pck. Safe to run again: offsets that already fit inside the pack are left
+    /// alone. Returns a line for the log when it changed something.
+    @discardableResult
+    static func rebase(_ pack: URL, exeOffset: UInt64) throws -> String? {
+        guard exeOffset > 0, let head = header(pack) else { return nil }
+        if head.format >= 2 {
+            guard !head.relativeBase, head.fileBase >= head.size, head.fileBase >= exeOffset,
+                  head.fileBase - exeOffset < head.size else { return nil }
+            try writeU64(head.fileBase - exeOffset, at: 24, in: pack)
+            return "fixed the file base of \(pack.lastPathComponent) (it counted from the start of the .exe)"
+        }
+        // Format 1 (Godot 3): every directory entry carries its own offset.
+        guard let entries = format1Entries(pack, size: head.size), !entries.isEmpty else { return nil }
+        var maxEnd: UInt64 = 0
+        var minOffset = UInt64.max
+        for entry in entries {
+            maxEnd = max(maxEnd, entry.offset &+ entry.length)
+            minOffset = min(minOffset, entry.offset)
+        }
+        guard maxEnd > head.size, minOffset >= exeOffset, maxEnd - exeOffset <= head.size else { return nil }
+        let handle = try FileHandle(forUpdating: pack)
+        defer { try? handle.close() }
+        for entry in entries {
+            try handle.seek(toOffset: entry.position)
+            var value = (entry.offset - exeOffset).littleEndian
+            let bytes = withUnsafeBytes(of: &value) { Data($0) }
+            try handle.write(contentsOf: bytes)
+        }
+        return "fixed \(entries.count) file offsets in \(pack.lastPathComponent) (they counted from the start of the .exe)"
+    }
+
+    /// For a .pck that an older NexPlay cut out of an executable without fixing it: finds that executable beside
+    /// the pack (same embedded length) and rebases the pack. Returns a line for the log when something changed.
+    static func repairIfExtracted(_ pack: URL) -> String? {
+        let fm = FileManager.default
+        guard let size = (try? pack.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 0 else { return nil }
+        let dir = pack.deletingLastPathComponent()
+        let kids = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey],
+                                                options: [.skipsHiddenFiles])) ?? []
+        for kid in kids {
+            guard executableExtensions.contains(kid.pathExtension.lowercased()) else { continue }
+            if (try? kid.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { continue }
+            guard let embedded = embeddedPack(in: kid), embedded.length == UInt64(size) else { continue }
+            do {
+                return try rebase(pack, exeOffset: embedded.offset)
+            } catch {
+                return "could not fix \(pack.lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+        return nil
+    }
+
+    private static func writeU64(_ value: UInt64, at offset: UInt64, in url: URL) throws {
+        let handle = try FileHandle(forUpdating: url)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: offset)
+        var little = value.littleEndian
+        let bytes = withUnsafeBytes(of: &little) { Data($0) }
+        try handle.write(contentsOf: bytes)
+    }
+
+    /// Directory entries of a format 1 pack: where each offset is stored, the offset and the file length.
+    /// Layout: header (20 bytes) + 16 reserved u32, file count, then per file: u32 name length, name, u64 offset,
+    /// u64 size, 16-byte md5.
+    private static func format1Entries(_ pack: URL, size: UInt64) -> [(position: UInt64, offset: UInt64, length: UInt64)]? {
+        guard let handle = try? FileHandle(forReadingFrom: pack) else { return nil }
+        defer { try? handle.close() }
+        let reader = PackReader(handle: handle, size: size)
+        var position: UInt64 = 84
+        guard let count = reader.u32(at: position), count > 0, count < 2_000_000 else { return nil }
+        position += 4
+        var entries: [(position: UInt64, offset: UInt64, length: UInt64)] = []
+        entries.reserveCapacity(Int(count))
+        for _ in 0..<count {
+            guard let nameLength = reader.u32(at: position), nameLength < 65_536 else { return nil }
+            position += 4 + UInt64(nameLength)
+            guard let offset = reader.u64(at: position), let length = reader.u64(at: position + 8) else { return nil }
+            entries.append((position: position, offset: offset, length: length))
+            position += 32
+        }
+        return entries
     }
 
     /// The main .pck of a desktop Godot game (relative to `root`): the one named like an executable, else the
@@ -189,10 +324,27 @@ enum GodotRuntime {
         return folder
     }
 
+    /// Everything needed to start a desktop game: repairs an old extracted pack, reads its header, picks and
+    /// unpacks the runtime. Synchronous file work: call it from a background task.
+    static func launch(pack: URL) throws -> GodotLaunch {
+        guard FileManager.default.fileExists(atPath: pack.path) else { throw RuntimeError.noPack }
+        var notes: [String] = []
+        if let note = repairIfExtracted(pack) { notes.append(note) }
+        guard let head = header(pack) else { throw RuntimeError.unknownVersion }
+        notes.append(head.summary)
+        if head.encrypted { throw RuntimeError.encrypted }
+        guard let runtime = runtime(for: head.version) else {
+            throw RuntimeError.noRuntime(head.version.description, bundled.map { $0.description })
+        }
+        let folder = try prepare(runtime)
+        return GodotLaunch(version: head.version, runtime: runtime, folder: folder, notes: notes)
+    }
+
     enum RuntimeError: LocalizedError {
         case missing(String)
         case noPack
         case unknownVersion
+        case encrypted
         case noRuntime(String, [String])
 
         var errorDescription: String? {
@@ -203,6 +355,8 @@ enum GodotRuntime {
                 return "No Godot .pck file was found in this game."
             case .unknownVersion:
                 return "The game's .pck doesn't say which Godot version made it (it may be encrypted)."
+            case .encrypted:
+                return "This Godot game is encrypted with its developer's key, so the Godot runtime can't read it."
             case .noRuntime(let version, let have):
                 return "This game was made with Godot \(version), and this build of NexPlay has runtimes for \(have.joined(separator: ", ")). Packs from a newer Godot than the newest runtime can't load."
             }
@@ -240,7 +394,7 @@ enum GodotRuntime {
             function fail(err) {
                 var message = err && err.message ? err.message : String(err);
                 console.error('Godot could not start: ' + message);
-                text.textContent = 'Godot could not start:\\n' + message;
+                text.textContent = 'Godot could not start:\\n' + message + '\\n\\nThe game log (gear > Game Log) shows what Godot printed.';
                 fill.parentNode.style.display = 'none';
                 status.style.display = 'flex';
             }
@@ -257,7 +411,9 @@ enum GodotRuntime {
                     serviceWorker: '',
                     experimentalVK: false,
                     gdextensionLibs: [],
-                    fileSizes: {}
+                    fileSizes: {},
+                    onPrint: function () { console.log('godot: ' + Array.prototype.join.call(arguments, ' ')); },
+                    onPrintError: function () { console.error('godot: ' + Array.prototype.join.call(arguments, ' ')); }
                 });
                 if (typeof Engine.getMissingFeatures === 'function') {
                     var missing = Engine.getMissingFeatures({ threads: \(threads ? "true" : "false") });
@@ -284,6 +440,41 @@ enum GodotRuntime {
         </body></html>
         """
         return Data(html.utf8)
+    }
+}
+
+/// Reads little-endian numbers from a file through a 1 MB window (pack directories can hold thousands of entries).
+private final class PackReader {
+    private let handle: FileHandle
+    private let size: UInt64
+    private var buffer = Data()
+    private var start: UInt64 = 0
+
+    init(handle: FileHandle, size: UInt64) {
+        self.handle = handle
+        self.size = size
+    }
+
+    private func bytes(at offset: UInt64, count: Int) -> Data? {
+        let end = offset + UInt64(count)
+        guard end <= size else { return nil }
+        if offset < start || end > start + UInt64(buffer.count) {
+            guard (try? handle.seek(toOffset: offset)) != nil,
+                  let data = try? handle.read(upToCount: max(count, 1 << 20)) else { return nil }
+            buffer = Data(data)
+            start = offset
+        }
+        guard end <= start + UInt64(buffer.count) else { return nil }
+        let from = Int(offset - start)
+        return buffer.subdata(in: from..<from + count)
+    }
+
+    func u32(at offset: UInt64) -> UInt32? {
+        bytes(at: offset, count: 4).map { $0.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) } }
+    }
+
+    func u64(at offset: UInt64) -> UInt64? {
+        bytes(at: offset, count: 8).map { $0.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) } }
     }
 }
 
