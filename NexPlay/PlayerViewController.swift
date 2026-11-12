@@ -124,7 +124,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         content.addUserScript(WKUserScript(source: PageScripts.identity(version: PlayerViewController.appVersion),
                                            injectionTime: .atDocumentStart, forMainFrameOnly: true))
         content.addUserScript(WKUserScript(source: PageScripts.keyBridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        if game.engine.usesLocalServer {
+        if game.engine == .renpy {
             content.addUserScript(WKUserScript(source: PageScripts.noServiceWorker, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         if game.usesNWMode {

@@ -29,11 +29,22 @@ enum PageScripts {
         "window.nexplay = Object.freeze({ version: \(jsString(version)), platform: 'ios' });"
     }
 
-    /// Hides service workers from runtimes that register one (RenPyWeb caches its files with it). A worker would
-    /// keep serving old files after the game or the runtime changes, and the local server needs none.
+    /// Replaces service workers with an inert stub for RenPyWeb, which registers one to cache its files: a worker
+    /// would keep serving old files after the game or the runtime changes. A stub, not undefined: code that checks
+    /// `'serviceWorker' in navigator` (Godot's web runtime) would then call methods on undefined and fail.
     static let noServiceWorker = #"""
     (function () {
-        try { Object.defineProperty(navigator, 'serviceWorker', { value: undefined, configurable: true }); } catch (e) {}
+        var stub = {
+            controller: null,
+            ready: new Promise(function () {}),
+            register: function () { return Promise.resolve(undefined); },
+            getRegistration: function () { return Promise.resolve(undefined); },
+            getRegistrations: function () { return Promise.resolve([]); },
+            addEventListener: function () {},
+            removeEventListener: function () {},
+            startMessages: function () {}
+        };
+        try { Object.defineProperty(navigator, 'serviceWorker', { value: stub, configurable: true }); } catch (e) {}
     })();
     """#
 

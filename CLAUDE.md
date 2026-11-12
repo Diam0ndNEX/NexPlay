@@ -1,7 +1,7 @@
 # NexPlay
 
 Personal iPhone game player for RPG Maker MV/MZ and HTML5 games (SwiftUI + WKWebView, iOS 16+), with RPG Maker XP/VX/Ace through the mkxp-z core in builds that turn on `NEXPLAY_MKXP`.
-Not a general web browser: everything in here is treated as a game. Version 4.1.2 (build 24). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
+Not a general web browser: everything in here is treated as a game. Version 4.1.3 (build 25). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
 
 **Read `docs/SPEC.md` for the plan, `docs/RESEARCH.md` for what the reference apps do. Paste-ready prompt for new chats: `docs/PROMPT.md`.**
 
@@ -113,7 +113,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 - 4.0.0: Godot 4.0-4.2 packs use the oldest single-threaded runtime (4.3+) by default: the threaded 4.1/4.2 builds are the likely cause of "call_indirect to a signature that does not match" on iPhone. `GodotRuntime.inspect` reads the pack directory (formats 1-3) and project.binary, logs file count / main scene, and passes a per-platform-only main scene (`application/run/main_scene.<feature>`) as a command-line argument.
 - 4.0.0: runtime switching: Game Settings > Engine (Godot desktop and Ren'Py), the in-game menu ("<Engine> Runtime"), and an alert offering the other runtimes when the page logs "Godot could not start" / "The game aborted unexpectedly" (once per session). `switchRuntime` stops the local server and reloads.
 - 4.0.0: downloads from games (`<a download>`, blob URLs; Twine/DoL and Ren'Py save exports) go through WKDownload to a temp file and the share sheet.
-- 4.0.0: the local server is kept only after it starts (Restart used to do nothing after a failed start). Pages on the local server get `PageScripts.noServiceWorker`.
+- 4.0.0: the local server is kept only after it starts (Restart used to do nothing after a failed start). 4.1.3: only Ren'Py pages get `PageScripts.noServiceWorker`, and it installs an inert stub instead of undefined: Godot's runtime checks `'serviceWorker' in navigator` and then calls getRegistration(), so `undefined` broke every Godot game in 4.0-4.1.2 ("Cannot read properties of undefined (reading 'getRegistration')").
 - 4.0.0: library: summary line, bigger Continue card (blurred cover, Resume + game page), Recently Added shelf (6+ games), engine chips with icons and counts, NEW badge (added < 7 days, never played), Play Stats and Surprise Me in the sort menu. Game page: info chips (time, sessions, added, size, runtime), notice card when the engine can't run in this build, favorite button.
 - 3.0.0: save profiles only for NW.js-mode RPG Maker games. Deleting a game moves parked profiles to Rescued Saves.
 - Control bar (2.1.0) replaces the old menu button: handle position is saved normalized (`barPosition`); the X asks before exiting; the gear opens the full game menu; auto-hide after 5 s, a tap on the game (not on a control) wakes it; hidden while a controller is connected unless "Show Control Bar With Controller". Typed keys go down and up 80 ms apart so RPG Maker sees them.
@@ -134,6 +134,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 
 ## Roadmap
 - 1.1.4 base check, AppLog. 1.2.0 NW.js saves. 1.3.0 controls. 1.4.0 library/backups/settings/plugins/cheats. 1.5.0 import pipeline. 1.6.0 translation. 1.9.0 mkxp scaffolding. 2.0.0 finish. 2.1.0 control bar, settings pages, 7z/RAR, black-screen fix.
+- 4.1.3: Godot launcher tested in Chromium with hand-made packs (format 1 for 3.x, format 2 for 4.x: project.binary + a ColorRect main.tscn) on every bundled runtime 3.5.3-4.7.2: all start. Safari-only problems (Project Kat) still need a device.
 - 4.1.1: bugs found by running the bundled runtimes in headless Chromium (Playwright) with game.zip built like the app: 8.3.7 engine bytecode was Python 3.9 but the web runtime is 3.11 ("bad magic number"); `_ren.py` scripts were dropped; game.zip lacked folder entries, so RenPyWeb couldn't write progressively downloaded files into a folder that had none in the ZIP (`StoredZipWriter.addDirectory`, packageFormat 2); the Flash launcher's backgroundColor hid the movie's own background. To re-test: build a test game, port of the placement rules, a server with the __renpy/ layout, then Playwright with --use-gl=swiftshader.
 - 4.1.0: Ren'Py saves in the game menu, Download from Link, Storage page, play links. Home Screen quick actions were skipped: they need a custom scene delegate, which could break onOpenURL (Open in NexPlay).
 - Next: device test of 4.0.0/4.1.0: Project Kat (Godot desktop; log lines `godot: pack ...`, runtime picked), a Ren'Py 7 and a Ren'Py 8 game (first start builds game.zip; log lines `ren'py: ...`), a Flash game. If a runtime fails, the build log of the Ren'Py/Ruffle post-build steps shows why.
