@@ -1,4 +1,5 @@
-# Paste as .github/workflows/build.yml (6.4.0: as 6.3.0, plus the newest Windows runtime release merged into the app).
+# Paste as .github/workflows/build.yml (7.1.1: as 6.4.0; the parts added after the Xcode build (Windows runtime,
+# EasyRPG core, later ones) now come from tools/ci/package_extras.sh, so they don't need a new workflow file).
 name: Build NexPlay
 
 on:
@@ -84,9 +85,8 @@ jobs:
           HELPER=Payload/NexPlay.app/PlugIns/NexPlayJITHelper.appex
           test -f "$HELPER/NexPlayJITHelper" || { echo "::error::The JIT helper is missing from the app"; exit 1; }
           test -d Payload/NexPlay.app/Frameworks/StikJIT.framework || { echo "::error::StikJIT.framework is missing from the app"; exit 1; }
-          # 6.4.0: the Windows runtime (BCDCore.framework and its files) from the newest windows-runtime release.
-          # None yet: a warning, and the app is built without Windows games.
-          bash tools/windows/merge_runtime.sh Payload/NexPlay.app
+          # 7.1.1: Windows runtime (newest windows-runtime release) and EasyRPG core; each missing part is a warning.
+          bash tools/ci/package_extras.sh Payload/NexPlay.app
           # The Xcode build is unsigned, so write the entitlements into the binaries here (ad-hoc signature), helper first.
           # Signing apps that keep binary entitlements pass them on; Settings > Diagnostics shows what survived.
           ldid -SNexPlayJITHelper/NexPlayJITHelper.entitlements "$HELPER/NexPlayJITHelper"
