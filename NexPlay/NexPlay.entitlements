@@ -3,12 +3,15 @@
 <plist version="1.0">
 <dict>
 	<!-- Written into the binary by ldid in CI (the Xcode build is unsigned). Same set as BCD's
-	     Sideload.entitlements: only what a sideloading profile can grant. get-task-allow lets a debugger
-	     attach (built-in JIT); the two kernel keys raise the memory limit and the address space for the
-	     Windows runtime. Settings > Diagnostics shows which ones survived signing. -->
+	     Madeira.entitlements minus allow-jit (macOS only). The owner's development profile grants all four
+	     (checked 2026-11-12); an entitlement the profile lacks would stop the app from launching.
+	     get-task-allow lets a debugger attach (built-in JIT); the kernel keys raise the memory limit and the
+	     address space for the Windows runtime. Settings > Diagnostics shows which ones survived signing. -->
 	<key>com.apple.developer.kernel.extended-virtual-addressing</key>
 	<true/>
 	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
+	<key>com.apple.developer.kernel.increased-debugging-memory-limit</key>
 	<true/>
 	<key>get-task-allow</key>
 	<true/>
