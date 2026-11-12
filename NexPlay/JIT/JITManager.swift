@@ -91,6 +91,22 @@ enum LoopbackProbe {
     }
 }
 
+/// Runs the C self-test and detaches the debugger. Off the main thread: BRK waits for the debugger.
+private func runJITSelfTest() -> (Int64, String) {
+    var buffer = [CChar](repeating: 0, count: 512)
+    let size = buffer.count
+    let result = buffer.withUnsafeMutableBufferPointer { pointer -> Int64 in
+        guard let base = pointer.baseAddress else { return -1 }
+        return nexjit_selftest(base, size)
+    }
+    nexjit_detach()
+    let detail = buffer.withUnsafeBufferPointer { pointer -> String in
+        guard let base = pointer.baseAddress else { return "" }
+        return String(cString: base)
+    }
+    return (result, detail)
+}
+
 @MainActor
 final class JITManager: ObservableObject {
     static let shared = JITManager()
@@ -197,9 +213,8 @@ final class JITManager: ObservableObject {
             return
         }
         beginAttempt(completion)
-        AppLog.log("jit: enable (built-in) model=\(DeviceInfo.machine) iOS=\(DeviceInfo.systemVersion)"
-            + " txm-guess=\(DeviceInfo.likelyTXM ? 1 : 0) txm-tree=\(nexjit_txm_in_device_tree())"
-            + " pairing=\(pairingKind ?? "?") cs-debugged=\(DeviceInfo.isDebugged ? 1 : 0)")
+        let tree = nexjit_txm_in_device_tree()
+        AppLog.log("jit: enable (built-in) model=\(DeviceInfo.machine) iOS=\(DeviceInfo.systemVersion) txm-guess=\(DeviceInfo.likelyTXM ? 1 : 0) txm-tree=\(tree) pairing=\(pairingKind ?? "?") cs-debugged=\(DeviceInfo.isDebugged ? 1 : 0)")
         nexjit_install_trap_handler()
         status = "Checking LocalDevVPN…"
         let current = attempt
@@ -293,16 +308,7 @@ final class JITManager: ObservableObject {
             AppLog.noteGame("JIT self-test")
             _ = AppLog.shared.text   // waits for the log lines above to reach the file, in case the test crashes
             self.status = "Testing JIT…"
-            let outcome = await Task.detached(priority: .userInitiated) { () -> (Int64, String) in
-                var buffer = [CChar](repeating: 0, count: 512)
-                let result = nexjit_selftest(&buffer, buffer.count)
-                nexjit_detach()
-                let detail = buffer.withUnsafeBufferPointer { pointer -> String in
-                    guard let base = pointer.baseAddress else { return "" }
-                    return String(cString: base)
-                }
-                return (result, detail)
-            }.value
+            let outcome = await Task.detached(priority: .userInitiated) { runJITSelfTest() }.value
             AppLog.noteGame(nil)
             let passed = outcome.0 == 42
             self.testPassed = passed
