@@ -333,11 +333,11 @@ enum GodotRuntime {
         guard let head = header(pack) else { throw RuntimeError.unknownVersion }
         notes.append(head.summary)
         if head.encrypted { throw RuntimeError.encrypted }
-        guard let runtime = runtime(for: head.version) else {
-            throw RuntimeError.noRuntime(head.version.description, bundled.map { $0.description })
+        guard let picked = GodotRuntime.runtime(for: head.version) else {
+            throw RuntimeError.noRuntime(head.version.description, GodotRuntime.bundled.map { $0.description })
         }
-        let folder = try prepare(runtime)
-        return GodotLaunch(version: head.version, runtime: runtime, folder: folder, notes: notes)
+        let folder = try GodotRuntime.prepare(picked)
+        return GodotLaunch(version: head.version, runtime: picked, folder: folder, notes: notes)
     }
 
     enum RuntimeError: LocalizedError {
