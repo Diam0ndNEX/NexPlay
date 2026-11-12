@@ -7,8 +7,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "3.2.0"
-    CURRENT_PROJECT_VERSION: "20"
+    MARKETING_VERSION: "4.0.0"
+    CURRENT_PROJECT_VERSION: "21"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
     # The XP/VX/Ace core is off by default. The workflow turns it on with
@@ -35,6 +35,21 @@ targets:
           if [ "${NEXPLAY_SKIP_GODOT:-0}" = "1" ]; then echo "Skipping Godot runtimes"; exit 0; fi
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GodotRuntimes"
           /usr/bin/env python3 "${PROJECT_DIR}/tools/fetch_godot_runtimes.py" "$DEST" "${PROJECT_DIR}/build/godot-cache"
+      # Ren'Py games run on RenPyWeb (tools/renpy/runtimes.txt: the web runtime and the matching engine from the
+      # official SDK). Set NEXPLAY_SKIP_RENPY=1 to build without them.
+      - name: Bundle Ren'Py web runtimes
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "${NEXPLAY_SKIP_RENPY:-0}" = "1" ]; then echo "Skipping Ren'Py runtimes"; exit 0; fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RenPyRuntimes"
+          /usr/bin/env python3 "${PROJECT_DIR}/tools/fetch_renpy_runtimes.py" "$DEST" "${PROJECT_DIR}/build/renpy-cache"
+      # Flash games run on Ruffle (tools/ruffle/version.txt, from npm). Set NEXPLAY_SKIP_RUFFLE=1 to skip it.
+      - name: Bundle Ruffle
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "${NEXPLAY_SKIP_RUFFLE:-0}" = "1" ]; then echo "Skipping Ruffle"; exit 0; fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Ruffle"
+          /usr/bin/env python3 "${PROJECT_DIR}/tools/fetch_ruffle.py" "$DEST" "${PROJECT_DIR}/build/ruffle-cache"
     settings:
       base:
         ENABLE_USER_SCRIPT_SANDBOXING: NO

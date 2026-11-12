@@ -22,7 +22,7 @@ struct PlayerScreen: UIViewControllerRepresentable {
 }
 
 final class PlayerViewController: GCEventViewController, WKNavigationDelegate, WKUIDelegate, UIDocumentPickerDelegate,
-    UIGestureRecognizerDelegate {
+    UIGestureRecognizerDelegate, WKDownloadDelegate {
     private enum PickPurpose {
         case jsonRestore
         case saveImport
@@ -72,6 +72,13 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var scrollTimer: Timer?
     /// Page the local server starts with instead of the entry (the Godot launcher for desktop games).
     private var launchPath: String?
+    /// "Preparing…" text shown while a bundled runtime gets ready (Ren'Py builds its package on the first start).
+    private let statusOverlay = UILabel()
+    /// The runtime this session runs on (Godot, Ren'Py), for the Runtime menu and the retry offer.
+    private var activeRuntime: String?
+    private var offeredRuntimeSwitch = false
+    /// Files games save through download links (Twine and Ren'Py save exports), waiting for the share sheet.
+    private var downloadTargets: [ObjectIdentifier: URL] = [:]
 
     init(game: Game, store: LibraryStore, onExit: @escaping () -> Void) {
         self.game = game
@@ -117,6 +124,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         content.addUserScript(WKUserScript(source: PageScripts.identity(version: PlayerViewController.appVersion),
                                            injectionTime: .atDocumentStart, forMainFrameOnly: true))
         content.addUserScript(WKUserScript(source: PageScripts.keyBridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if game.engine.usesLocalServer {
+            content.addUserScript(WKUserScript(source: PageScripts.noServiceWorker, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         if game.usesNWMode {
             let folder = (game.entry as NSString).deletingLastPathComponent
             content.addUserScript(WKUserScript(source: PageScripts.nwShim(entryFolder: folder),
@@ -231,6 +241,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         let insets = view.safeAreaInsets
         statsLabel.frame = CGRect(x: insets.left + 10, y: insets.top + 8, width: 210, height: 22)
         layoutBanner()
+        layoutStatus()
 
         // Portrait game position: move the game up so the touch controls cover less of it.
         let portrait = view.bounds.height > view.bounds.width
@@ -337,6 +348,38 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         banner.isUserInteractionEnabled = true
         banner.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(bannerTapped)))
         view.addSubview(banner)
+
+        statusOverlay.font = NexFont.ui(15, weight: .medium)
+        statusOverlay.textColor = UIColor(red: 0.85, green: 0.82, blue: 1, alpha: 1)
+        statusOverlay.backgroundColor = UIColor(white: 0.08, alpha: 0.92)
+        statusOverlay.numberOfLines = 0
+        statusOverlay.textAlignment = .center
+        statusOverlay.layer.cornerRadius = 16
+        statusOverlay.clipsToBounds = true
+        statusOverlay.isHidden = true
+        statusOverlay.isUserInteractionEnabled = false
+        view.addSubview(statusOverlay)
+    }
+
+    /// Shows or hides the centered status card ("Preparing…").
+    private func showStatus(_ text: String?) {
+        guard let text else {
+            statusOverlay.isHidden = true
+            return
+        }
+        statusOverlay.text = text
+        statusOverlay.isHidden = false
+        layoutStatus()
+        view.bringSubviewToFront(statusOverlay)
+    }
+
+    private func layoutStatus() {
+        guard !statusOverlay.isHidden, view.bounds.width > 100 else { return }
+        let width = min(view.bounds.width - 48, 420)
+        let fit = statusOverlay.sizeThatFits(CGSize(width: width - 32, height: 400))
+        let height = fit.height + 32
+        statusOverlay.frame = CGRect(x: (view.bounds.width - width) / 2, y: (view.bounds.height - height) / 2,
+                                     width: width, height: height)
     }
 
     private func configureKeySender() {
@@ -359,9 +402,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     /// Returns false (with a banner) on failure.
     private func prepareGodotRuntime(on server: LocalGameServer) async -> Bool {
         let pack = Paths.folder(for: game).appendingPathComponent(game.entry)
+        let chosen = game.runtimeVersion
         let result = await Task.detached(priority: .userInitiated) { () -> Result<GodotLaunch, Error> in
             do {
-                return .success(try GodotRuntime.launch(pack: pack))
+                return .success(try GodotRuntime.launch(pack: pack, override: chosen))
             } catch {
                 return .failure(error)
             }
@@ -375,8 +419,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             }
             let encoded = game.entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? game.entry
             let threads = launch.runtime.major == 4 && launch.runtime.minor < 3
-            server.virtualPages["__nexplay/godot.html"] = GodotRuntime.launcherPage(packPath: encoded, title: game.name, threads: threads)
+            server.virtualPages["__nexplay/godot.html"] = GodotRuntime.launcherPage(packPath: encoded, title: game.name,
+                                                                                    threads: threads, args: launch.args)
             launchPath = "__nexplay/godot.html"
+            activeRuntime = launch.runtime.description
             gameLog.add("Godot \(launch.version) game on the Godot \(launch.runtime) web runtime")
             return true
         case .failure(let error):
@@ -384,6 +430,55 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             showBanner(error.localizedDescription)
             return false
         }
+    }
+
+    /// Ren'Py: picks the runtime, builds or reuses the game's game.zip, and serves RenPyWeb under __renpy/.
+    private func prepareRenPy(on server: LocalGameServer) async -> Bool {
+        let target = game
+        let label = "Preparing \(game.name)…"
+        showStatus(label)
+        let result = await Task.detached(priority: .userInitiated) { () -> Result<RenPyLaunch, Error> in
+            do {
+                let launch = try RenPyRuntime.launch(game: target) { line in
+                    DispatchQueue.main.async { [weak self] in self?.showStatus(label + "\n" + line) }
+                }
+                return .success(launch)
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        switch result {
+        case .success(let launch):
+            for note in launch.notes { gameLog.add("ren'py: \(note)") }
+            server.virtualDirectories["__renpy/"] = launch.webFolder.path
+            server.virtualDirectories["__renpy/game/"] = launch.gameDir.path
+            server.virtualFiles["__renpy/game.zip"] = launch.gameZip.path
+            launchPath = "__renpy/index.html"
+            activeRuntime = launch.runtime.description
+            showStatus("Starting Ren'Py \(launch.runtime)…\nThe first screen can take a moment.")
+            return true
+        case .failure(let error):
+            showStatus(nil)
+            gameLog.add("Ren'Py runtime: \(error.localizedDescription)")
+            showBanner(error.localizedDescription)
+            return false
+        }
+    }
+
+    /// Flash: serves Ruffle under __ruffle/ and a launcher page for the game's .swf.
+    private func prepareFlash(on server: LocalGameServer) -> Bool {
+        guard let folder = FlashRuntime.folder else {
+            let text = FlashRuntime.FlashError.missing.errorDescription ?? "Flash is missing."
+            gameLog.add(text)
+            showBanner(text)
+            return false
+        }
+        server.virtualDirectories["__ruffle/"] = folder.path
+        let encoded = game.entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? game.entry
+        server.virtualPages["__nexplay/flash.html"] = FlashRuntime.launcherPage(moviePath: encoded, title: game.name)
+        launchPath = "__nexplay/flash.html"
+        gameLog.add("Flash game on Ruffle \(FlashRuntime.version ?? "")")
+        return true
     }
 
     /// Starts the loopback server once for games that use it.
@@ -394,16 +489,67 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         if game.isGodotDesktop {
             guard await prepareGodotRuntime(on: server) else { return }
         }
+        if game.engine == .renpy {
+            guard await prepareRenPy(on: server) else { return }
+        }
+        if game.engine == .flash {
+            guard prepareFlash(on: server) else { return }
+        }
         let log = gameLog
         server.log = { line in DispatchQueue.main.async { log.add(line) } }
-        localServer = server
         if let port = await server.start(preferred: LocalGameServer.port(for: game)) {
+            // Kept only once it runs, so Restart tries again after a failure.
+            localServer = server
             serverPort = port
             gameLog.add("local server on 127.0.0.1:\(port)")
         } else {
+            server.stop()
+            showStatus(nil)
             gameLog.add("local server could not start")
             showBanner("NexPlay couldn't start the local game server. Close other games and try again.")
         }
+    }
+
+    /// Stops the local server so the next load sets it up again (another runtime, a rebuilt package).
+    private func resetLocalServer() {
+        localServer?.stop()
+        localServer = nil
+        serverPort = nil
+        launchPath = nil
+        activeRuntime = nil
+    }
+
+    /// Runs the game on another bundled runtime (nil: automatic) and restarts it.
+    private func switchRuntime(to version: String?) {
+        update { $0.runtimeVersion = version }
+        gameLog.add("runtime set to \(version ?? "automatic"); restarting")
+        offeredRuntimeSwitch = false
+        resetLocalServer()
+        prepareAndLoad()
+    }
+
+    /// Runtimes this game can use, newest first (Godot: same major and a newer minor; Ren'Py: every bundled one).
+    private func runtimeChoices() -> [String] {
+        EngineRuntimes.choices(for: game)
+    }
+
+    /// After a runtime failed to start the game, offers the other bundled runtimes once per session.
+    private func offerOtherRuntime(_ reason: String) {
+        guard !offeredRuntimeSwitch, presentedViewController == nil else { return }
+        let choices = runtimeChoices().filter { $0 != activeRuntime }
+        guard !choices.isEmpty else { return }
+        offeredRuntimeSwitch = true
+        let engine = game.engine == .renpy ? "Ren'Py" : "Godot"
+        let alert = UIAlertController(title: "\(engine) couldn't start this game",
+                                      message: "\(String(reason.prefix(160)))\n\nTry another bundled \(engine) runtime? The choice is kept for this game (Game Settings > Engine).",
+                                      preferredStyle: .alert)
+        for version in choices.prefix(4) {
+            alert.addAction(UIAlertAction(title: "Use \(engine) \(version)", style: .default) { [weak self] _ in
+                self?.switchRuntime(to: version)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Not Now", style: .cancel))
+        presentOnTop(alert)
     }
 
     /// Applies the network block rule, then loads the game.
@@ -477,6 +623,14 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     /// screen says why.
     private func noteLine(_ line: String) {
         gameLog.add(line)
+        let failure = line.contains("Godot could not start") || line.contains("The game aborted unexpectedly")
+            || line.contains("The game exited unexpectedly") || line.contains("Could not load game.zip")
+        if failure {
+            showStatus(nil)
+            if game.engine.hasRuntimeChoice {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.offerOtherRuntime(line) }
+            }
+        }
         guard let start = loadStart, Date().timeIntervalSince(start) < 30 else { return }
         let lower = line.lowercased()
         if lower.hasPrefix("failed to load") {
@@ -703,6 +857,24 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
         for feature in features {
             items.append(contentsOf: feature.menuItems(for: game))
+        }
+
+        let choices = runtimeChoices()
+        if !choices.isEmpty {
+            var options: [UIMenuElement] = [
+                UIAction(title: "Automatic", state: game.runtimeVersion == nil ? .on : .off) { [weak self] _ in
+                    self?.switchRuntime(to: nil)
+                },
+            ]
+            for version in choices {
+                let active = version == activeRuntime
+                options.append(UIAction(title: version + (active ? " (running)" : ""),
+                                        state: game.runtimeVersion == version ? .on : .off) { [weak self] _ in
+                    self?.switchRuntime(to: version)
+                })
+            }
+            let engine = game.engine == .renpy ? "Ren'Py" : "Godot"
+            items.append(UIMenu(title: "\(engine) Runtime", image: UIImage(systemName: "cpu"), children: options))
         }
 
         items.append(UIAction(title: "Screenshot", image: UIImage(systemName: "camera")) { [weak self] _ in
@@ -1026,6 +1198,12 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     // MARK: - WKNavigationDelegate / WKUIDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if game.engine == .renpy {
+            // RenPyWeb shows its own progress; the card goes once the page runs.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.showStatus(nil) }
+        } else {
+            showStatus(nil)
+        }
         applySpeed()
         applyStats()
         migrateSavesIfNeeded()
@@ -1074,6 +1252,48 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             showAlert("The game was reloaded",
                       "iOS stopped the game, probably because it used too much memory. Unsaved progress since the last save is lost.")
         }
+    }
+
+    // MARK: - Downloads (save exports from Twine, Ren'Py and other web games)
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String,
+                  completionHandler: @escaping (URL?) -> Void) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("GameDownloads-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let name = Paths.safeName(suggestedFilename.isEmpty ? "\(game.name) file" : suggestedFilename)
+        let target = folder.appendingPathComponent(name)
+        downloadTargets[ObjectIdentifier(download)] = target
+        gameLog.add("the game saves a file: \(name)")
+        completionHandler(target)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let file = downloadTargets.removeValue(forKey: ObjectIdentifier(download)) else { return }
+        share(file)
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        downloadTargets.removeValue(forKey: ObjectIdentifier(download))
+        gameLog.add("download failed: \(error.localizedDescription)")
+        showBanner("The game's file couldn't be saved: \(error.localizedDescription)")
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,

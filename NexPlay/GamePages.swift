@@ -284,9 +284,21 @@ struct GameSavesView: View {
 
     private var browserModeNote: some View {
         ScrollView {
-            emptyNote("Saves are in web storage",
-                      "This game keeps its saves inside the browser. Back them up from the game: tap its bubble, then the gear, then Saves. Twine games (like Degrees of Lewdity) also have their own Saves menu with Export and Import. RPG Maker games can switch to NW.js mode in Game Settings to keep saves as files.")
+            emptyNote("Saves are in web storage", browserModeText)
                 .padding(20)
+        }
+    }
+
+    private var browserModeText: String {
+        switch game?.engine ?? .web {
+        case .renpy:
+            return "Ren'Py keeps its saves inside the web runtime. To move saves in or out, start the game and tap the ≡ button in its top-left corner: Export Saves makes a ZIP (the share sheet opens), Import Saves takes a ZIP of a saves folder."
+        case .twine:
+            return "Twine games keep their saves inside the browser. Use the game's own Saves menu: Export opens the share sheet with the save file, Import reads one back. NexPlay's game menu (bubble, then gear, then Saves) can back up all of the game's web storage too."
+        case .godot:
+            return "Godot games keep their saves (user://) inside the browser. Back them up from the game: tap the bubble, then the gear, then Saves."
+        default:
+            return "This game keeps its saves inside the browser. Back them up from the game: tap its bubble, then the gear, then Saves. RPG Maker games can switch to NW.js mode in Game Settings to keep saves as files."
         }
     }
 

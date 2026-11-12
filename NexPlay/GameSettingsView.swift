@@ -92,6 +92,7 @@ struct GameSettingsView: View {
             controlsSection(game)
             screenSection(game)
             if game.engine.isRPGMaker { engineSection(game) }
+            if game.engine == .renpy || game.isGodotDesktop { runtimeSection(game) }
             notesSection
             dangerSection(game)
         }
@@ -300,6 +301,33 @@ struct GameSettingsView: View {
             SettingsHeader(title: "Engine", symbol: "cpu.fill", color: .teal)
         } footer: {
             Text("In NW.js mode the game runs as on a PC and keeps its saves as files in save/. The first start in this mode copies old browser saves into files; the old data is kept.")
+        }
+    }
+
+    private func runtimeSection(_ game: Game) -> some View {
+        let auto = EngineRuntimes.automatic(for: game)
+        let choices = EngineRuntimes.choices(for: game)
+        let engine = EngineRuntimes.engineName(game.engine)
+        return Section {
+            if let made = auto.made {
+                LabeledContent("Made With", value: "\(engine) \(made)")
+            }
+            Picker(selection: Binding(
+                get: { game.runtimeVersion ?? "auto" },
+                set: { value in store.mutate(gameID) { $0.runtimeVersion = value == "auto" ? nil : value } }
+            )) {
+                Text("Automatic" + (auto.runtime.map { " (\($0))" } ?? "")).tag("auto")
+                ForEach(choices, id: \.self) { version in
+                    Text("\(engine) \(version)").tag(version)
+                }
+            } label: { Label("Runtime", systemImage: "cpu") }
+            .disabled(choices.isEmpty)
+        } header: {
+            SettingsHeader(title: "Engine", symbol: "cpu.fill", color: .teal)
+        } footer: {
+            Text(choices.isEmpty
+                 ? "This build has no \(engine) runtime for this game."
+                 : "If the game doesn't start, try another runtime. Automatic picks the closest one to the version the game was made with. Applies on the next start.")
         }
     }
 

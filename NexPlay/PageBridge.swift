@@ -29,6 +29,14 @@ enum PageScripts {
         "window.nexplay = Object.freeze({ version: \(jsString(version)), platform: 'ios' });"
     }
 
+    /// Hides service workers from runtimes that register one (RenPyWeb caches its files with it). A worker would
+    /// keep serving old files after the game or the runtime changes, and the local server needs none.
+    static let noServiceWorker = #"""
+    (function () {
+        try { Object.defineProperty(navigator, 'serviceWorker', { value: undefined, configurable: true }); } catch (e) {}
+    })();
+    """#
+
     /// Stops the long-press magnifier, text selection and tap flash that make games feel like web pages.
     static let noSelect = #"""
     (function () {

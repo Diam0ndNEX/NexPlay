@@ -60,6 +60,13 @@ enum GameArt {
         if let image = UIImage(contentsOfFile: custom.path) { return image }
         if game.engine.isRPGMaker, let title = titleScreen(for: game) { return title }
         if let url = Paths.coverURL(for: game), let image = UIImage(contentsOfFile: url.path) { return image }
+        if game.engine == .renpy {
+            // Ren'Py's main menu background, else its window icon.
+            let gui = Paths.entryDirectory(for: game).appendingPathComponent("game/gui")
+            for name in ["main_menu.png", "main_menu.jpg", "main_menu.webp", "game_menu.png", "window_icon.png"] {
+                if let image = UIImage(contentsOfFile: gui.appendingPathComponent(name).path) { return image }
+            }
+        }
         let dir = Paths.entryDirectory(for: game)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         let preferred = names.first { $0.lowercased().hasSuffix(".apple-touch-icon.png") }
@@ -159,6 +166,10 @@ enum MediaIndex {
                     else if path.contains("/img/sv_actors/") || path.contains("/img/enemies/") || path.contains("/img/sv_enemies/") {
                         add(url, .characters)
                     }
+                } else if game.engine == .renpy {
+                    // Ren'Py: the menu art goes to Titles, everything else to Pictures; placeholders are skipped.
+                    if path.contains("/_placeholders/") { continue }
+                    if path.contains("/game/gui/") { add(url, .titles) } else { add(url, .pictures) }
                 } else if !game.engine.isRPGMaker, !path.contains("/node_modules/") {
                     add(url, .pictures)
                 }

@@ -201,7 +201,7 @@ enum ImportPipeline {
                     // A ZIP that ZIPFoundation can't open (or a renamed archive): let libarchive try.
                     try ArchiveExtractor.extract(url, to: folder, cancel: cancel, status: status)
                 }
-            } else if ["html", "htm"].contains(ext) {
+            } else if ["html", "htm", "swf"].contains(ext) {
                 try mapSpace { try fm.copyItem(at: url, to: folder.appendingPathComponent(url.lastPathComponent)) }
             } else if ArchiveExtractor.extensions.contains(ext) {
                 status("Unpacking \(url.lastPathComponent)…")
@@ -222,9 +222,15 @@ enum ImportPipeline {
                 if let reason = UnsupportedEngine.identify(folder) { throw PipelineError.unsupportedEngine(reason) }
                 throw ImportError.noGame
             }
+            var notes: [String] = []
+            if found.engine == .renpy {
+                // Big archives are unpacked so the web runtime loads only what it needs.
+                let base = folder.appendingPathComponent(found.entry).deletingLastPathComponent()
+                notes += try RenPyRuntime.prepareImport(base: base, cancel: cancel)
+            }
             let title = gameTitle(found, in: folder) ?? fallbackName
             return StagedImport(folder: folder, found: found, title: title,
-                                warnings: warnings(for: found, in: folder), encodingNote: encodingNote)
+                                warnings: notes + warnings(for: found, in: folder), encodingNote: encodingNote)
         } catch {
             try? fm.removeItem(at: folder)
             throw error
@@ -394,9 +400,19 @@ enum ImportPipeline {
         let web = GameScanner.detect(in: root)
         if let web, web.engine.isRPGMaker || web.engine == .godot { return web }
         if let ruby = detectRuby(in: root) { return ruby }
+        // Ren'Py: a folder with game/ holding scripts or archives; it runs on the bundled RenPyWeb runtime.
+        if let base = RenPyRuntime.findBase(in: root) {
+            let game = base.appendingPathComponent("game", isDirectory: true)
+            return DetectedGame(engine: .renpy, entry: GameScanner.relativePath(of: game, in: root))
+        }
         // A desktop Godot game: its .pck runs on the bundled Godot web runtime (GodotRuntime.swift).
         if let pack = GodotRuntime.mainPack(in: root), GodotRuntime.packVersion(pack) != nil {
             return DetectedGame(engine: .godot, entry: GameScanner.relativePath(of: pack, in: root))
+        }
+        // Flash: a .swf with no page, or with a page that only wraps the .swf.
+        if let movie = FlashRuntime.mainMovie(in: root) {
+            let wrapper = web.map { $0.engine == .web && FlashRuntime.pageEmbedsFlash(root.appendingPathComponent($0.entry)) } ?? true
+            if wrapper { return DetectedGame(engine: .flash, entry: GameScanner.relativePath(of: movie, in: root)) }
         }
         return web
     }
@@ -451,6 +467,13 @@ enum ImportPipeline {
     }
 
     static func gameTitle(_ found: DetectedGame, in root: URL) -> String? {
+        if found.engine == .renpy {
+            return RenPyRuntime.title(base: root.appendingPathComponent(found.entry).deletingLastPathComponent())
+        }
+        if found.engine == .flash {
+            let name = (found.entry as NSString).lastPathComponent
+            return (name as NSString).deletingPathExtension.replacingOccurrences(of: "_", with: " ")
+        }
         if found.engine.isRuby {
             guard let text = readText(root.appendingPathComponent(found.entry)) else { return nil }
             for line in text.components(separatedBy: .newlines) {
@@ -507,6 +530,14 @@ enum ImportPipeline {
             if names.contains("node_modules") {
                 notes.append("Ships Node.js modules: plugins that need real desktop Node.js may fail.")
             }
+        case .renpy:
+            break
+        case .flash:
+            if FlashRuntime.folder == nil {
+                notes.append(FlashRuntime.FlashError.missing.errorDescription ?? "")
+            } else {
+                notes.append("Flash game: it runs on Ruffle. Most ActionScript 1/2 games work; ActionScript 3 games work in part.")
+            }
         case .rpgXP, .rpgVX, .rpgVXAce:
             let hasArchive = names.contains { $0.hasPrefix("game.rgss") }
             let graphics = find("Graphics", in: dir)
@@ -537,6 +568,12 @@ enum ImportPipeline {
         case .godot:
             game.orientation = .landscape
             game.gamepad = true
+        case .renpy:
+            game.orientation = .landscape
+            game.gamepad = true
+        case .flash:
+            game.orientation = .landscape
+            game.gamepad = false
         case .rpgMV, .rpgMZ, .rpgXP, .rpgVX, .rpgVXAce:
             let raw = UserDefaults.standard.string(forKey: SettingsKey.newGameOrientation) ?? "landscape"
             game.orientation = OrientationMode(rawValue: raw) ?? .landscape
@@ -609,9 +646,6 @@ enum UnsupportedEngine {
             level = next
             if names.count > 20000 { break }
         }
-        if names.contains("renpy") || extensions.contains("rpa") || extensions.contains("rpyc") {
-            return "This is a Ren'Py game. Ren'Py isn't supported yet; it's on NexPlay's list."
-        }
         if names.contains("rpg_rt.exe") || names.contains("rpg_rt.ldb") || names.contains("rpg_rt.lmt") {
             return "This is an RPG Maker 2000/2003 game. Those aren't supported yet."
         }
@@ -629,9 +663,6 @@ enum UnsupportedEngine {
         }
         if names.contains("paks") && extensions.contains("pak") {
             return "This is an Unreal Engine game for desktop. NexPlay can't run it."
-        }
-        if extensions.contains("swf") {
-            return "This is a Flash game (.swf). NexPlay can't run Flash."
         }
         if extensions.contains("exe") {
             return "Only Windows program files were found: no web game, RPG Maker or Godot files. NexPlay can't run Windows programs."

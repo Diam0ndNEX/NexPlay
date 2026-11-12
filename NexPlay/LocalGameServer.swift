@@ -21,6 +21,10 @@ final class LocalGameServer {
     var virtualFiles: [String: String] = [:]
     /// Generated pages: URL path without the leading "/" -> content (the Godot launcher). Set before `start`.
     var virtualPages: [String: Data] = [:]
+    /// Whole folders served under a URL prefix: "prefix/" (no leading "/") -> absolute folder path. Used for
+    /// runtimes (Ruffle) and for files Ren'Py downloads while playing (__renpy/game/ -> the game's game folder).
+    /// Same safety rules as the game folder. Set before `start`.
+    var virtualDirectories: [String: String] = [:]
 
     init(root: URL) {
         let standard = root.standardizedFileURL.path
@@ -120,6 +124,13 @@ final class LocalGameServer {
         if let file = virtualFiles[key] {
             return fileAnswer(method: method, path: file, rangeHeader: rangeHeader)
         }
+        // The longest matching prefix wins, so "__renpy/game/" beats "__renpy/".
+        let prefixes = virtualDirectories.keys.filter { key.hasPrefix($0) }.sorted { $0.count > $1.count }
+        if let prefix = prefixes.first, let folder = virtualDirectories[prefix] {
+            let base = LocalGameServer.realPath(folder) ?? folder
+            guard let path = LocalGameServer.resolve(String(key.dropFirst(prefix.count)), in: base) else { return failure(403) }
+            return fileAnswer(method: method, path: path, rangeHeader: rangeHeader)
+        }
         guard var path = resolve(decoded) else { return failure(403) }
 
         var isDirectory: ObjCBool = false
@@ -172,14 +183,19 @@ final class LocalGameServer {
         return FileAnswer(status: status, headers: headers, path: nil, range: nil, body: body)
     }
 
-    private static func realPath(_ path: String) -> String? {
+    static func realPath(_ path: String) -> String? {
         guard let resolved = realpath(path, nil) else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)
     }
 
-    /// Same rules as NexSchemeHandler: no "..", case-insensitive fallback, symlinks must stay inside the folder.
     private func resolve(_ urlPath: String) -> String? {
+        LocalGameServer.resolve(urlPath, in: rootPath)
+    }
+
+    /// Same rules as NexSchemeHandler: no "..", case-insensitive fallback, symlinks must stay inside the folder.
+    /// `rootPath` must already be a resolved real path.
+    static func resolve(_ urlPath: String, in rootPath: String) -> String? {
         let fm = FileManager.default
         var path = rootPath
         for part in urlPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init) {
@@ -191,7 +207,7 @@ final class LocalGameServer {
                 next = (path as NSString).appendingPathComponent(match)
             }
             if fm.fileExists(atPath: next) {
-                guard let real = LocalGameServer.realPath(next), real == rootPath || real.hasPrefix(rootPath + "/") else {
+                guard let real = realPath(next), real == rootPath || real.hasPrefix(rootPath + "/") else {
                     return nil
                 }
             }

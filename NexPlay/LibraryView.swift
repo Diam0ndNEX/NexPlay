@@ -75,7 +75,10 @@ func formatDuration(_ seconds: Double) -> String {
 struct EngineBadge: View {
     let engine: GameEngine
     var body: some View {
-        Text(engine.badge)
+        HStack(spacing: 3) {
+            Image(systemName: engine.symbol).font(.system(size: 8, weight: .bold))
+            Text(engine.badge)
+        }
             .font(.caption2.bold())
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
@@ -102,6 +105,14 @@ struct GameCard: View {
                                 .background(.ultraThinMaterial, in: Circle())
                         }
                         Spacer()
+                        if game.isNew {
+                            Text("NEW")
+                                .font(.system(size: 9, weight: .heavy))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(NexStyle.accentDeep, in: Capsule())
+                        }
                         if game.isFavorite {
                             Image(systemName: "heart.fill").foregroundStyle(.pink).font(.caption)
                         }
@@ -203,6 +214,9 @@ struct LibraryView: View {
     @State private var pendingDelete: [Game] = []
     @State private var sizes: [UUID: Int64] = [:]
     @State private var shareURL: URL?
+    @State private var showStats = false
+    @State private var showWhatsNew = false
+    @AppStorage(SettingsKey.whatsNewSeen) private var whatsNewSeen = ""
 
     private var sort: LibrarySortOrder { LibrarySortOrder(rawValue: sortRaw) ?? .playedRecent }
 
@@ -240,6 +254,24 @@ struct LibraryView: View {
     private var continueGame: Game? {
         guard showContinue, filter == .all, search.isEmpty, !selecting else { return nil }
         return store.games.filter(isVisible).filter { $0.lastPlayed != nil }.max { ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast) }
+    }
+
+    /// The newest games, for the Recently Added shelf (only on the plain library view with enough games).
+    private var recentlyAdded: [Game] {
+        guard filter == .all, search.isEmpty, !selecting else { return [] }
+        let list = store.games.filter(isVisible)
+        guard list.count >= 6 else { return [] }
+        return Array(list.sorted { $0.addedAt > $1.addedAt }.prefix(10))
+    }
+
+    private var summary: String {
+        let list = store.games.filter(isVisible)
+        let total = list.reduce(0) { $0 + $1.playSeconds }
+        return "\(list.count) game\(list.count == 1 ? "" : "s") · \(formatHours(total)) played"
+    }
+
+    private func engineCount(_ engine: GameEngine) -> Int {
+        store.games.filter { isVisible($0) && $0.engine == engine }.count
     }
 
     private var hasHiddenContent: Bool {
@@ -299,6 +331,23 @@ struct LibraryView: View {
         }
         .sheet(isPresented: $showCollections) {
             CollectionsManagerView().environmentObject(collections)
+        }
+        .sheet(isPresented: $showStats) {
+            NavigationStack {
+                StatsView()
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { showStats = false } }
+                    }
+            }
+            .environmentObject(store)
+        }
+        .sheet(isPresented: $showWhatsNew, onDismiss: { whatsNewSeen = WhatsNewView.version }) {
+            WhatsNewView(standalone: true)
+        }
+        .task {
+            guard whatsNewSeen != WhatsNewView.version else { return }
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if playing == nil && detail == nil { showWhatsNew = true }
         }
         .sheet(item: Binding(
             get: { appState.pendingBackup.map { ShareItem(url: $0) } },
@@ -378,8 +427,12 @@ struct LibraryView: View {
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if !store.games.isEmpty && search.isEmpty {
+                    Text(summary).font(.caption).foregroundStyle(.secondary)
+                }
                 chips
                 if let game = continueGame { continueCard(game) }
+                if !recentlyAdded.isEmpty { recentShelf }
                 if visible.isEmpty {
                     Text(search.isEmpty ? "Nothing here yet." : "No games match \u{201C}\(search)\u{201D}.")
                         .foregroundStyle(.secondary)
@@ -415,7 +468,8 @@ struct LibraryView: View {
                 chip("All", color: .gray, active: filter == .all) { filter = .all }
                 chip("Favorites", color: .pink, active: filter == .favorites) { filter = .favorites }
                 ForEach(engines, id: \.self) { engine in
-                    chip(engine.badge, color: .indigo, active: filter == .engine(engine)) { filter = .engine(engine) }
+                    chip("\(engine.badge) \(engineCount(engine))", color: .indigo, active: filter == .engine(engine),
+                         symbol: engine.symbol) { filter = .engine(engine) }
                 }
                 ForEach(visibleCollections) { collection in
                     chip(collection.name, color: collection.color, active: filter == .collection(collection.id),
@@ -429,10 +483,12 @@ struct LibraryView: View {
         }
     }
 
-    private func chip(_ title: String, color: Color, active: Bool, locked: Bool = false, action: @escaping () -> Void) -> some View {
+    private func chip(_ title: String, color: Color, active: Bool, locked: Bool = false, symbol: String? = nil,
+                      action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
                 if locked { Image(systemName: "lock.fill").font(.caption2) }
+                if let symbol { Image(systemName: symbol).font(.caption2) }
                 Text(title).font(.subheadline.weight(.medium)).lineLimit(1)
             }
             .padding(.horizontal, 12)
@@ -443,22 +499,92 @@ struct LibraryView: View {
         .buttonStyle(.plain)
     }
 
+    /// The last played game as a big card over its own blurred cover, with Resume and Details.
     private func continueCard(_ game: Game) -> some View {
-        Button { playing = game } label: {
-            HStack(spacing: 14) {
-                CoverView(game: game).frame(width: 72)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Continue playing").font(.caption).foregroundStyle(.secondary)
-                    Text(game.name).font(.headline).lineLimit(2)
-                    Text(formatDuration(game.playSeconds)).font(.caption).foregroundStyle(.secondary)
+        ZStack(alignment: .leading) {
+            CoverView(game: game)
+                .frame(maxWidth: .infinity)
+                .blur(radius: 28)
+                .opacity(0.7)
+                .frame(height: 176)
+                .clipped()
+                .overlay(LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.65)], startPoint: .top, endPoint: .bottom))
+            HStack(alignment: .center, spacing: 16) {
+                CoverView(game: game)
+                    .frame(width: 104)
+                    .shadow(color: .black.opacity(0.5), radius: 10, y: 6)
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Continue Playing", systemImage: "clock.arrow.circlepath")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.75))
+                    Text(game.name)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.7)
+                    Text(continueLine(game))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                    HStack(spacing: 10) {
+                        Button { playing = game } label: {
+                            Label("Resume", systemImage: "play.fill")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                .background(NexStyle.accentGradient, in: Capsule())
+                        }
+                        .buttonStyle(PressScaleStyle())
+                        Button { detail = game } label: {
+                            Image(systemName: "info")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(.ultraThinMaterial, in: Circle())
+                        }
+                        .buttonStyle(PressScaleStyle())
+                        .accessibilityLabel("Game page")
+                    }
+                    .padding(.top, 2)
                 }
-                Spacer()
-                Image(systemName: "play.circle.fill").font(.system(size: 36))
+                Spacer(minLength: 0)
             }
-            .padding(12)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(16)
         }
-        .buttonStyle(.plain)
+        .frame(height: 176)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(game.tagColor ?? Color.white.opacity(0.14), lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .onTapGesture { detail = game }
+        .contextMenu { contextMenu(for: game) }
+    }
+
+    private func continueLine(_ game: Game) -> String {
+        var parts = [game.engine.badge, formatHours(game.playSeconds)]
+        if let last = game.lastPlayed { parts.append(last.formatted(.relative(presentation: .named))) }
+        return parts.joined(separator: " · ")
+    }
+
+    private var recentShelf: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recently Added").font(.headline)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(recentlyAdded) { game in
+                        VStack(alignment: .leading, spacing: 6) {
+                            CoverView(game: game).frame(width: 104)
+                            Text(game.name).font(.caption.weight(.semibold)).lineLimit(1).frame(width: 104, alignment: .leading)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { tap(game) }
+                        .contextMenu { contextMenu(for: game) }
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            Text("All Games").font(.headline).padding(.top, 4)
+        }
     }
 
     private var selectionBar: some View {
@@ -503,10 +629,14 @@ struct LibraryView: View {
                     Label("List", systemImage: "list.bullet").tag("list")
                 }
                 Button { selecting = true; selection = [] } label: { Label("Select", systemImage: "checkmark.circle") }
+                Divider()
+                Button { showStats = true } label: { Label("Play Stats", systemImage: "chart.bar.fill") }
+                Button { surprise() } label: { Label("Surprise Me", systemImage: "dice.fill") }
+                    .disabled(store.games.isEmpty)
             } label: { Image(systemName: "arrow.up.arrow.down") }
                 .accessibilityLabel("Sort and view")
             Menu {
-                Button { importFiles() } label: { Label("ZIP, 7z, RAR or HTML File…", systemImage: "doc.zipper") }
+                Button { importFiles() } label: { Label("ZIP, 7z, RAR, HTML or SWF File…", systemImage: "doc.zipper") }
                 Button { importFolders() } label: { Label("Game Folder…", systemImage: "folder") }
             } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add games")
@@ -519,7 +649,7 @@ struct LibraryView: View {
                 .font(.system(size: 54))
                 .foregroundStyle(.secondary)
             Text("No games yet").font(.title2.bold())
-            Text("Add an RPG Maker MV/MZ or HTML5 game as a ZIP, 7z or RAR archive, or as a folder. XP/VX/Ace games can be added too; they need a build with the mkxp core to start. Tip: open an archive from the Files app with NexPlay.")
+            Text("Add a game as a ZIP, 7z or RAR archive, or as a folder. NexPlay plays RPG Maker MV/MZ, Ren'Py, Godot, Flash, Twine, Construct, TyranoBuilder and other HTML5 games. XP/VX/Ace games need a build with the mkxp core. Tip: open an archive from the Files app with NexPlay.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Button { importFiles() } label: { Label("Add a Game", systemImage: "plus") }
@@ -541,6 +671,15 @@ struct LibraryView: View {
         } else {
             playing = game
         }
+    }
+
+    /// Opens a random game that isn't finished or dropped, preferring ones not played yet.
+    private func surprise() {
+        let pool = store.games.filter { isVisible($0) && $0.playStatus != .completed && $0.playStatus != .dropped }
+        let fresh = pool.filter { $0.playCount == 0 }
+        guard let pick = (fresh.isEmpty ? pool : fresh).randomElement() ?? store.games.filter(isVisible).randomElement() else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        detail = pick
     }
 
     @ViewBuilder

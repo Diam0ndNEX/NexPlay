@@ -42,6 +42,8 @@ struct GodotLaunch {
     let folder: URL
     /// Lines for the game log (pack header, repairs).
     let notes: [String]
+    /// Extra command-line arguments for the engine (a main scene the project only names for some platforms).
+    let args: [String]
 }
 
 enum GodotRuntime {
@@ -300,12 +302,99 @@ enum GodotRuntime {
         .sorted()
     }
 
-    /// The runtime for a pack: same major.minor (newest patch), else the oldest newer minor of the same major
-    /// (Godot loads packs from older minors, never from newer ones).
-    static func runtime(for pack: GodotVersion) -> GodotVersion? {
-        let sameMajor = bundled.filter { $0.major == pack.major }
+    /// The runtime for a pack: a bundled version picked in Game Settings, else the same major.minor (newest
+    /// patch), else the oldest newer minor of the same major (Godot loads packs from older minors, never from newer
+    /// ones). Godot 4.0-4.2 packs go to the oldest single-threaded runtime (4.3+): the threaded 4.1/4.2 web builds
+    /// crash in Safari on iPhone ("call_indirect to a signature that does not match").
+    static func runtime(for pack: GodotVersion, override chosen: String? = nil) -> GodotVersion? {
+        let have = bundled
+        if let chosen, let wanted = GodotVersion(chosen), have.contains(wanted) { return wanted }
+        let sameMajor = have.filter { $0.major == pack.major }
+        if pack.major == 4 && pack.minor <= 2, let single = sameMajor.filter({ $0.minor >= 3 }).min() { return single }
         if let exact = sameMajor.filter({ $0.minor == pack.minor }).max() { return exact }
         return sameMajor.filter { $0.minor > pack.minor }.min()
+    }
+
+    /// Runtimes that can load a pack of this version (same major, same or newer minor), for Game Settings.
+    static func compatible(with pack: GodotVersion) -> [GodotVersion] {
+        bundled.filter { $0.major == pack.major && $0.minor >= pack.minor }
+    }
+
+    // MARK: - Pack contents
+
+    /// What the pack says about itself: whether it holds project settings, and the main scene they name.
+    struct PackInfo {
+        var files = 0
+        var hasProject = false
+        var mainScene: String?
+        /// A main scene named only for some platforms ("application/run/main_scene.pc"), passed on the command line.
+        var platformScene: String?
+    }
+
+    /// Reads the pack directory (formats 1-3, not encrypted) and the project settings in it.
+    static func inspect(_ pack: URL) -> PackInfo? {
+        guard let head = header(pack), !head.encrypted,
+              let handle = try? FileHandle(forReadingFrom: pack) else { return nil }
+        defer { try? handle.close() }
+        let reader = PackReader(handle: handle, size: head.size)
+        var position: UInt64
+        var base: UInt64 = 0
+        switch head.format {
+        case 0, 1:
+            position = 84
+        case 2:
+            position = 96
+            base = head.fileBase
+        default:
+            guard let dir = reader.u64(at: 32) else { return nil }
+            position = dir
+            base = head.fileBase
+        }
+        guard let count = reader.u32(at: position), count < 2_000_000 else { return nil }
+        position += 4
+        var info = PackInfo()
+        info.files = Int(count)
+        var project: (offset: UInt64, size: UInt64)?
+        for _ in 0..<count {
+            guard let length = reader.u32(at: position), length < 65_536,
+                  let nameData = reader.data(at: position + 4, count: Int(length)) else { return info }
+            position += 4 + UInt64(length)
+            guard let offset = reader.u64(at: position), let size = reader.u64(at: position + 8) else { return info }
+            position += head.format >= 2 ? 36 : 32
+            let name = String(decoding: nameData.prefix { $0 != 0 }, as: UTF8.self)
+            if name.hasSuffix("project.binary") && !name.contains("/.godot/") {
+                project = (base + offset, size)
+            }
+        }
+        guard let project, project.size > 0, project.size < 16_000_000,
+              let data = reader.data(at: project.offset, count: Int(project.size)) else { return info }
+        info.hasProject = data.prefix(4) == Data("ECFG".utf8)
+        info.mainScene = sceneValue(after: "application/run/main_scene", in: data, exact: true)
+        if info.mainScene == nil {
+            info.platformScene = sceneValue(after: "application/run/main_scene.", in: data, exact: false)
+        }
+        return info
+    }
+
+    /// The first res:// or uid:// string after a settings key (the key is followed by its value in project.binary).
+    private static func sceneValue(after key: String, in data: Data, exact: Bool) -> String? {
+        let keyData = Data(key.utf8)
+        var searchStart = data.startIndex
+        while let found = data.range(of: keyData, in: searchStart..<data.endIndex) {
+            searchStart = found.upperBound
+            // An exact key is followed by its value's length, not by ".feature" (a per-platform variant).
+            if exact, found.upperBound < data.endIndex, data[found.upperBound] == UInt8(ascii: ".") { continue }
+            let window = data[found.upperBound..<min(data.endIndex, found.upperBound + 400)]
+            for marker in ["res://", "uid://"] {
+                if let start = window.range(of: Data(marker.utf8)) {
+                    var end = start.lowerBound
+                    while end < window.endIndex, window[end] >= 0x20, window[end] < 0x7F { end += 1 }
+                    let value = String(decoding: window[start.lowerBound..<end], as: UTF8.self)
+                    if value.count > marker.count { return value }
+                }
+            }
+        }
+        return nil
     }
 
     /// Unpacks a bundled runtime into Application Support/NexPlay/GodotRuntimes/<version>/ once, and returns the
@@ -326,18 +415,31 @@ enum GodotRuntime {
 
     /// Everything needed to start a desktop game: repairs an old extracted pack, reads its header, picks and
     /// unpacks the runtime. Synchronous file work: call it from a background task.
-    static func launch(pack: URL) throws -> GodotLaunch {
+    static func launch(pack: URL, override chosen: String? = nil) throws -> GodotLaunch {
         guard FileManager.default.fileExists(atPath: pack.path) else { throw RuntimeError.noPack }
         var notes: [String] = []
         if let note = repairIfExtracted(pack) { notes.append(note) }
         guard let head = header(pack) else { throw RuntimeError.unknownVersion }
         notes.append(head.summary)
         if head.encrypted { throw RuntimeError.encrypted }
-        guard let picked = GodotRuntime.runtime(for: head.version) else {
+        var args: [String] = []
+        if let info = inspect(pack) {
+            var line = "pack holds \(info.files) files"
+            line += info.hasProject ? ", project settings found" : ", NO project settings (project.binary) found"
+            if let scene = info.mainScene { line += ", main scene \(scene)" }
+            if let scene = info.platformScene {
+                line += ", main scene only set per platform (\(scene)), passed on the command line"
+                args.append(scene)
+            }
+            if info.hasProject && info.mainScene == nil && info.platformScene == nil { line += ", no main scene set" }
+            notes.append(line)
+        }
+        guard let picked = GodotRuntime.runtime(for: head.version, override: chosen) else {
             throw RuntimeError.noRuntime(head.version.description, GodotRuntime.bundled.map { $0.description })
         }
+        if chosen != nil { notes.append("runtime chosen in Game Settings") }
         let folder = try GodotRuntime.prepare(picked)
-        return GodotLaunch(version: head.version, runtime: picked, folder: folder, notes: notes)
+        return GodotLaunch(version: head.version, runtime: picked, folder: folder, notes: notes, args: args)
     }
 
     enum RuntimeError: LocalizedError {
@@ -366,8 +468,9 @@ enum GodotRuntime {
     // MARK: - Launcher
 
     /// The page that starts a desktop game on the web runtime. Paths are URL paths on the local server.
-    static func launcherPage(packPath: String, title: String, threads: Bool) -> Data {
+    static func launcherPage(packPath: String, title: String, threads: Bool, args: [String] = []) -> Data {
         let pack = PageScripts.jsString("/" + packPath)
+        let argList = "[" + args.map { PageScripts.jsString($0) }.joined(separator: ", ") + "]"
         let name = title.replacingOccurrences(of: "<", with: "").replacingOccurrences(of: "&", with: "")
         let html = """
         <!DOCTYPE html>
@@ -404,7 +507,7 @@ enum GodotRuntime {
                     canvas: canvas,
                     executable: '/__godot/godot',
                     mainPack: \(pack),
-                    args: [],
+                    args: \(argList),
                     canvasResizePolicy: 2,
                     focusCanvas: true,
                     ensureCrossOriginIsolationHeaders: false,
@@ -475,6 +578,15 @@ private final class PackReader {
 
     func u64(at offset: UInt64) -> UInt64? {
         bytes(at: offset, count: 8).map { $0.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) } }
+    }
+
+    /// Raw bytes (read directly when larger than the window).
+    func data(at offset: UInt64, count: Int) -> Data? {
+        guard count >= 0 else { return nil }
+        if count <= (1 << 20) { return bytes(at: offset, count: count) }
+        guard offset + UInt64(count) <= size, (try? handle.seek(toOffset: offset)) != nil,
+              let data = try? handle.read(upToCount: count), data.count == count else { return nil }
+        return data
     }
 }
 

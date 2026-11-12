@@ -275,6 +275,7 @@ struct LayoutProfile: Codable, Equatable {
     /// (Enter, Escape, Space, Shift).
     static func builtIn(for engine: GameEngine) -> LayoutProfile {
         if engine.isRPGMaker || engine.isRuby { return builtIn }
+        if engine == .renpy { return visualNovel }
         return LayoutProfile(
             name: "Built-in",
             portrait: [
@@ -293,6 +294,26 @@ struct LayoutProfile: Codable, Equatable {
             ]
         )
     }
+
+    /// Ren'Py's keys in a column at the right edge, away from the text box and choice menus: Skip (Tab turns
+    /// skipping on and off), Back (Page Up rolls back), Hide (H), Menu (Esc) and Next (Enter). Tapping also advances.
+    static let visualNovel = LayoutProfile(
+        name: "Built-in",
+        portrait: [
+            ControlItem(action: .key, keyCode: 9, x: 0.92, y: 0.30, size: 50, opacity: 0.6, label: "Skip"),
+            ControlItem(action: .key, keyCode: 33, x: 0.92, y: 0.38, size: 50, opacity: 0.6, label: "Back"),
+            ControlItem(action: .key, keyCode: 72, x: 0.92, y: 0.46, size: 50, opacity: 0.6, label: "Hide"),
+            ControlItem(action: .key, keyCode: 27, x: 0.92, y: 0.54, size: 50, opacity: 0.6, label: "Menu"),
+            ControlItem(action: .key, keyCode: 13, x: 0.92, y: 0.62, size: 50, opacity: 0.6, label: "Next"),
+        ],
+        landscape: [
+            ControlItem(action: .key, keyCode: 9, x: 0.96, y: 0.18, size: 50, opacity: 0.6, label: "Skip"),
+            ControlItem(action: .key, keyCode: 33, x: 0.96, y: 0.34, size: 50, opacity: 0.6, label: "Back"),
+            ControlItem(action: .key, keyCode: 72, x: 0.96, y: 0.50, size: 50, opacity: 0.6, label: "Hide"),
+            ControlItem(action: .key, keyCode: 27, x: 0.96, y: 0.66, size: 50, opacity: 0.6, label: "Menu"),
+            ControlItem(action: .key, keyCode: 13, x: 0.96, y: 0.82, size: 50, opacity: 0.6, label: "Next"),
+        ]
+    )
 
     static let builtIn = LayoutProfile(
         name: "Built-in",

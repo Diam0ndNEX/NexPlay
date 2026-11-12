@@ -28,7 +28,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .translation: return "In-game text translation"
         case .privacy: return "Hide games and collections behind Face ID, Touch ID or a passcode"
         case .backup: return "Automatic save backups and exports"
-        case .advanced: return "App log"
+        case .advanced: return "Engines and runtimes, play stats, what's new, app log"
         }
     }
 
@@ -79,7 +79,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .backup:
             return ["Automatic Save Backups", "Keep Backups", "Back Up All Now", "Export All Saves"]
         case .advanced:
-            return ["App Log", "Credits"]
+            return ["Engines & Runtimes", "Ren'Py", "Godot", "Flash", "Clear Runtime Cache", "Play Stats", "What's New", "App Log", "Credits"]
         }
     }
 }
@@ -471,7 +471,7 @@ struct ControlsSettings: View {
             } header: {
                 SettingsHeader(title: "Control Bar", symbol: "square.grid.2x2.fill", color: .purple)
             } footer: {
-                Text("In a game, drag the bubble with the game's cover anywhere and tap it to open the bar: exit, keyboard, on-screen controls, game menu, screenshot, edit controls, fast forward and the cheat engine.")
+                Text("In a game, drag the NexPlay bubble anywhere and tap it to open the bar: exit, keyboard, on-screen controls, game menu, screenshot, edit controls, fast forward and the cheat engine.")
             }
 
             Section {
@@ -714,6 +714,9 @@ struct AdvancedSettings: View {
     var body: some View {
         Form {
             Section {
+                NavigationLink { EnginesSettingsView() } label: { Label("Engines & Runtimes", systemImage: "cpu") }
+                NavigationLink { StatsView() } label: { Label("Play Stats", systemImage: "chart.bar.fill") }
+                NavigationLink { WhatsNewView(standalone: false) } label: { Label("What's New", systemImage: "sparkles") }
                 NavigationLink("App Log") { AppLogView() }
                 NavigationLink("Credits") { CreditsView() }
             } header: {
@@ -735,6 +738,8 @@ struct CreditsView: View {
                 Text("ZIPFoundation, Copyright (c) 2017-2026 Thomas Zoechling, https://github.com/weichsel/ZIPFoundation (MIT).")
                 Text("libarchive (part of iOS), https://www.libarchive.org (BSD-2-Clause): 7z, RAR and TAR import.")
                 Text("Godot Engine web runtimes (official export templates), Copyright (c) 2014-present Godot Engine contributors, https://godotengine.org/license (MIT): run desktop Godot games.")
+                Text("Ren'Py and RenPyWeb, Copyright 2004-present Tom Rothamel and contributors, https://www.renpy.org (MIT; RenPyWeb by Sylvain Beucler and Teyut): the web runtimes and engine files that run Ren'Py games. The .rpa reader follows renpy/loader.py.")
+                Text("Ruffle, Copyright (c) the Ruffle LLC contributors, https://ruffle.rs (MIT or Apache-2.0): runs Flash games.")
                 Text("Departure Mono, Copyright 2022–2024 Helena Zhang, https://departuremono.com (SIL Open Font License 1.1): the pixel font.")
             }
             Section("RPG Maker XP/VX/Ace core (only in builds with the mkxp core)") {

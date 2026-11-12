@@ -69,6 +69,7 @@ final class LibraryStore: ObservableObject {
         try? FileManager.default.removeItem(at: Paths.customCoverURL(for: game))
         Gallery.removeAll(for: game)
         ModStore.removeAll(for: game)
+        RenPyRuntime.clearPackage(for: game)
         let parkedProfiles = SaveProfiles.root.appendingPathComponent(game.id.uuidString, isDirectory: true)
         if FileManager.default.fileExists(atPath: parkedProfiles.path) {
             // Saves of other profiles are rescued too, never thrown away.
@@ -175,6 +176,7 @@ final class LibraryStore: ObservableObject {
                         game.engine = updated.engine
                         game.entry = updated.entry
                     }
+                    RenPyRuntime.clearPackage(for: existing)
                     lines.append("Updated \(staged.title). Saves and settings were kept.")
                     AppLog.log("updated \(staged.title) from \(url.lastPathComponent)")
                 } else {

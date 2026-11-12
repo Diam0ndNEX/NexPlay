@@ -30,6 +30,9 @@ struct GameDetailView: View {
     @State private var profileInfo: ProfileSummary?
     @State private var renameText = ""
     @State private var renaming: ProfileSummary?
+    @State private var folderSize: Int64?
+    @State private var runtimeLabel: String?
+    @State private var notice: String?
 
     private var game: Game? { store.game(id: gameID) }
 
@@ -42,6 +45,8 @@ struct GameDetailView: View {
                         VStack(spacing: 18) {
                             coverFrame(game)
                             titleBlock(game)
+                            infoChips(game)
+                            if let notice { noticeCard(notice) }
                             if game.usesNWMode { profileRow(game) }
                         }
                         .padding(.horizontal, 20)
@@ -124,6 +129,13 @@ struct GameDetailView: View {
             HStack {
                 GlassCircleButton(symbol: "xmark", label: "Close") { dismiss() }
                 Spacer()
+                if let game {
+                    GlassCircleButton(symbol: game.isFavorite ? "heart.fill" : "heart",
+                                      label: game.isFavorite ? "Unfavorite" : "Favorite") {
+                        store.toggleFavorite(game)
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                }
                 GlassCircleButton(symbol: "gearshape.fill", label: "Game settings") { route = .settings }
             }
             .padding(.horizontal, 20)
@@ -194,6 +206,36 @@ struct GameDetailView: View {
         }
     }
 
+    private func infoChips(_ game: Game) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                StatChip(symbol: "clock.fill", text: game.playSeconds > 0 ? formatHours(game.playSeconds) : "Not played")
+                if game.playCount > 0 {
+                    StatChip(symbol: "play.fill", text: "\(game.playCount) session\(game.playCount == 1 ? "" : "s")")
+                }
+                StatChip(symbol: "calendar", text: "Added " + game.addedAt.formatted(date: .abbreviated, time: .omitted))
+                if let folderSize {
+                    StatChip(symbol: "internaldrive.fill", text: ByteCountFormatter.string(fromByteCount: folderSize, countStyle: .file))
+                }
+                if let runtimeLabel {
+                    StatChip(symbol: "cpu", text: runtimeLabel)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private func noticeCard(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            Text(text).font(.pixel(13)).foregroundStyle(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.14), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.orange.opacity(0.35)))
+    }
+
     private func statsLine(_ game: Game) -> String {
         var parts = [formatDuration(game.playSeconds)]
         if let last = game.lastPlayed { parts.append("last played " + last.formatted(.relative(presentation: .named))) }
@@ -262,6 +304,28 @@ struct GameDetailView: View {
         guard let game else { return }
         let target = game
         hero = await Task.detached(priority: .userInitiated) { GameArt.hero(for: target) }.value
+        switch target.engine {
+        case .rpgXP, .rpgVX, .rpgVXAce:
+            notice = RubyCore.runner.isAvailable ? nil : RubyCore.runner.unavailableReason
+        case .renpy:
+            notice = RenPyRuntime.bundled.isEmpty ? RenPyRuntime.RenPyError.noRuntime.errorDescription : nil
+        case .flash:
+            notice = FlashRuntime.folder == nil ? FlashRuntime.FlashError.missing.errorDescription : nil
+        default:
+            notice = nil
+        }
+        if target.engine.hasRuntimeChoice {
+            let engine = EngineRuntimes.engineName(target.engine)
+            let auto = await Task.detached(priority: .utility) { EngineRuntimes.automatic(for: target) }.value
+            if let chosen = target.runtimeVersion {
+                runtimeLabel = "\(engine) \(chosen)"
+            } else if let runtime = auto.runtime {
+                runtimeLabel = "\(engine) \(runtime)"
+            } else {
+                runtimeLabel = nil
+            }
+        }
+        folderSize = await Task.detached(priority: .utility) { GameScanner.size(of: Paths.folder(for: target)) }.value
         if target.usesNWMode {
             profiles = await Task.detached { SaveProfiles.summaries(target) }.value
         }

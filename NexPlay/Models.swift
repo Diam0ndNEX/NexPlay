@@ -24,7 +24,7 @@ enum OrientationMode: String, Codable, CaseIterable, Identifiable {
 }
 
 enum GameEngine: String, Codable {
-    case rpgMV, rpgMZ, web, rpgXP, rpgVX, rpgVXAce, godot, construct, twine, tyrano
+    case rpgMV, rpgMZ, web, rpgXP, rpgVX, rpgVXAce, godot, construct, twine, tyrano, renpy, flash
 
     var badge: String {
         switch self {
@@ -38,6 +38,8 @@ enum GameEngine: String, Codable {
         case .construct: return "Construct"
         case .twine: return "Twine"
         case .tyrano: return "Tyrano"
+        case .renpy: return "Ren'Py"
+        case .flash: return "Flash"
         }
     }
 
@@ -49,10 +51,27 @@ enum GameEngine: String, Codable {
         case .rpgXP: return "RPG Maker XP"
         case .rpgVX: return "RPG Maker VX"
         case .rpgVXAce: return "RPG Maker VX Ace"
-        case .godot: return "Godot (Web export)"
+        case .godot: return "Godot"
         case .construct: return "Construct"
         case .twine: return "Twine story"
         case .tyrano: return "TyranoBuilder / TyranoScript"
+        case .renpy: return "Ren'Py visual novel"
+        case .flash: return "Flash (Ruffle)"
+        }
+    }
+
+    /// An SF Symbol for chips and badges.
+    var symbol: String {
+        switch self {
+        case .rpgMV, .rpgMZ: return "map.fill"
+        case .rpgXP, .rpgVX, .rpgVXAce: return "shield.lefthalf.filled"
+        case .web: return "globe"
+        case .godot: return "cube.fill"
+        case .construct: return "square.stack.3d.up.fill"
+        case .twine: return "text.book.closed.fill"
+        case .tyrano: return "text.bubble.fill"
+        case .renpy: return "bubble.left.and.text.bubble.right.fill"
+        case .flash: return "bolt.fill"
         }
     }
 
@@ -60,7 +79,7 @@ enum GameEngine: String, Codable {
     var isRPGMaker: Bool {
         switch self {
         case .rpgMV, .rpgMZ: return true
-        case .web, .rpgXP, .rpgVX, .rpgVXAce, .godot, .construct, .twine, .tyrano: return false
+        case .web, .rpgXP, .rpgVX, .rpgVXAce, .godot, .construct, .twine, .tyrano, .renpy, .flash: return false
         }
     }
 
@@ -68,21 +87,26 @@ enum GameEngine: String, Codable {
     var isRuby: Bool {
         switch self {
         case .rpgXP, .rpgVX, .rpgVXAce: return true
-        case .rpgMV, .rpgMZ, .web, .godot, .construct, .twine, .tyrano: return false
+        case .rpgMV, .rpgMZ, .web, .godot, .construct, .twine, .tyrano, .renpy, .flash: return false
         }
     }
 
-    /// Plain web games (HTML5, Godot web, Construct, Twine, Tyrano): no RPG Maker runtime, no NW.js shim.
+    /// Games in the web view without the RPG Maker runtime or the NW.js shim (HTML5, Godot, Construct, Twine,
+    /// Tyrano, and Ren'Py and Flash on their bundled web runtimes).
     var isWebGame: Bool {
         switch self {
-        case .web, .godot, .construct, .twine, .tyrano: return true
+        case .web, .godot, .construct, .twine, .tyrano, .renpy, .flash: return true
         case .rpgMV, .rpgMZ, .rpgXP, .rpgVX, .rpgVXAce: return false
         }
     }
 
     /// Served from a loopback HTTP server instead of the nexplay:// scheme. Godot 4 needs a secure origin with
     /// cross-origin isolation (SharedArrayBuffer for threads), which http://127.0.0.1 gets and a custom scheme may not.
-    var usesLocalServer: Bool { self == .godot }
+    /// Ren'Py and Flash run on bundled runtimes the server also serves.
+    var usesLocalServer: Bool { self == .godot || self == .renpy || self == .flash }
+
+    /// Engines that run on a runtime bundled with NexPlay, which a game can choose in Game Settings.
+    var hasRuntimeChoice: Bool { self == .godot || self == .renpy }
 }
 
 enum LibrarySort: String, CaseIterable, Identifiable {
@@ -139,6 +163,8 @@ struct Game: Identifiable, Codable, Hashable {
     var profiles: [SaveProfile]?
     /// The profile whose saves are in save/ right now.
     var activeProfile: UUID?
+    /// The bundled runtime version this game runs on (Godot, Ren'Py); nil picks one automatically.
+    var runtimeVersion: String?
 
     /// The hostname used in nexplay://<host>/ URLs. Unique per game, so every game has its own web storage.
     var host: String { id.uuidString.lowercased() }
@@ -243,6 +269,8 @@ enum GameColor: String, CaseIterable, Identifiable {
 
 extension Game {
     var playStatus: GameStatus { status ?? .backlog }
+    /// Added in the last week and never started: the card shows "NEW".
+    var isNew: Bool { playCount == 0 && lastPlayed == nil && Date().timeIntervalSince(addedAt) < 7 * 86_400 }
     var tagColor: Color? { colorTag.flatMap { GameColor(rawValue: $0) }?.color }
 }
 
