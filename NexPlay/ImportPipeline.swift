@@ -111,6 +111,7 @@ enum PipelineError: LocalizedError {
     case unknownType(String)
     case emptyFolder
     case desktopGodot
+    case unsupportedEngine(String)
 
     var errorDescription: String? {
         switch self {
@@ -128,6 +129,8 @@ enum PipelineError: LocalizedError {
             return "This Godot game's .pck couldn't be read (it may be encrypted or damaged), so NexPlay can't tell which Godot version runs it."
         case .emptyFolder:
             return "The folder is empty or its files couldn't be read. If it's in iCloud Drive, long-press it in the Files app, tap Download Now, then import it again."
+        case .unsupportedEngine(let reason):
+            return reason
         }
     }
 }
@@ -216,6 +219,7 @@ enum ImportPipeline {
             try GodotRuntime.extractEmbeddedPacks(in: folder, cancel: cancel)
             guard let found = detect(in: folder) else {
                 if GameScanner.isDesktopGodot(folder) { throw PipelineError.desktopGodot }
+                if let reason = UnsupportedEngine.identify(folder) { throw PipelineError.unsupportedEngine(reason) }
                 throw ImportError.noGame
             }
             let title = gameTitle(found, in: folder) ?? fallbackName
@@ -474,12 +478,14 @@ enum ImportPipeline {
             }
         case .godot where found.entry.lowercased().hasSuffix(".pck"):
             let pack = root.appendingPathComponent(found.entry)
-            if let version = GodotRuntime.packVersion(pack) {
-                if let runtime = GodotRuntime.runtime(for: version) {
-                    notes.append("Godot \(version) desktop game: it runs on the bundled Godot \(runtime) web runtime. 2D GDScript games work best; some 3D textures may not show.")
+            if let head = GodotRuntime.header(pack) {
+                if head.encrypted {
+                    notes.append(GodotRuntime.RuntimeError.encrypted.errorDescription ?? "")
+                } else if let runtime = GodotRuntime.runtime(for: head.version) {
+                    notes.append("Godot \(head.version) desktop game: it runs on the bundled Godot \(runtime) web runtime. 2D GDScript games work best; some 3D textures may not show.")
                 } else {
                     let have = GodotRuntime.bundled.map { $0.description }
-                    notes.append(GodotRuntime.RuntimeError.noRuntime(version.description, have).errorDescription ?? "")
+                    notes.append(GodotRuntime.RuntimeError.noRuntime(head.version.description, have).errorDescription ?? "")
                 }
             }
             if GodotRuntime.usesDotNet(root) {
@@ -502,7 +508,6 @@ enum ImportPipeline {
                 notes.append("Ships Node.js modules: plugins that need real desktop Node.js may fail.")
             }
         case .rpgXP, .rpgVX, .rpgVXAce:
-            notes.append("RPG Maker XP/VX/Ace needs the mkxp core, which this build doesn't include yet.")
             let hasArchive = names.contains { $0.hasPrefix("game.rgss") }
             let graphics = find("Graphics", in: dir)
             let graphicsCount = graphics.map { children($0).count } ?? 0
@@ -580,5 +585,57 @@ enum ImportPipeline {
         }
         try? fm.removeItem(at: old)
         return updated
+    }
+}
+
+/// Recognizes engines NexPlay can't run, so a failed import says what the game is instead of "No game found".
+enum UnsupportedEngine {
+    static func identify(_ root: URL) -> String? {
+        let fm = FileManager.default
+        var names: Set<String> = []
+        var extensions: Set<String> = []
+        var level = [root]
+        for _ in 0...3 {
+            var next: [URL] = []
+            for dir in level {
+                let kids = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey],
+                                                        options: [.skipsHiddenFiles])) ?? []
+                for kid in kids {
+                    names.insert(kid.lastPathComponent.lowercased())
+                    extensions.insert(kid.pathExtension.lowercased())
+                    if (try? kid.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { next.append(kid) }
+                }
+            }
+            level = next
+            if names.count > 20000 { break }
+        }
+        if names.contains("renpy") || extensions.contains("rpa") || extensions.contains("rpyc") {
+            return "This is a Ren'Py game. Ren'Py isn't supported yet; it's on NexPlay's list."
+        }
+        if names.contains("rpg_rt.exe") || names.contains("rpg_rt.ldb") || names.contains("rpg_rt.lmt") {
+            return "This is an RPG Maker 2000/2003 game. Those aren't supported yet."
+        }
+        if extensions.contains("jar") || names.contains("jre") {
+            return "This is a Java game (it ships a .jar). iPhone can't run Java desktop games, so NexPlay can't play it. Look for a web or Android version."
+        }
+        if names.contains("unityplayer.dll") || names.contains("globalgamemanagers") || names.contains("data.unity3d") {
+            return "This is a Unity game for Windows. NexPlay can only run Unity games exported for the web (WebGL)."
+        }
+        if names.contains("data.win") || names.contains("game.unx") || names.contains("game.ios") {
+            return "This is a GameMaker game for desktop. NexPlay can't run GameMaker desktop builds."
+        }
+        if extensions.contains("wolf") {
+            return "This is a WOLF RPG Editor game. NexPlay can't run WOLF RPG games."
+        }
+        if names.contains("paks") && extensions.contains("pak") {
+            return "This is an Unreal Engine game for desktop. NexPlay can't run it."
+        }
+        if extensions.contains("swf") {
+            return "This is a Flash game (.swf). NexPlay can't run Flash."
+        }
+        if extensions.contains("exe") {
+            return "Only Windows program files were found: no web game, RPG Maker or Godot files. NexPlay can't run Windows programs."
+        }
+        return nil
     }
 }
