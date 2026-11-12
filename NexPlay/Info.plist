@@ -33,6 +33,17 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>localdevvpn</string>
+		<string>stikdebug</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>NexPlay finds this iPhone's Remote Pairing service to turn on JIT for Windows games.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_remotepairing._tcp</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIApplicationSceneManifest</key>

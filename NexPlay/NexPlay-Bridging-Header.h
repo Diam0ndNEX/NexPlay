@@ -9,6 +9,9 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+// 6.3.0: built-in JIT (BRK #0xf00d calls, SIGTRAP fallback, self-test).
+#include "JIT/NexJIT.h"
+
 struct archive;
 struct archive_entry;
 

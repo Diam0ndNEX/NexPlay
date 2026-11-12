@@ -7,12 +7,12 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "6.2.1"
-    CURRENT_PROJECT_VERSION: "33"
+    MARKETING_VERSION: "6.3.0"
+    CURRENT_PROJECT_VERSION: "34"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
     # The XP/VX/Ace core is off by default. The workflow turns it on with
-    # SWIFT_ACTIVE_COMPILATION_CONDITIONS=NEXPLAY_MKXP (see docs/workflow-6.2.0.yml).
+    # SWIFT_ACTIVE_COMPILATION_CONDITIONS=NEXPLAY_MKXP (see docs/workflow-6.3.0.yml).
 packages:
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation
@@ -25,6 +25,12 @@ targets:
       - path: NexPlay
     dependencies:
       - package: ZIPFoundation
+      # 6.3.0: built-in JIT. The helper extension runs StikJIT; the app only embeds the framework for it
+      # (StikJIT needs iOS 17.4, NexPlay runs on 16). tools/fetch_stikjit.sh puts it in vendor/ in CI.
+      - target: NexPlayJITHelper
+      - framework: vendor/StikJIT/StikJIT.xcframework
+        embed: true
+        link: false
     # Desktop Godot games run on Godot's web runtimes; the build downloads the versions in
     # tools/godot/runtimes.txt (only the web template from each official export template, via HTTP ranges)
     # into NexPlay.app/GodotRuntimes. Set NEXPLAY_SKIP_GODOT=1 to build without them.
@@ -63,6 +69,33 @@ targets:
         CODE_SIGN_ENTITLEMENTS: NexPlay/NexPlay.entitlements
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
         # libarchive ships with iOS (7z, RAR, TAR...). NexPlay-Bridging-Header.h declares the functions
-        # ArchiveExtractor.swift uses, because the iOS SDK has no libarchive headers.
+        # ArchiveExtractor.swift uses, because the iOS SDK has no libarchive headers. It also includes JIT/NexJIT.h.
         SWIFT_OBJC_BRIDGING_HEADER: NexPlay/NexPlay-Bridging-Header.h
         OTHER_LDFLAGS: "$(inherited) -larchive"
+
+  # 6.3.0: the JIT helper (a classic app extension started by bundle ID, as BCD's MadeiraJITHelper). A process
+  # can't debug itself, so StikJIT runs here and attaches to NexPlay. Sources: its folder + the shared messages.
+  NexPlayJITHelper:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.4"
+    sources:
+      - path: NexPlayJITHelper
+      - path: NexPlay/JIT/JITRequest.swift
+    dependencies:
+      - framework: vendor/StikJIT/StikJIT.xcframework
+        embed: false
+      - sdk: ExtensionFoundation.framework
+        weak: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nexplay.app.JITHelper
+        PRODUCT_NAME: NexPlayJITHelper
+        INFOPLIST_FILE: NexPlayJITHelper/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_ENTITLEMENTS: NexPlayJITHelper/NexPlayJITHelper.entitlements
+        APPLICATION_EXTENSION_API_ONLY: NO
+        SKIP_INSTALL: YES
+        # StikJIT.framework sits in NexPlay.app/Frameworks (two levels up from the helper's binary).
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
