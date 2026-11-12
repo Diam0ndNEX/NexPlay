@@ -27,21 +27,32 @@ The owner tests on the device only after the whole update; build errors still co
 - Licences: BCD files GPL-3.0-only with BCD additional terms (LICENSE-BCD.md: Credits line required, no BCD name/icon);
   Madeira parts GPL-3.0-or-later + Madeira Converter Exception; Wine LGPL; FEX MIT; DXMT zlib/MIT. NexPlay stays private.
 
-## Port plan
-1. **6.4.0 (CI only)** `docs/workflow-windows-runtime.yml` → owner pastes as `.github/workflows/build-windows-runtime.yml`
-   (manual dispatch, macos runner, long timeout): download `BCD-source.tar.xz` for the tag in `tools/windows/runtime.version`,
-   run BCD's stage scripts in BCD's order (copy the stage steps of build-ipa.yml nearly 1:1, drop Steam/Dock/EA/itch stages,
-   cache each stage by revision, save each cache in its own step), skip the BCD app archive. Package
-   `NexWindowsLibs.zip` (every static lib the BCD app links) + `WindowsRuntime.zip` (DLL folders, nls, prefix template,
-   soundfont, cacert) and publish them as release `windows-runtime-<tag>-<n>` in Diam0ndNEX/NexPlay. Metal Shader Converter:
-   from a draft release `metal-shader-converter` the owner fills once; without it D3D12 is skipped with a warning.
-   App side: `build.yml` downloads the newest runtime release (`gh release download`), puts the data in
-   `NexPlay.app/WindowsRuntime/`; `WindowsGameRuntime` stub reports "Windows runtime: present" in Diagnostics.
-2. **7.0.0** copy BCD's glue (list above, minus Steam/stores) into `NexPlay/Windows/BCD/` with headers kept, compiled only with
-   `NEXPLAY_WINDOWS` (link the runtime libs then). Replace the 6.3.0 JIT self-test with BCD's pool request and keep the
-   debugger attached for the session (JIT script already is BCD's). `WindowsGameRunner`: ensure JIT, seed prefix
-   (`Application Support/NexPlay/Windows/Prefixes/<id>`), mount the game folder as D:, `wine_process_start`, Metal view from
-   Winios, input bridge, exit/crash card. One Windows game per app launch.
+## Port plan (changed 6.4.0: BCD as a library, not copied glue)
+BCD's glue is compiled into its app target and DXMT finds `macdrv_*` by `dlsym(RTLD_DEFAULT)` from that target's export
+list, so copying single files would mean re-creating BCD's whole app. Instead NexPlay builds BCD's app target as a
+dynamic library and loads it.
+
+1. **6.4.0 (done, untested)** `docs/workflow-windows-runtime.yml` → `.github/workflows/build-windows-runtime.yml` (manual,
+   macos-15, 6 h). Checks out BCD at `tools/windows/runtime.version` with submodules into `bcd/`, then
+   `tools/windows/build_runtime.sh`:
+   - `run_bcd_ci.py` replays BCD's own `.github/workflows/build-ipa.yml` step by step (evaluates `${{ }}` and `if:`,
+     GITHUB_ENV/PATH/OUTPUT, BCD's cache steps against `bcd/.nexplay-cache`, skips other `uses:` and BCD's host tests)
+     until "Archive (unsigned)". Our own cache step keeps BCD's build folders between runs.
+   - `patch_bcd_for_nexplay.py`: Madeira target links as MH_DYLIB (`@rpath/BCDCore.framework/BCDCore`); appends to
+     MadeiraApp.swift `nexplay_bcd_make_root()` (BCD's init body once + a retained UIHostingController of its WindowGroup
+     content) and `nexplay_bcd_open_url(const char*)` (its onOpenURL body); adds both to madeira-exports.txt.
+   - xcodebuild archive (Debug, as BCD does), BCD's macdrv export check, `package_runtime.sh` → `BCDRuntime.zip`
+     (Frameworks/BCDCore.framework + BCD's other frameworks minus StikJIT, AppResources/ = BCD's app folder contents,
+     PlugIns/ renamed to com.nexplay.app.BCD<Name>, BCD-Info.plist whitelist), split above 1.9 GB.
+   - `publish_runtime.sh` → release `windows-runtime-<tag>-<run>`.
+   `build.yml` (`docs/workflow-6.4.0.yml`) runs `merge_runtime.sh` on the unsigned app: newest runtime release, resources
+   merged with NexPlay's files winning, frameworks and plug-ins added, Info.plist keys merged, `WindowsRuntime.version`.
+   App: `NexPlay/Windows/BCDBridge.swift` (`BCDRuntimeInfo` dlopen + launch crash guard, `BCDBridge.show/open`,
+   `WindowsHostViewController`), Setup Center > Windows Games (Open Windows Games, Load at Launch), remote pairing file
+   mirrored to BCD's Keychain item (MadeiraJITPairing/rppairing).
+2. **7.0.0** Windows games in NexPlay's library: import .exe folders, `GameEngine`/`Game.runtime == .windows`,
+   `WindowsGameRuntime` starts them through `BCDBridge.open(madeira://play?exe=...)` after JIT, exit back to the library.
 3. 7.1+ as in SPEC-7.0 + review (routing, EasyRPG native, input, power, UI).
 
-Do not start by rewriting: copy BCD's files and stage steps as they are, then cut what NexPlay doesn't use.
+Known risks to check on the first runtime build: BCD's code using `Bundle.main` paths (covered by merging its app folder
+into NexPlay.app), Assets.car (NexPlay's kept), Info.plist keys BCD reads, BCD plug-in ids, release asset size (2 GB).

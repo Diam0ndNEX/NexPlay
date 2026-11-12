@@ -49,6 +49,8 @@ struct NexPlayApp: App {
         NexFont.setUp()
         AppDelegate.orientationMask = OrientationManager.outsideMode.mask
         AppLog.noteLaunch()
+        // 6.4.0: Settings > Setup Center > Windows Games > Load at Launch.
+        BCDRuntimeInfo.loadAtLaunchIfWanted()
     }
 
     static let defaultSettings: [String: Any] = [
@@ -95,6 +97,7 @@ struct NexPlayApp: App {
         SettingsKey.whatsNewSeen: "",
         SettingsKey.jitAutoForGames: true,
         SettingsKey.jitAtLaunch: false,
+        SettingsKey.windowsLoadAtLaunch: true,
     ]
 
     private var colorScheme: ColorScheme? {

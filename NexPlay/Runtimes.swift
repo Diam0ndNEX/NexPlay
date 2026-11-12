@@ -170,7 +170,9 @@ struct WindowsGameRuntime: GameRuntime {
     var isAvailable: Bool { false }
 
     var unavailableReason: String {
-        "This build has no Windows runtime, so Windows games can't start yet. They stay in your library and will run once a build with the runtime is installed."
+        BCDRuntimeInfo.isPresent
+            ? "Windows games start from Settings > Setup Center > Windows Games in this version. Starting them from the library comes in 7.0."
+            : "This build has no Windows runtime, so Windows games can't start yet. They stay in your library and will run once a build with the runtime is installed."
     }
 
     func capabilities(for game: Game) -> RuntimeCapabilities {

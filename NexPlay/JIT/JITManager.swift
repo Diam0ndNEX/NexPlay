@@ -15,7 +15,7 @@ extension SettingsKey {
     static let jitAutoForGames = "jitAutoForGames"
     static let jitAtLaunch = "jitAtLaunch"
     /// Cleared by Reset to Defaults.
-    static let jitKeys: [String] = [jitAutoForGames, jitAtLaunch]
+    static let jitKeys: [String] = [jitAutoForGames, jitAtLaunch, windowsLoadAtLaunch]
 }
 
 struct JITError: LocalizedError {
