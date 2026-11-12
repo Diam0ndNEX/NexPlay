@@ -141,9 +141,6 @@ enum DeviceInfo {
         #if NEXPLAY_WINDOWS
         flags.append("NEXPLAY_WINDOWS")
         #endif
-        #if NEXPLAY_STORES
-        flags.append("NEXPLAY_STORES")
-        #endif
         return flags
     }
 
@@ -162,6 +159,8 @@ enum DeviceInfo {
             ComponentStatus(name: "Ren'Py web runtimes", present: resource("RenPyRuntimes")),
             ComponentStatus(name: "Ruffle (Flash)", present: resource("Ruffle")),
             ComponentStatus(name: "mkxp core (XP/VX/Ace)", present: framework("MkxpCore.framework")),
+            ComponentStatus(name: "JIT helper (StikJIT)",
+                            present: JITHelperHost.helperIdentifier != nil && framework("StikJIT.framework")),
             ComponentStatus(name: "Windows runtime", present: framework("NexWindows.framework")),
         ]
     }
@@ -218,7 +217,7 @@ enum DeviceInfo {
     static func report() -> String {
         var lines: [String] = []
         lines.append("NexPlay \(appVersion)")
-        lines.append("Model: \(machine), iOS \(systemVersion), TXM: \(likelyTXM ? "likely" : "no")")
+        lines.append("Model: \(machine), iOS \(systemVersion), TXM: \(likelyTXM ? "likely" : "no"), device tree TXM: \(nexjit_txm_in_device_tree())")
         lines.append("RAM: \(physicalMemoryMB) MB, available to NexPlay: \(availableMemoryMB) MB, thermal: \(thermal)")
         if let free = freeDiskGB { lines.append(String(format: "Free storage: %.1f GB", free)) }
         lines.append("get-task-allow (signature): \(flag(signedDebuggable)), entitlement: \(flag(hasEntitlement(Entitlement.getTaskAllow)))")
@@ -227,6 +226,8 @@ enum DeviceInfo {
         lines.append("Profile: \(profileSummary)")
         if let flags = csFlags { lines.append(String(format: "cs-flags: 0x%x", flags)) }
         lines.append("JIT: cs-debugged=\(isDebugged ? 1 : 0) traced=\(isTraced ? 1 : 0)")
+        lines.append("JIT pairing file: \(JITPairingStore.kind ?? "none"), helper: \(JITHelperHost.unavailableReason ?? "ready")")
+        lines.append("JIT last test: \(JITRecord.lastTest)")
         lines.append("Build flags: \(buildFlags.isEmpty ? "none" : buildFlags.joined(separator: ", "))")
         for item in components {
             lines.append("\(item.name): \(item.present ? "present" : "missing")")
@@ -287,10 +288,17 @@ struct DiagnosticsView: View {
                                    detail: "Set once a debugger attached to NexPlay in this session.")
                 DiagnosticCheckRow(title: "Debugger Attached", ok: DeviceInfo.isTraced,
                                    detail: "A debugger is attached right now.")
+                DiagnosticCheckRow(title: "Pairing File", ok: JITPairingStore.isPresent,
+                                   detail: JITPairingStore.kind ?? "Not imported")
+                DiagnosticCheckRow(title: "JIT Helper", ok: JITHelperHost.unavailableReason == nil,
+                                   detail: JITHelperHost.unavailableReason ?? "In this build")
+                LabeledContent("Last JIT Test") {
+                    Text(JITRecord.lastTest).font(.caption).multilineTextAlignment(.trailing)
+                }
             } header: {
                 SettingsHeader(title: "JIT", symbol: "bolt.fill", color: .yellow)
             } footer: {
-                Text("Built-in JIT comes in 6.3.0. Not needed for web, Godot, Ren'Py, Flash or mkxp games.")
+                Text("Turn JIT on in Settings > JIT & Performance. Not needed for web, Godot, Ren'Py, Flash or mkxp games.")
             }
 
             Section {

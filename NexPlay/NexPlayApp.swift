@@ -93,6 +93,8 @@ struct NexPlayApp: App {
         SettingsKey.animatedBackground: true,
         SettingsKey.backgroundTheme: "nebula",
         SettingsKey.whatsNewSeen: "",
+        SettingsKey.jitAutoForGames: true,
+        SettingsKey.jitAtLaunch: false,
     ]
 
     private var colorScheme: ColorScheme? {
@@ -115,6 +117,10 @@ struct NexPlayApp: App {
                 .onOpenURL { url in open(url) }
                 .task {
                     OrientationManager.unlock()
+                    // 6.3.0: Settings > JIT & Performance > Enable JIT at App Launch.
+                    if UserDefaults.standard.bool(forKey: SettingsKey.jitAtLaunch) {
+                        JITManager.shared.enable()
+                    }
                     // A backup pass 30 seconds after launch, like Empo.
                     try? await Task.sleep(nanoseconds: 30_000_000_000)
                     backUpAll()

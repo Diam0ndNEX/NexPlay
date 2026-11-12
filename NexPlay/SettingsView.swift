@@ -4,15 +4,17 @@ import SwiftUI
 
 /// One page of Settings.
 enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
-    case appearance, controls, gameplay, translation, privacy, backup, advanced, diagnostics
+    case setupCenter, appearance, controls, gameplay, jit, translation, privacy, backup, advanced, diagnostics
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .setupCenter: return "Setup Center"
         case .appearance: return "Appearance"
         case .controls: return "Controls"
         case .gameplay: return "Gameplay & Performance"
+        case .jit: return "JIT & Performance"
         case .translation: return "Translation"
         case .privacy: return "Privacy"
         case .backup: return "Import & Backup"
@@ -23,9 +25,11 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
 
     var subtitle: String {
         switch self {
+        case .setupCenter: return "A checklist of what Windows games need, with a fix for each"
         case .appearance: return "Theme, background, library layout"
         case .controls: return "Virtual gamepad, control bar, haptics and physical controllers"
         case .gameplay: return "Orientation, portrait position, sound and RPG Maker modes"
+        case .jit: return "Built-in JIT: pairing file, LocalDevVPN, status and test"
         case .translation: return "In-game text translation"
         case .privacy: return "Hide games and collections behind Face ID, Touch ID or a passcode"
         case .backup: return "Automatic save backups and exports"
@@ -36,9 +40,11 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
 
     var symbol: String {
         switch self {
+        case .setupCenter: return "checklist"
         case .appearance: return "paintpalette.fill"
         case .controls: return "gamecontroller.fill"
         case .gameplay: return "bolt.fill"
+        case .jit: return "cpu"
         case .translation: return "character.bubble.fill"
         case .privacy: return "lock.fill"
         case .backup: return "externaldrive.fill"
@@ -49,9 +55,11 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
 
     var color: Color {
         switch self {
+        case .setupCenter: return .pink
         case .appearance: return .indigo
         case .controls: return .blue
         case .gameplay: return .orange
+        case .jit: return .yellow
         case .translation: return .teal
         case .privacy: return .green
         case .backup: return .purple
@@ -63,6 +71,8 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
     /// Setting names on the page, for search.
     var rows: [String] {
         switch self {
+        case .setupCenter:
+            return ["Checklist", "Pairing File", "LocalDevVPN", "JIT Test", "Entitlements", "Windows Runtime", "Free Storage"]
         case .appearance:
             return ["Dark Mode", "Theme", "Animated Background", "Background Theme", "Library View", "Title Under the Cover",
                     "Continue Playing Card"]
@@ -76,6 +86,9 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .gameplay:
             return ["Auto-rotate In Games", "Game Orientation", "Auto-rotate Outside Games", "Portrait Game Position",
                     "Play Sound in Silent Mode", "Keep Screen Awake", "Desktop Mode", "Sharp Pixels", "NW.js Mode"]
+        case .jit:
+            return ["JIT", "Enable JIT Now", "Pairing File", "Import Pairing File", "LocalDevVPN", "Check Connection",
+                    "Developer Disk Image", "StikDebug", "TXM", "Enable JIT at App Launch", "Enable JIT When a Game Needs It"]
         case .translation:
             return ["Translate MV/MZ Games", "MTool", "TranslateFile.json"]
         case .privacy:
@@ -202,7 +215,8 @@ struct SettingsView: View {
 
     private func resetDefaults() {
         let defaults = UserDefaults.standard
-        let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + [SettingsKey.translationEnabled]
+        let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys
+            + [SettingsKey.translationEnabled]
         for key in keys { defaults.removeObject(forKey: key) }
         OrientationManager.unlock()
         AppLog.log("settings reset to defaults")
@@ -296,9 +310,11 @@ struct SettingsPageView: View {
     var body: some View {
         Group {
             switch page {
+            case .setupCenter: SetupCenterView()
             case .appearance: AppearanceSettings()
             case .controls: ControlsSettings()
             case .gameplay: GameplaySettings()
+            case .jit: JITSettingsView()
             case .translation: TranslationGlobalSettings()
             case .privacy: PrivacySettings()
             case .backup: BackupSettings()
@@ -743,9 +759,10 @@ struct CreditsView: View {
             Section("Adapted code") {
                 Text("Empo, Copyright (C) 2026 Mateo M., https://github.com/mateo-m/empo-app, and mvmz-apple-mobile, https://github.com/mateo-m/mvmz-apple-mobile (GPL-3.0-only with additional terms): RPG Maker runtime (speed, pause, focus), NW.js shim, game file server, archive extraction with the system libarchive, save rescue and displaced-copy handling, controls model and touch handling ideas, controller bindings, backup retention and import pipeline invariants.")
                 Text("Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games)")
-                Text("BCD (GPL-3.0 with the BCD additional terms and the Madeira Converter Exception) is a fork of Madeira by Will Faust, https://github.com/willfaust/Madeira (GPL-3.0-or-later): entitlement, signing and device checks (Diagnostics), entitlements set.")
+                Text("BCD (GPL-3.0 with the BCD additional terms and the Madeira Converter Exception) is a fork of Madeira by Will Faust, https://github.com/willfaust/Madeira (GPL-3.0-or-later): entitlement, signing and device checks (Diagnostics), entitlements set; built-in JIT: the helper extension and how it is started, the pairing-file store, the JIT script (madeira-jit.js), the BRK #0xf00d calls and the JIT test page (portions copyright 2026 SirDank, from Madeira).")
             }
             Section("Libraries") {
+                Text("StikJIT, https://github.com/StikDebug/StikJIT (MPL-2.0), based on StikDebug: built-in JIT (debugger attach over LocalDevVPN, Developer Disk Image). It bundles idevice, Copyright (c) Jackson Coxson, https://github.com/jkcoxson/idevice (MIT).")
                 Text("ZIPFoundation, Copyright (c) 2017-2026 Thomas Zoechling, https://github.com/weichsel/ZIPFoundation (MIT).")
                 Text("libarchive (part of iOS), https://www.libarchive.org (BSD-2-Clause): 7z, RAR and TAR import.")
                 Text("Godot Engine web runtimes (official export templates), Copyright (c) 2014-present Godot Engine contributors, https://godotengine.org/license (MIT): run desktop Godot games.")
