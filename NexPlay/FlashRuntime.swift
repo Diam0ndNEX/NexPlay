@@ -88,7 +88,6 @@ enum FlashRuntime {
             openUrlMode: 'deny',
             allowNetworking: 'all',
             upgradeToHttps: false,
-            backgroundColor: '#000000',
             logLevel: 'warn'
         };
         </script>

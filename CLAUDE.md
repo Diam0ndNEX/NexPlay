@@ -1,7 +1,7 @@
 # NexPlay
 
 Personal iPhone game player for RPG Maker MV/MZ and HTML5 games (SwiftUI + WKWebView, iOS 16+), with RPG Maker XP/VX/Ace through the mkxp-z core in builds that turn on `NEXPLAY_MKXP`.
-Not a general web browser: everything in here is treated as a game. Version 4.1.0 (build 22). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
+Not a general web browser: everything in here is treated as a game. Version 4.1.1 (build 23). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
 
 **Read `docs/SPEC.md` for the plan, `docs/RESEARCH.md` for what the reference apps do. Paste-ready prompt for new chats: `docs/PROMPT.md`.**
 
@@ -63,7 +63,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
   - `StorageView.swift` (4.1): Settings > Advanced > Storage: usage bar (games, backups, rescued saves, runtimes/packages, temp), games by size, delete rescued saves (swipe), clear runtimes / temporary files (temp disabled while importing).
   - `PlayLink` (LibraryModels, 4.1): `nexplayapp://play/<game-uuid>` (CFBundleURLTypes) starts a game; `AppState.pendingPlay`; game context menu "Copy Play Link". Hidden games only start while hidden games are shown.
   - `EnginesView.swift` (4.0): `EngineRuntimes` (runtime choices/automatic pick for Godot and Ren'Py) and Settings > Advanced > Engines & Runtimes (bundled versions, clear runtime cache). `StatsView.swift` (Play Stats), `WhatsNewView.swift` (shown once per version, `whatsNewSeen`).
-  - `tools/fetch_renpy_runtimes.py` + `tools/renpy/runtimes.txt` (7.8.7, 8.3.7, 8.5.3) and `tools/fetch_ruffle.py` + `tools/ruffle/version.txt` (npm @ruffle-rs/ruffle): post-build scripts like the Godot one. `NEXPLAY_SKIP_RENPY=1` / `NEXPLAY_SKIP_RUFFLE=1` skip. Failures are warnings. The Ren'Py script downloads the official web ZIP and SDK ZIP and builds the engine ZIP with Ren'Py's own web transform (pyc out of __pycache__, .py dropped for 8.x; .py + .pyo kept for 7.x).
+  - `tools/fetch_renpy_runtimes.py` + `tools/renpy/runtimes.txt` (7.8.7, 8.3.7, 8.5.3) and `tools/fetch_ruffle.py` + `tools/ruffle/version.txt` (npm @ruffle-rs/ruffle): post-build scripts like the Godot one. `NEXPLAY_SKIP_RENPY=1` / `NEXPLAY_SKIP_RUFFLE=1` skip. Failures are warnings. The Ren'Py script downloads the official web ZIP and SDK ZIP and builds the engine ZIP: 8.x bytecode for the web runtime's Python (read from renpy.data; SDK pyc when the tag matches, else compiled with a matching interpreter found on the runner, else .py sources), `renpy/common/*_ren.py` always kept as sources (they are Ren'Py scripts: without them JSONDB/layeredimage are missing), 7.x .pyo without the .py beside it (else RenPyWeb 7 recompiles every module at each start).
   - `tools/fetch_godot_runtimes.py` + `tools/godot/runtimes.txt`: run by an Xcode post-build script (project.yml) that downloads only the web template out of each official export templates .tpz with curl range requests into the app; cache in build/godot-cache. `NEXPLAY_SKIP_GODOT=1` skips. Failures are warnings.
   - `Fonts/DepartureMono-Regular.otf` (OFL): pixel font, registered at launch by `NexFont.setUp()`; `Font.pixel(size)`, `NexFont.ui(size)`; setting `pixelFont`.
 
@@ -128,12 +128,13 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 - D: drag-to-reorder games; accent colour, library background image, alternate app icons, "Changed by you" markers,  storage manager, invalidate missing games, gamepad navigation of the library, What's New/Tips, WebDAV, iCloud sync (needs an iCloud entitlement the owner's certificate likely lacks), localization, widgets, landscape console menu.
 - E: multi-part RAR/7z (part1, part2), password-protected archives, CAB-based RPG Maker installers (Empo uses libmspack); multi-root picker; media conversion; `.jgp` metadata, EXE icons, Enigma.
 - F: Apple on-device translation (iOS 18 Translation framework); translation button on the control bar; global mods.
-- H (4.0): Ren'Py save import from desktop .save files into IDBFS (use the page's ≡ menu for now); Ren'Py games that need compiled Python packages; Flash keyboard focus is untested; RPG Maker 2000/2003 (EasyRPG web player has no stable download to bundle).
+- H (4.0): Ren'Py games that need compiled Python packages; Flash keyboard focus is untested; RPG Maker 2000/2003 (EasyRPG web player has no stable download to bundle).
 - G: per-game Ruby-core settings (upscaler, font hinting, VSync, compatibility estimate), MIDI SoundFont import, pause/resume and quit from inside a Ruby game, game rect/viewport handling. The mkxp build path is untested. LonaRPG (VX Ace) crashes the app right after "mkxp core: starting" on iOS 27 (seen in 3.1.0 logs); not investigated yet.
 - Importing .rpgsave files into browser-mode (non-NW.js) RPG Maker games.
 
 ## Roadmap
 - 1.1.4 base check, AppLog. 1.2.0 NW.js saves. 1.3.0 controls. 1.4.0 library/backups/settings/plugins/cheats. 1.5.0 import pipeline. 1.6.0 translation. 1.9.0 mkxp scaffolding. 2.0.0 finish. 2.1.0 control bar, settings pages, 7z/RAR, black-screen fix.
+- 4.1.1: bugs found by running the bundled runtimes in headless Chromium (Playwright) with game.zip built like the app: 8.3.7 engine bytecode was Python 3.9 but the web runtime is 3.11 ("bad magic number"); `_ren.py` scripts were dropped; game.zip lacked folder entries, so RenPyWeb couldn't write progressively downloaded files into a folder that had none in the ZIP (`StoredZipWriter.addDirectory`, packageFormat 2); the Flash launcher's backgroundColor hid the movie's own background. To re-test: build a test game, port of the placement rules, a server with the __renpy/ layout, then Playwright with --use-gl=swiftshader.
 - 4.1.0: Ren'Py saves in the game menu, Download from Link, Storage page, play links. Home Screen quick actions were skipped: they need a custom scene delegate, which could break onOpenURL (Open in NexPlay).
 - Next: device test of 4.0.0/4.1.0: Project Kat (Godot desktop; log lines `godot: pack ...`, runtime picked), a Ren'Py 7 and a Ren'Py 8 game (first start builds game.zip; log lines `ren'py: ...`), a Flash game. If a runtime fails, the build log of the Ren'Py/Ruffle post-build steps shows why.
 - 4.0.0: Ren'Py (RenPyWeb), Flash (Ruffle), runtime switching, Godot fixes, downloads, library/game page/stats/What's New.

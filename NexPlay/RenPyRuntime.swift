@@ -27,7 +27,7 @@ struct RenPyLaunch {
 
 enum RenPyRuntime {
     /// Bump when the package layout changes, so old game.zip files are rebuilt.
-    private static let packageFormat = 1
+    private static let packageFormat = 2
 
     static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "webp", "avif", "bmp", "gif"]
     static let audioExtensions: Set<String> = ["wav", "mp2", "mp3", "ogg", "opus", "flac", "m4a", "oga"]
@@ -392,6 +392,20 @@ enum RenPyRuntime {
                     try writer.add(name: "_placeholders/" + file.relative, data: placeholderPNG)
                 }
             }
+        }
+        // Every folder of the game exists in memory, so files fetched while playing can be written into it
+        // (Ren'Py's own web build keeps the folder entries too).
+        var folders = Set<String>()
+        for file in files {
+            var parts = file.relative.split(separator: "/").map(String.init)
+            parts.removeLast()
+            while !parts.isEmpty {
+                folders.insert(parts.joined(separator: "/"))
+                parts.removeLast()
+            }
+        }
+        for folder in folders.sorted() where !folder.lowercased().hasPrefix("saves") {
+            try writer.addDirectory(name: "game/" + folder)
         }
         try writer.add(name: "game/renpyweb_remote_files.txt", data: Data(remote.utf8))
 

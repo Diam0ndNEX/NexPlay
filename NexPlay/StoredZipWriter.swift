@@ -44,6 +44,13 @@ final class StoredZipWriter {
         try write(data)
     }
 
+    /// A folder entry ("name/"), so unpacking creates the folder even when it ends up with no files in the ZIP.
+    func addDirectory(name: String) throws {
+        let folder = name.hasSuffix("/") ? name : name + "/"
+        guard !names.contains(folder) else { return }
+        try writeHeader(name: folder, crc: 0, size: 0, date: Date(), directory: true)
+    }
+
     /// Adds a file from disk (read twice in 4 MB chunks: once for the checksum, once to copy it).
     func add(name: String, file: URL) throws {
         guard !names.contains(name) else { return }
@@ -84,7 +91,7 @@ final class StoredZipWriter {
         try handle.close()
     }
 
-    private func writeHeader(name: String, crc: UInt32, size: UInt64, date: Date) throws {
+    private func writeHeader(name: String, crc: UInt32, size: UInt64, date: Date, directory: Bool = false) throws {
         guard offset + size + 1024 < 0xFFFF_FFFF, size < 0xFFFF_FFFF else { throw WriterError.tooLarge }
         names.insert(name)
         let nameData = Data(name.utf8)
@@ -121,7 +128,7 @@ final class StoredZipWriter {
         central.append(u16: 0)
         central.append(u16: 0)
         central.append(u16: 0)
-        central.append(u32: UInt32(0o100644) << 16)
+        central.append(u32: directory ? (UInt32(0o040755) << 16 | 0x10) : (UInt32(0o100644) << 16))
         central.append(u32: UInt32(headerOffset))
         central.append(nameData)
         count += 1
