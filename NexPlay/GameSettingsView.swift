@@ -93,7 +93,8 @@ struct GameSettingsView: View {
             screenSection(game)
             if game.engine.isRPGMaker { engineSection(game) }
             if game.engine == .renpy || game.isGodotDesktop { runtimeSection(game) }
-            if game.engine == .windows { windowsSection(game) }
+            if GameRuntimes.choices(for: game).count > 1 { runsOnSection(game) }
+            if game.engine == .windows || game.runtime == .windows { windowsSection(game) }
             notesSection
             dangerSection(game)
         }
@@ -332,6 +333,27 @@ struct GameSettingsView: View {
         }
     }
 
+    /// 7.1.0: Automatic, the engine's native runtime, or Windows.
+    private func runsOnSection(_ game: Game) -> some View {
+        let choices = GameRuntimes.choices(for: game)
+        let remembered = game.lastGoodRuntime.map { " (last: \($0.title))" } ?? ""
+        return Section {
+            Picker(selection: Binding(
+                get: { game.runtime?.rawValue ?? "auto" },
+                set: { value in store.mutate(gameID) { $0.runtime = RuntimeKind(rawValue: value) } }
+            )) {
+                Text("Automatic" + remembered).tag("auto")
+                ForEach(choices) { kind in
+                    Text(kind.title).tag(kind.rawValue)
+                }
+            } label: { Label("Runs On", systemImage: "arrow.triangle.branch") }
+        } header: {
+            SettingsHeader(title: "Runtime", symbol: "arrow.triangle.branch", color: .indigo)
+        } footer: {
+            Text("Automatic uses the runtime the game last ran well on, else its native one, and Windows when the native one isn't in this build. Pick Windows if the game doesn't work natively.")
+        }
+    }
+
     /// 7.0.0: which program a Windows game starts.
     private func windowsSection(_ game: Game) -> some View {
         let programs = WindowsGameFiles.allExecutables(in: Paths.folder(for: game))
@@ -346,6 +368,9 @@ struct GameSettingsView: View {
                     Text(program).tag(program)
                 }
             } label: { Label("Program", systemImage: "app.badge") }
+            if let info = game.windowsInfo {
+                LabeledContent("Outlook", value: info.summary)
+            }
         } header: {
             SettingsHeader(title: "Windows", symbol: "pc", color: .blue)
         } footer: {

@@ -418,8 +418,8 @@ enum ImportPipeline {
             if wrapper { return DetectedGame(engine: .flash, entry: GameScanner.relativePath(of: movie, in: root)) }
         }
         // 7.0.0: no web, RPG Maker, Ren'Py, Godot or Flash game, but a Windows program: the Windows runtime runs it.
-        // RPG Maker 2000/2003 (RPG_RT) stays unsupported until EasyRPG (7.1.0).
-        if web == nil, UnsupportedEngine.isRPG2000(root) == false, let windows = WindowsGameFiles.detect(in: root) {
+        // 7.1.0: RPG Maker 2000/2003 too (RPG_RT.exe), until a native EasyRPG build exists.
+        if web == nil, let windows = WindowsGameFiles.detect(in: root) {
             return windows
         }
         return web
@@ -544,6 +544,12 @@ enum ImportPipeline {
         case .renpy:
             break
         case .windows:
+            if let info = WindowsPE.inspect(program: found.entry, in: root) {
+                notes.append("Windows runtime outlook: \(info.summary).")
+            }
+            if UnsupportedEngine.isRPG2000(root) {
+                notes.append("RPG Maker 2000/2003 game: it runs through Windows (RPG_RT.exe), which draws with DirectDraw and may fail. Games that need the RTP need it installed in Windows Games.")
+            }
             notes.append(BCDRuntimeInfo.isPresent
                 ? "Windows game: it runs on the Windows runtime (Wine, FEX, DXMT) with JIT on. It starts \(found.entry); pick another program in Game Settings if that's wrong."
                 : "Windows game: this build has no Windows runtime, so it stays in your library until a build with the runtime is installed.")
@@ -594,6 +600,7 @@ enum ImportPipeline {
             game.gamepad = false
             game.exePath = staged.found.entry
             game.runtime = .windows
+            game.windowsInfo = WindowsPE.inspect(program: staged.found.entry, in: staged.folder)
         case .rpgMV, .rpgMZ, .rpgXP, .rpgVX, .rpgVXAce:
             let raw = UserDefaults.standard.string(forKey: SettingsKey.newGameOrientation) ?? "landscape"
             game.orientation = OrientationMode(rawValue: raw) ?? .landscape

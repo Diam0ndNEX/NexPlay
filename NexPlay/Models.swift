@@ -184,6 +184,10 @@ struct Game: Identifiable, Codable, Hashable {
     var source: GameSource?
     /// The store's id for the game (Steam app id, GOG product id).
     var storeID: String?
+    /// 7.1.0: the Windows program's PE scan (graphics API, 32/64-bit), made at import or first start.
+    var windowsInfo: WindowsInfo?
+    /// 7.1.0: the runtime the game last ran on for a while (two minutes or more); Automatic prefers it.
+    var lastGoodRuntime: RuntimeKind?
 
     /// The hostname used in nexplay://<host>/ URLs. Unique per game, so every game has its own web storage.
     var host: String { id.uuidString.lowercased() }

@@ -1158,7 +1158,12 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         guard let start = sessionStart else { return }
         sessionStart = nil
         let seconds = Date().timeIntervalSince(start)
-        update { $0.playSeconds += seconds; $0.lastPlayed = Date() }
+        update {
+            $0.playSeconds += seconds
+            $0.lastPlayed = Date()
+            // 7.1.0: a session of two minutes or more counts as "ran well" for Automatic routing.
+            if seconds >= 120 { $0.lastGoodRuntime = .web }
+        }
     }
 
     /// Safe to call more than once.

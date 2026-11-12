@@ -312,7 +312,9 @@ struct GameDetailView: View {
         case .flash:
             notice = FlashRuntime.folder == nil ? FlashRuntime.FlashError.missing.errorDescription : nil
         case .windows:
-            notice = BCDRuntimeInfo.unavailableReason
+            notice = BCDRuntimeInfo.unavailableReason ?? target.windowsInfo.flatMap {
+                $0.outlook == .likely ? nil : "Windows runtime outlook: \($0.summary)."
+            }
         default:
             notice = nil
         }

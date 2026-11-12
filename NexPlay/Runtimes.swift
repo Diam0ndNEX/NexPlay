@@ -101,15 +101,33 @@ enum GameRuntimes {
     static let windows: GameRuntime = WindowsGameRuntime()
 
     /// The runtime an engine runs on natively.
-    static func nativeKind(for engine: GameEngine) -> RuntimeKind {
+    nonisolated static func nativeKind(for engine: GameEngine) -> RuntimeKind {
         if engine == .windows { return .windows }
         return engine.isRuby ? .ruby : .web
     }
 
-    /// How this game runs: Windows only when chosen for it, else its engine's native runtime.
+    /// How this game runs (7.1.0 routing). A runtime chosen in Game Settings wins. Automatic: the runtime the game last
+    /// ran well on, else its native runtime; a native runtime missing from this build hands over to Windows when the
+    /// game has a Windows program and the Windows runtime is here.
     static func kind(for game: Game) -> RuntimeKind {
-        if game.runtime == .windows { return .windows }
-        return nativeKind(for: game.engine)
+        if let chosen = game.runtime { return chosen }
+        let native = nativeKind(for: game.engine)
+        if let good = game.lastGoodRuntime, good == native || canRunOnWindows(game) { return good }
+        if !runtime(of: native).isAvailable, canRunOnWindows(game) { return .windows }
+        return native
+    }
+
+    /// True when the Windows runtime is in this build and the game's folder has a Windows program.
+    static func canRunOnWindows(_ game: Game) -> Bool {
+        windows.isAvailable && WindowsGameFiles.program(for: game) != nil
+    }
+
+    /// The runtimes a game can be set to in Game Settings (besides Automatic).
+    nonisolated static func choices(for game: Game) -> [RuntimeKind] {
+        let native = nativeKind(for: game.engine)
+        var list = [native]
+        if native != .windows, WindowsGameFiles.program(for: game) != nil { list.append(.windows) }
+        return list
     }
 
     static func runtime(of kind: RuntimeKind) -> GameRuntime {
@@ -186,7 +204,7 @@ struct WindowsGameRuntime: GameRuntime {
         guard isAvailable else {
             return RuntimeUnavailableController.make(title: game.name, reason: unavailableReason, onExit: onExit)
         }
-        return WindowsLaunchController(game: game, onExit: onExit)
+        return WindowsLaunchController(game: game, store: store, onExit: onExit)
     }
 }
 

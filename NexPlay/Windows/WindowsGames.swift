@@ -125,12 +125,15 @@ enum WindowsLibraryLink {
 @MainActor
 final class WindowsLaunchController: UIViewController {
     private let game: Game
+    private let store: LibraryStore
     private let onExit: () -> Void
     private let label = UILabel()
     private var started = false
+    private var playStart: Date?
 
-    init(game: Game, onExit: @escaping () -> Void) {
+    init(game: Game, store: LibraryStore, onExit: @escaping () -> Void) {
         self.game = game
+        self.store = store
         self.onExit = onExit
         super.init(nibName: nil, bundle: nil)
     }
@@ -168,6 +171,21 @@ final class WindowsLaunchController: UIViewController {
         start()
     }
 
+    /// BCD's screen was closed: count the time and go back to the library.
+    private func finish() {
+        if let start = playStart {
+            let seconds = Date().timeIntervalSince(start)
+            playStart = nil
+            store.mutate(game.id) {
+                $0.playSeconds += seconds
+                $0.lastPlayed = Date()
+                $0.playCount += 1
+                if seconds >= 120 { $0.lastGoodRuntime = .windows }
+            }
+        }
+        onExit()
+    }
+
     private func fail(_ message: String) {
         AppLog.log("windows: \(game.name): \(message)")
         label.text = "\(game.name)\n\n\(message)"
@@ -199,7 +217,11 @@ final class WindowsLaunchController: UIViewController {
             link.queryItems = [URLQueryItem(name: "exe", value: paths.windows)]
             guard let url = link.url else { fail("The game's path can't be made into a link."); return }
             AppLog.log("windows: starting \(paths.windows)")
-            try BCDBridge.open(url, onClose: { [weak self] in self?.onExit() })
+            if game.windowsInfo == nil, let info = WindowsPE.inspect(program: program, in: Paths.folder(for: game)) {
+                store.mutate(game.id) { $0.windowsInfo = info }
+            }
+            playStart = Date()
+            try BCDBridge.open(url, onClose: { [weak self] in self?.finish() })
         } catch {
             fail((error as? WindowsRuntimeError)?.message ?? error.localizedDescription)
         }
