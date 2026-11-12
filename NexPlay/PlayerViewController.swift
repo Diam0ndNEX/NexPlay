@@ -25,7 +25,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     UIGestureRecognizerDelegate {
     private enum PickPurpose {
         case jsonRestore
-        case zipRestore
+        case saveImport
     }
 
     private var game: Game
@@ -307,11 +307,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private func configureControlBar() {
         controlBar.frame = view.bounds
         controlBar.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        var icon: UIImage?
-        if let url = Paths.coverURL(for: game) { icon = UIImage(contentsOfFile: url.path) }
-        if icon == nil { icon = GameArt.hero(for: game) }
+        // The bubble shows NexPlay's own icon in every game (the grid symbol if it can't be found).
         controlBar.configure(prefs: prefs, showFastForward: game.engine.isRPGMaker && prefs.showFastForward,
-                             showCheats: game.engine.isRPGMaker && prefs.showCheats, icon: icon)
+                             showCheats: game.engine.isRPGMaker && prefs.showCheats, icon: AppIconImage.image)
         controlBar.menuProvider = { [weak self] in self?.buildMenuItems() ?? [] }
         controlBar.onItem = { [weak self] item in self?.barItem(item) }
         view.addSubview(controlBar)
@@ -356,35 +354,30 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         return URL(string: "\(NexSchemeHandler.scheme)://\(game.host)/\(path)")
     }
 
-    /// Desktop Godot game: finds the pack's engine version, unpacks the matching bundled web runtime and serves it
-    /// under __godot/, with a launcher page that loads the game's .pck. Returns false (with a banner) on failure.
+    /// Desktop Godot game: repairs a pack cut out of an .exe, finds the pack's engine version, unpacks the matching
+    /// bundled web runtime and serves it under __godot/, with a launcher page that loads the game's .pck.
+    /// Returns false (with a banner) on failure.
     private func prepareGodotRuntime(on server: LocalGameServer) async -> Bool {
-        let target = game
-        let result = await Task.detached(priority: .userInitiated) { () -> Result<(GodotVersion, GodotVersion, URL), Error> in
-            let pack = Paths.folder(for: target).appendingPathComponent(target.entry)
-            guard FileManager.default.fileExists(atPath: pack.path) else { return .failure(GodotRuntime.RuntimeError.noPack) }
-            guard let version = GodotRuntime.packVersion(pack) else { return .failure(GodotRuntime.RuntimeError.unknownVersion) }
-            guard let runtime = GodotRuntime.runtime(for: version) else {
-                return .failure(GodotRuntime.RuntimeError.noRuntime(version.description, GodotRuntime.bundled.map { $0.description }))
-            }
+        let pack = Paths.folder(for: game).appendingPathComponent(game.entry)
+        let result = await Task.detached(priority: .userInitiated) { () -> Result<GodotLaunch, Error> in
             do {
-                let folder = try GodotRuntime.prepare(runtime)
-                return .success((version, runtime, folder))
+                return .success(try GodotRuntime.launch(pack: pack))
             } catch {
                 return .failure(error)
             }
         }.value
         switch result {
-        case .success(let (version, runtime, folder)):
-            let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        case .success(let launch):
+            for note in launch.notes { gameLog.add("godot: \(note)") }
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: launch.folder.path)) ?? []
             for name in names {
-                server.virtualFiles["__godot/" + name] = folder.appendingPathComponent(name).path
+                server.virtualFiles["__godot/" + name] = launch.folder.appendingPathComponent(name).path
             }
             let encoded = game.entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? game.entry
-            let threads = runtime.major == 4 && runtime.minor < 3
+            let threads = launch.runtime.major == 4 && launch.runtime.minor < 3
             server.virtualPages["__nexplay/godot.html"] = GodotRuntime.launcherPage(packPath: encoded, title: game.name, threads: threads)
             launchPath = "__nexplay/godot.html"
-            gameLog.add("Godot \(version) game on the Godot \(runtime) web runtime")
+            gameLog.add("Godot \(launch.version) game on the Godot \(launch.runtime) web runtime")
             return true
         case .failure(let error):
             gameLog.add("Godot runtime: \(error.localizedDescription)")
@@ -486,9 +479,23 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         gameLog.add(line)
         guard let start = loadStart, Date().timeIntervalSince(start) < 30 else { return }
         let lower = line.lowercased()
-        if lower.hasPrefix("error:") || lower.hasPrefix("unhandled rejection") || lower.hasPrefix("failed to load") {
+        if lower.hasPrefix("failed to load") {
+            if !isOptionalMiss(lower) { showBanner("Game error: " + line) }
+            return
+        }
+        if lower.hasPrefix("error:") || lower.hasPrefix("unhandled rejection") {
             showBanner("Game error: " + line)
         }
+    }
+
+    /// Files many web games look for and carry on without: Twine/SugarCube games (Degrees of Lewdity) probe an
+    /// optional style.css and usettings.js; favicons and source maps. Their absence stays in the log only.
+    private func isOptionalMiss(_ lower: String) -> Bool {
+        if game.engine == .twine { return true }
+        var path = lower
+        if let cut = path.firstIndex(where: { $0 == "?" || $0 == "#" }) { path = String(path[..<cut]) }
+        let optional = ["usettings.js", "style.css", "favicon.ico", ".map"]
+        return optional.contains { path.hasSuffix($0) }
     }
 
     private func showBanner(_ text: String) {
@@ -679,8 +686,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                 UIAction(title: "Export Saves (ZIP)…", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
                     self?.exportSaveZip()
                 },
-                UIAction(title: "Import Saves (ZIP)…", image: UIImage(systemName: "square.and.arrow.down")) { [weak self] _ in
-                    self?.pick(.zipRestore)
+                UIAction(title: "Import Saves (ZIP or Save Files)…", image: UIImage(systemName: "square.and.arrow.down")) { [weak self] _ in
+                    self?.pick(.saveImport)
                 },
             ]))
         } else {
@@ -847,8 +854,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private func pick(_ purpose: PickPurpose) {
         pickPurpose = purpose
-        let types: [UTType] = purpose == .zipRestore ? [.zip] : [.json, .plainText]
+        let types: [UTType] = purpose == .saveImport ? [.zip, .item] : [.json, .plainText]
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
+        picker.allowsMultipleSelection = purpose == .saveImport
         picker.delegate = self
         presentOnTop(picker)
     }
@@ -856,36 +864,43 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard let url = urls.first else { return }
         switch pickPurpose {
-        case .zipRestore:
-            confirmZipRestore(url)
+        case .saveImport:
+            confirmSaveImport(urls)
         case .jsonRestore:
             restoreJSON(url)
         }
     }
 
-    private func confirmZipRestore(_ url: URL) {
-        let alert = UIAlertController(title: "Restore saves into \(game.name)?",
+    private func confirmSaveImport(_ urls: [URL]) {
+        let alert = UIAlertController(title: "Import saves into \(game.name)?",
                                       message: "Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.",
                                       preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in try? FileManager.default.removeItem(at: url) })
-        alert.addAction(UIAlertAction(title: "Restore", style: .default) { [weak self] _ in
-            self?.restoreZip(url)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+            for url in urls { try? FileManager.default.removeItem(at: url) }
         })
-        presentOnTop(alert)
+        alert.addAction(UIAlertAction(title: "Import", style: .default) { [weak self] _ in
+            self?.importSaves(urls)
+        })
+        // The picker is still closing; present once it is gone.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.presentOnTop(alert)
+        }
     }
 
-    private func restoreZip(_ url: URL) {
+    private func importSaves(_ urls: [URL]) {
         let target = game
         Task { @MainActor in
             do {
-                let count = try await Task.detached(priority: .userInitiated) { try SaveArchive.restore(zip: url, into: target) }.value
-                try? FileManager.default.removeItem(at: url)
-                showAlert("Saves restored", "Restored \(count) file(s). The game will restart.") { [weak self] in
+                let count = try await Task.detached(priority: .userInitiated) {
+                    try SaveArchive.importSaves(from: urls, into: target)
+                }.value
+                for url in urls { try? FileManager.default.removeItem(at: url) }
+                showAlert("Saves imported", "Imported \(count) file(s). The game will restart.") { [weak self] in
                     self?.prepareAndLoad()
                 }
             } catch {
-                try? FileManager.default.removeItem(at: url)
-                showAlert("Restore failed", error.localizedDescription)
+                for url in urls { try? FileManager.default.removeItem(at: url) }
+                showAlert("Import failed", error.localizedDescription)
             }
         }
     }
