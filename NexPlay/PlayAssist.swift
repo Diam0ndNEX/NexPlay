@@ -2,16 +2,77 @@ import UIKit
 import SwiftUI
 import WebKit
 
-// Play Assist (5.0.0), RPG Maker MV/MZ only:
-// - Save states (manual, quick, auto): the game's own save contents (DataManager.makeSaveContents through JsonEx),
-//   kept by NexPlay in SaveStates/<game-uuid>/, outside the game's save slots, so they work in NW.js and browser
-//   mode and never touch the game's save files. Loading does what Scene_Load does.
-// - Rewind: in-memory snapshots every 15 s on the map (last 5 minutes). Every load first keeps where you were, so a
-//   load or rewind can be undone.
-// - Message log (backlog), instant text, auto-advance.
-// Options are per game in SaveStates/<game-uuid>/options.json.
+// Play Assist (5.0.0), RPG Maker MV/MZ, and save states for Twine SugarCube stories (6.0.0):
+// - Save states (manual, quick, auto): RPG Maker = the game's own save contents (DataManager.makeSaveContents through
+//   JsonEx); SugarCube = Save.base64.save()/Save.serialize(). Kept by NexPlay in SaveStates/<game-uuid>/, outside the
+//   game's save slots, so they never touch the game's save files. RPG Maker loading does what Scene_Load does.
+// - Rewind (RPG Maker): in-memory snapshots every 15 s on the map (last 5 minutes). Every load first keeps where
+//   you were, so a load or rewind can be undone.
+// - Message log (backlog), instant text, auto-advance (RPG Maker).
+// Options are per game in SaveStates/<game-uuid>/options.json (also the Game Tools volume).
 
 enum PlayAssist {
+    /// Engines with save states.
+    static func supports(_ game: Game) -> Bool {
+        game.engine.isRPGMaker || game.engine == .twine
+    }
+
+    /// SugarCube save states and history. Harlowe/Snowman stories have no save API, so they get a clear message.
+    static let twineScript = #"""
+    (function () {
+        if (window.__nexAssist) return;
+        var A = window.__nexAssist = {};
+        function sc() {
+            var S = window.SugarCube;
+            return S && S.Save && S.State ? S : null;
+        }
+        function missing() {
+            if (document.querySelector('tw-story')) return 'Save states work in SugarCube stories. This story uses another Twine format (Harlowe).';
+            return 'The story is still starting, or it is not a SugarCube story.';
+        }
+        A.setOptions = function () { return 'ok'; };
+        A.capture = function () {
+            try {
+                var S = sc();
+                if (!S) return JSON.stringify({ ok: false, error: missing() });
+                var data = null;
+                if (S.Save.base64 && typeof S.Save.base64.save === 'function') data = S.Save.base64.save();
+                else if (typeof S.Save.serialize === 'function') data = S.Save.serialize();
+                if (typeof data !== 'string' || !data) return JSON.stringify({ ok: false, error: 'The story does not allow saving here.' });
+                return JSON.stringify({ ok: true, data: data, map: String(S.State.passage || ''), playtime: '', leader: '', level: 0, shot: '' });
+            } catch (e) { return JSON.stringify({ ok: false, error: String((e && e.message) || e) }); }
+        };
+        A.restore = function (data) {
+            try {
+                var S = sc();
+                if (!S) return missing();
+                var result;
+                if (S.Save.base64 && typeof S.Save.base64.load === 'function') result = S.Save.base64.load(data);
+                else if (typeof S.Save.deserialize === 'function') result = S.Save.deserialize(data);
+                else return 'This SugarCube version cannot load states.';
+                if (result && typeof result.then === 'function') {
+                    return result.then(function () { return 'ok'; }, function (e) { return String((e && e.message) || e); });
+                }
+                if (result === null) return 'The story could not read this state.';
+                return 'ok';
+            } catch (e) { return String((e && e.message) || e); }
+        };
+        A.rewindList = function () { return '[]'; };
+        A.rewindTo = function () { return 'Rewind is not available in Twine stories. Use Story: Back.'; };
+        A.logJSON = function () { return '[]'; };
+        A.back = function () {
+            var S = sc();
+            if (!S || !S.Engine || !S.Engine.backward) return missing();
+            return S.Engine.backward() ? 'ok' : 'Nothing to go back to.';
+        };
+        A.forward = function () {
+            var S = sc();
+            if (!S || !S.Engine || !S.Engine.forward) return missing();
+            return S.Engine.forward() ? 'ok' : 'Nothing to go forward to.';
+        };
+    })();
+    """#
+
     static let script = #"""
     (function () {
         if (window.__nexAssist) return;
@@ -201,7 +262,7 @@ enum PlayAssist {
 
 // MARK: - Options
 
-/// Per-game Play Assist options (SaveStates/<game-uuid>/options.json).
+/// Per-game Play Assist and Game Tools options (SaveStates/<game-uuid>/options.json).
 struct AssistOptions: Codable, Equatable {
     var instantText = false
     /// Seconds before a finished message goes on by itself; 0 is off.
@@ -209,6 +270,8 @@ struct AssistOptions: Codable, Equatable {
     /// Minutes between auto states; 0 is off.
     var autoStateMinutes = 10
     var rewind = true
+    /// Game Tools volume, 0...1.
+    var volume: Double = 1
 
     init() {}
 
@@ -218,6 +281,7 @@ struct AssistOptions: Codable, Equatable {
         autoAdvance = try container.decodeIfPresent(Double.self, forKey: .autoAdvance) ?? 0
         autoStateMinutes = try container.decodeIfPresent(Int.self, forKey: .autoStateMinutes) ?? 10
         rewind = try container.decodeIfPresent(Bool.self, forKey: .rewind) ?? true
+        volume = try container.decodeIfPresent(Double.self, forKey: .volume) ?? 1
     }
 
     private static func url(_ gameID: UUID) -> URL {
@@ -390,9 +454,18 @@ final class PlayAssistFeature: PlayerFeature {
         AssistOptions.load(for: context.game().id)
     }
 
+    private var supported: Bool {
+        PlayAssist.supports(context.game())
+    }
+
     override func userScripts(for game: Game) -> [WKUserScript] {
-        guard game.engine.isRPGMaker else { return [] }
-        return [WKUserScript(source: PlayAssist.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)]
+        if game.engine.isRPGMaker {
+            return [WKUserScript(source: PlayAssist.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true)]
+        }
+        if game.engine == .twine {
+            return [WKUserScript(source: PlayAssist.twineScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true)]
+        }
+        return []
     }
 
     override func didFinishLoad() {
@@ -408,27 +481,20 @@ final class PlayAssistFeature: PlayerFeature {
     }
 
     override func menuItems(for game: Game) -> [UIMenuElement] {
-        guard game.engine.isRPGMaker else { return [] }
+        guard PlayAssist.supports(game) else { return [] }
         let current = AssistOptions.load(for: game.id)
         let hasQuick = SaveStateStore.list(for: game.id).contains { $0.kind == .quick }
 
-        let advanceItems: [UIMenuElement] = [0, 1.5, 3, 5].map { (value: Double) -> UIMenuElement in
-            UIAction(title: value == 0 ? "Off" : "After \(PlayAssistFeature.seconds(value))",
-                     state: current.autoAdvance == value ? .on : .off) { [weak self] _ in
-                self?.change { $0.autoAdvance = value }
-            }
-        }
         let stateItems: [UIMenuElement] = [0, 5, 10, 15, 30].map { (value: Int) -> UIMenuElement in
             UIAction(title: value == 0 ? "Off" : "Every \(value) min",
                      state: current.autoStateMinutes == value ? .on : .off) { [weak self] _ in
                 self?.change { $0.autoStateMinutes = value }
             }
         }
-        let instant = current.instantText
-        let rewind = current.rewind
 
-        let children: [UIMenuElement] = [
-            UIAction(title: "Save States & Rewind…", image: UIImage(systemName: "square.stack.3d.down.right.fill")) { [weak self] _ in
+        var children: [UIMenuElement] = [
+            UIAction(title: game.engine.isRPGMaker ? "Save States & Rewind…" : "Save States…",
+                     image: UIImage(systemName: "square.stack.3d.down.right.fill")) { [weak self] _ in
                 self?.openStates()
             },
             UIAction(title: "Quick Save", image: UIImage(systemName: "bolt.circle")) { [weak self] _ in
@@ -438,20 +504,33 @@ final class PlayAssistFeature: PlayerFeature {
                      attributes: hasQuick ? [] : [.disabled]) { [weak self] _ in
                 self?.quickLoad()
             },
-            UIAction(title: "Message Log…", image: UIImage(systemName: "text.bubble")) { [weak self] _ in
+        ]
+
+        if game.engine.isRPGMaker {
+            let advanceItems: [UIMenuElement] = [0, 1.5, 3, 5].map { (value: Double) -> UIMenuElement in
+                UIAction(title: value == 0 ? "Off" : "After \(PlayAssistFeature.seconds(value))",
+                         state: current.autoAdvance == value ? .on : .off) { [weak self] _ in
+                    self?.change { $0.autoAdvance = value }
+                }
+            }
+            let instant = current.instantText
+            let rewind = current.rewind
+            children.append(UIAction(title: "Message Log…", image: UIImage(systemName: "text.bubble")) { [weak self] _ in
                 self?.openLog()
-            },
-            UIMenu(title: "Text", image: UIImage(systemName: "text.alignleft"), children: [
+            })
+            children.append(UIMenu(title: "Text", image: UIImage(systemName: "text.alignleft"), children: [
                 UIAction(title: "Instant Text", state: instant ? .on : .off) { [weak self] _ in
                     self?.change { $0.instantText = !instant }
                 },
                 UIMenu(title: "Auto-Advance", children: advanceItems),
-            ]),
-            UIMenu(title: "Auto Save State", image: UIImage(systemName: "clock.arrow.circlepath"), children: stateItems),
-            UIAction(title: "Record Rewind", image: UIImage(systemName: "backward.fill"), state: rewind ? .on : .off) { [weak self] _ in
+            ]))
+            children.append(UIMenu(title: "Auto Save State", image: UIImage(systemName: "clock.arrow.circlepath"), children: stateItems))
+            children.append(UIAction(title: "Record Rewind", image: UIImage(systemName: "backward.fill"), state: rewind ? .on : .off) { [weak self] _ in
                 self?.change { $0.rewind = !rewind }
-            },
-        ]
+            })
+        } else {
+            children.append(UIMenu(title: "Auto Save State", image: UIImage(systemName: "clock.arrow.circlepath"), children: stateItems))
+        }
         return [UIMenu(title: "Play Assist", image: UIImage(systemName: "sparkles"), children: children)]
     }
 
@@ -469,7 +548,7 @@ final class PlayAssistFeature: PlayerFeature {
     }
 
     private func applyOptions() {
-        guard context.game().engine.isRPGMaker else { return }
+        guard supported else { return }
         let current = options
         let script = "window.__nexAssist && window.__nexAssist.setOptions({instant: \(current.instantText), auto: \(current.autoAdvance), rewind: \(current.rewind)})"
         context.evaluate(script)
@@ -480,7 +559,7 @@ final class PlayAssistFeature: PlayerFeature {
     private func restartTimer() {
         autoTimer?.invalidate()
         autoTimer = nil
-        guard context.game().engine.isRPGMaker, options.autoStateMinutes > 0 else { return }
+        guard supported, options.autoStateMinutes > 0 else { return }
         autoTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.autoTick() }
         }
@@ -494,7 +573,7 @@ final class PlayAssistFeature: PlayerFeature {
 
     /// Leaving the app (or iOS closing it later) shouldn't lose progress: an auto state when going to the background.
     private func appWillResign() {
-        guard context.game().engine.isRPGMaker, context.webView != nil, options.autoStateMinutes > 0,
+        guard supported, context.webView != nil, options.autoStateMinutes > 0,
               Date().timeIntervalSince(lastAuto) >= 60 else { return }
         let task = UIApplication.shared.beginBackgroundTask(withName: "NexPlay auto state", expirationHandler: nil)
         Task { @MainActor in
@@ -512,7 +591,7 @@ final class PlayAssistFeature: PlayerFeature {
         guard context.webView != nil else { return "The game isn't running." }
         capturing = true
         defer { capturing = false }
-        guard let text = await evaluateString("window.__nexAssist ? window.__nexAssist.capture(true) : ''"), !text.isEmpty,
+        guard let text = await context.evaluateString("window.__nexAssist ? window.__nexAssist.capture(true) : ''"), !text.isEmpty,
               let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else {
             return "Save states aren't ready yet. Wait for the game's title screen."
         }
@@ -522,6 +601,9 @@ final class PlayAssistFeature: PlayerFeature {
         var picture: Data?
         if let shot = object["shot"] as? String, let comma = shot.firstIndex(of: ",") {
             picture = Data(base64Encoded: String(shot[shot.index(after: comma)...]))
+        }
+        if picture == nil {
+            picture = await context.snapshotJPEG()
         }
         var info = SaveStateInfo(kind: kind)
         info.map = object["map"] as? String ?? ""
@@ -541,7 +623,7 @@ final class PlayAssistFeature: PlayerFeature {
             return error.localizedDescription
         }
         if kind == .auto { lastAuto = Date() }
-        context.gameLog.add("save state (\(kind.rawValue)) at \(stored.map.isEmpty ? "the map" : stored.map), \(stored.bytes / 1024) KB")
+        context.gameLog.add("save state (\(kind.rawValue)) at \(stored.map.isEmpty ? "the current spot" : stored.map), \(stored.bytes / 1024) KB")
         return nil
     }
 
@@ -555,7 +637,7 @@ final class PlayAssistFeature: PlayerFeature {
         guard let payload, !payload.isEmpty else { return "This state's file is missing." }
         do {
             let value = try await webView.callAsyncJavaScript(
-                "return window.__nexAssist ? window.__nexAssist.restore(data) : 'Save states are not ready yet.';",
+                "return window.__nexAssist ? await window.__nexAssist.restore(data) : 'Save states are not ready yet.';",
                 arguments: ["data": payload], in: nil, contentWorld: .page)
             let text = value as? String ?? "The game didn't answer."
             guard text == "ok" else { return text }
@@ -567,12 +649,12 @@ final class PlayAssistFeature: PlayerFeature {
     }
 
     func rewindPoints() async -> [RewindPoint] {
-        guard let text = await evaluateString("window.__nexAssist ? window.__nexAssist.rewindList() : '[]'") else { return [] }
+        guard let text = await context.evaluateString("window.__nexAssist ? window.__nexAssist.rewindList() : '[]'") else { return [] }
         return (try? JSONDecoder().decode([RewindPoint].self, from: Data(text.utf8))) ?? []
     }
 
     func rewind(to point: RewindPoint) async -> String? {
-        guard let text = await evaluateString("window.__nexAssist ? window.__nexAssist.rewindTo(\(point.index)) : 'Rewind is not ready.'") else {
+        guard let text = await context.evaluateString("window.__nexAssist ? window.__nexAssist.rewindTo(\(point.index)) : 'Rewind is not ready.'") else {
             return "The game didn't answer."
         }
         guard text == "ok" else { return text }
@@ -583,10 +665,10 @@ final class PlayAssistFeature: PlayerFeature {
     private func quickSave() {
         Task { @MainActor in
             if let error = await capture(kind: .quick) {
-                toast(error)
+                context.toast(error)
             } else {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                toast("Quick saved")
+                context.toast("Quick saved")
             }
         }
     }
@@ -594,15 +676,16 @@ final class PlayAssistFeature: PlayerFeature {
     private func quickLoad() {
         let gameID = context.game().id
         guard let quick = SaveStateStore.list(for: gameID).first(where: { $0.kind == .quick }) else {
-            toast("No quick save yet")
+            context.toast("No quick save yet")
             return
         }
+        let rpg = context.game().engine.isRPGMaker
         Task { @MainActor in
             if let error = await load(quick) {
-                toast(error)
+                context.toast(error)
             } else {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                toast("Quick loaded. Rewind can undo it.")
+                context.toast(rpg ? "Quick loaded. Rewind can undo it." : "Quick loaded")
             }
         }
     }
@@ -612,7 +695,7 @@ final class PlayAssistFeature: PlayerFeature {
     /// The Save States sheet. The game pauses while it is open.
     func openStates() {
         let game = context.game()
-        guard game.engine.isRPGMaker else { return }
+        guard PlayAssist.supports(game) else { return }
         let model = SaveStatesModel(feature: self, gameID: game.id)
         let host = UIHostingController(rootView: SaveStatesView(model: model))
         host.modalPresentationStyle = .pageSheet
@@ -628,7 +711,7 @@ final class PlayAssistFeature: PlayerFeature {
     private func openLog() {
         Task { @MainActor in
             var lines: [AssistLogLine] = []
-            if let text = await evaluateString("window.__nexAssist ? window.__nexAssist.logJSON() : '[]'") {
+            if let text = await context.evaluateString("window.__nexAssist ? window.__nexAssist.logJSON() : '[]'") {
                 lines = (try? JSONDecoder().decode([AssistLogLine].self, from: Data(text.utf8))) ?? []
             }
             let host = UIHostingController(rootView: MessageLogView(lines: lines))
@@ -638,42 +721,6 @@ final class PlayAssistFeature: PlayerFeature {
                 sheet.prefersGrabberVisible = true
             }
             context.present(host)
-        }
-    }
-
-    /// A short note at the top of the game screen.
-    private func toast(_ text: String) {
-        guard let host = context.webView?.superview else { return }
-        let label = UILabel()
-        label.text = text
-        label.font = .systemFont(ofSize: 14, weight: .semibold)
-        label.textColor = .white
-        label.textAlignment = .center
-        label.numberOfLines = 3
-        label.backgroundColor = UIColor(white: 0.08, alpha: 0.9)
-        label.layer.cornerRadius = 14
-        label.clipsToBounds = true
-        label.isUserInteractionEnabled = false
-        let maxWidth = min(host.bounds.width - 48, 380)
-        let fit = label.sizeThatFits(CGSize(width: maxWidth - 28, height: 120))
-        let width = min(fit.width + 28, maxWidth)
-        let height = fit.height + 18
-        label.frame = CGRect(x: (host.bounds.width - width) / 2, y: host.safeAreaInsets.top + 14, width: width, height: height)
-        label.alpha = 0
-        host.addSubview(label)
-        UIView.animate(withDuration: 0.2) { label.alpha = 1 }
-        UIView.animate(withDuration: 0.3, delay: 2.0, options: [], animations: { label.alpha = 0 }, completion: { _ in
-            label.removeFromSuperview()
-        })
-    }
-
-    /// Runs a script that returns a string (completion-handler API, see CheatsFeature).
-    private func evaluateString(_ script: String) async -> String? {
-        guard let webView = context.webView else { return nil }
-        return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            webView.evaluateJavaScript(script) { result, _ in
-                continuation.resume(returning: result as? String)
-            }
         }
     }
 }
@@ -776,7 +823,7 @@ struct SaveStatesView: View {
                     }
                     .disabled(model.working)
                 } footer: {
-                    Text("A save state is a snapshot you can load any time, even where the game doesn't let you save. States are made on the map and don't touch the game's own saves. Auto states and text options: game menu > Play Assist.")
+                    Text("A save state is a snapshot you can load any time, even where the game doesn't let you save. It doesn't touch the game's own saves. RPG Maker states are made on the map; Twine states work in SugarCube stories. Auto states: game menu > Play Assist.")
                 }
 
                 if !model.rewind.isEmpty {
@@ -867,7 +914,7 @@ struct SaveStatesView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("The game jumps to this moment. Rewind can undo it.")
+            Text("The game jumps to this moment. Progress since then is lost unless it is saved.")
         }
         .environment(\.colorScheme, .dark)
         .task { await model.reload() }
@@ -912,7 +959,7 @@ struct SaveStateRow: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(state.kind.color.opacity(0.85), in: Capsule())
-                    Text(state.map.isEmpty ? "Map" : state.map).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(state.map.isEmpty ? "State" : state.map).font(.subheadline.weight(.semibold)).lineLimit(1)
                 }
                 Text(state.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
                 if !details.isEmpty {
