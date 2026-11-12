@@ -1,7 +1,7 @@
 # NexPlay
 
 Personal iPhone game player for RPG Maker MV/MZ and HTML5 games (SwiftUI + WKWebView, iOS 16+), with RPG Maker XP/VX/Ace through the mkxp-z core in builds that turn on `NEXPLAY_MKXP`.
-Not a general web browser: everything in here is treated as a game. Version 4.1.3 (build 25). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
+Not a general web browser: everything in here is treated as a game. Version 5.0.0 (build 27). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
 
 **Read `docs/SPEC.md` for the plan, `docs/RESEARCH.md` for what the reference apps do. Paste-ready prompt for new chats: `docs/PROMPT.md`.**
 
@@ -29,7 +29,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
   - `FileUtils.swift`: `Paths` (Games, Backups, Rescued Saves, save folder), MIME, `GameScanner` (MV/MZ/HTML5 detection, titles, sizes).
   - `ImportPipeline.swift`: staged import (zip-slip check by path components, cancel, out-of-space, ZIP name encoding repair, Ruby detection, warnings), folder copy through NSFileCoordinator (downloads iCloud placeholders), atomic install, update in place, staging sweep at launch. `UnsupportedEngine.identify` (3.2) names engines NexPlay can't run (Ren'Py, RPG Maker 2000/2003, Java, Unity, GameMaker, WOLF RPG, Unreal, Flash, bare .exe) instead of "No game found".
   - `ArchiveExtractor.swift` + `NexPlay-Bridging-Header.h`: 7z, RAR, TAR, gz/xz/bz2, CAB, ISO and SFX .exe through the libarchive that ships with iOS (declarations in the bridging header because the iOS SDK has no libarchive headers). ZIP stays with ZIPFoundation and falls back to libarchive.
-  - `LibraryStore.swift`: library persistence, import flow (progress, cancel, update-or-add), delete with save rescue. Change games only via `store.mutate(id) { ... }`.
+  - `LibraryStore.swift`: library persistence, import flow (progress, cancel, update-or-add), delete with save rescue (also removes the game's save states). Change games only via `store.mutate(id) { ... }`.
   - `NexSchemeHandler.swift`: serves `nexplay://<game-uuid>/...` (own origin per game, ranges, case-insensitive, symlink-safe) plus HEAD/PUT/DELETE/MKCOL/MOVE and `X-Nex-List: 1` listings for the NW.js shim; game and entry folders protected; `fileOverride` (plugins.js, translation dictionary).
   - `PageBridge.swift`: injected scripts (diagnostics, `window.nexplay`, key bridge, FPS, RPG Maker runtime with speed/pause/size, NW.js shim).
   - `SaveTools.swift`: data stores; browser-mode save backup/restore/clear; one-time migration of browser saves into files.
@@ -40,6 +40,8 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
   - `GamepadOverlay.swift`: on-screen controls and their edit mode. `PhysicalControllers.swift`: GCController input, button maps, remap screen.
   - `PlayerFeatures.swift`: `PlayerFeature` plug-ins, registry, file overrides, `KeyRouter`. **Add new player features here, not in PlayerViewController.**
   - `GameTools.swift`: plugin manager (`PluginOverrides/<uuid>.json`) and the cheat engine (`CheatsFeature` JS: `__nexCheat(name, a, b, c)` numbers only, `__nexCheatSnapshot()` JSON; `CheatEngineView` sheet with Quick/Party/Items/Switches/Variables, pauses the game while open). `Translation.swift`: MTool dictionary translation (`Translations/<uuid>/`).
+  - `PlayAssist.swift` (5.0): Play Assist for MV/MZ, game menu > Play Assist (`PlayAssistFeature`). JS `window.__nexAssist`: `capture(withShot)` (JSON: `DataManager.makeSaveContents` through `JsonEx.stringify`, after `$gameSystem.onBeforeSave()` with `_saveCount` put back; map name, playtime, leader; 320 px JPEG from `SceneManager.snap()`), `restore(data)` (createGameObjects, extractSaveContents, correctDataErrors, onAfterLoad, `Scene_Load.prototype.reloadMapIfUpdated`, clear `SceneManager._stack`, goto Scene_Map), rewind ring (`rewindList`, `rewindTo(i)`), `logJSON`, `setOptions`. Captures only on Scene_Map with no message, event or transfer; restores from any scene but Scene_Boot. Stored in `SaveStates/<game-uuid>/`: `states.json` (`SaveStateInfo` list), `<id>.json` (save contents), `<id>.jpg`, `options.json` (`AssistOptions`: instant text, auto-advance seconds, auto-state minutes, rewind). Kinds: manual, quick (one, replaced), auto (last 3; every N minutes, default 10, and when the app resigns active if none in the last minute, inside a background task). `SaveStatesView` (pauses the game while open; rewind chips, states with thumbnails, swipe to delete, load confirm), `MessageLogView`, toasts for Quick Save/Load.
+
   - `PlayerViewController.swift`: the web game screen: control bar, error banner, portrait offset, controller connect/disconnect, game menu. `GameScreen.swift`: picks the web player or the Ruby runner; `RubyGameRunner` protocol and `RubyCoreStub`.
   - `MKXP/MkxpRunner.swift`: Ruby core runner (dlopen of `Frameworks/MkxpCore.framework`), compiled only with `NEXPLAY_MKXP`.
   - `GameLog.swift`, `AppLog.swift`: game log and app log (Caches/NexPlay-app.log, crash note at launch).
@@ -74,7 +76,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 - Never lose a save: atomic writes; back up before restoring, deleting saves or migrating; replaced files become `.nex-displaced.bak`; deleting a game rescues its save files first.
 - Do not override `navigator.getGamepads`: physical controllers reach the game through the Gamepad API too (Empo disables it; NexPlay does not).
 - **The NW.js shim's `process.versions` must not contain `node`**: Emscripten code (MZ's Effekseer, some plugins) then thinks it is in Node.js, reads `__dirname` and the game stays black. Empo leaves `versions` empty.
-- New settings keys go in the `SettingsKey` extension of the file that uses them, get a default in `NexPlayApp.defaultSettings`, and join a key list Reset clears (`all`, `playerKeys`, `backgroundKeys`).
+- New settings keys go in the `SettingsKey` extension of the file that uses them, get a default in `NexPlayApp.defaultSettings`, and join a key list Reset clears (`all`, `playerKeys`, `backgroundKeys`). Per-game Play Assist options are not settings keys: they live in `SaveStates/<game-uuid>/options.json`.
 - Message handlers: `nexStats`, `nexLog`, `nexExit`, `nexSize` (sent, not handled yet), feature handlers (`nexTranslate`). Remove each in `shutdown()`.
 - Write boring, explicit Swift for iOS 16 (nothing is compiled before pushing). Re-read changed files for imports, labels, `self.` and `@MainActor` mistakes. Never write `let x = x(...)` where `x(...)` is a method of the same type (Swift reports the local as used before its declaration).
 - Use `GameLog` for game problems and `AppLog` for app problems.
@@ -89,6 +91,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 - Fast-forward button toggles 1× and `Game.fastForwardSpeed` (2-9, default 2); menu offers 1/2/3/4/6/9×.
 - Hidden games are a UUID list in UserDefaults (`hiddenGames`), not `Game.isHidden`. Collections can be hidden too.
 - Cheats are always in the game menu for MV/MZ; only numbers are passed to JS.
+- 5.0.0: save states are NexPlay's own (not the game's slots): no globalInfo, `_lastAccessedId` or Continue side effects, same code for NW.js and browser mode. Save states are deleted with the game (they are not rescued; real saves still are). The message log hooks `Window_Message.startMessage` (text through `Window_Base.convertEscapeCharacters`, escape codes stripped; MZ speaker name) and `Game_Message.onChoice`. Instant text forces `_showFast`/`_lineShowFast` in `updateShowFast`; auto-advance makes `Window_Message.isTriggered` true N seconds after `startPause`. Rewind snapshots are skipped while `Graphics.frameCount` doesn't move (paused game).
 - An import whose title and engine match an installed game asks: Update It / Add as New / Cancel.
 - ZIP names that are not UTF-8: Shift-JIS when kana appear, else GBK, else Big5/EUC-KR, else CP437. libarchive names use `archive_entry_pathname_utf8` first.
 - Translation: on/off is read when a game starts; turning it on mid-game needs leaving and reopening the game.
@@ -131,9 +134,11 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 - H (4.0): Ren'Py games that need compiled Python packages; Flash keyboard focus is untested; RPG Maker 2000/2003 (EasyRPG web player has no stable download to bundle).
 - G: per-game Ruby-core settings (upscaler, font hinting, VSync, compatibility estimate), MIDI SoundFont import, pause/resume and quit from inside a Ruby game, game rect/viewport handling. The mkxp build path is untested. LonaRPG (VX Ace) crashes the app right after "mkxp core: starting" on iOS 27 (seen in 3.1.0 logs); not investigated yet.
 - Importing .rpgsave files into browser-mode (non-NW.js) RPG Maker games.
+- I (5.0): Quick Save/Load as control-bar buttons, on-screen control actions or controller buttons (needs new `ControlAction` cases and every switch on it); save states for non-RPG-Maker engines; Play Assist options in Game Settings (game menu only); Storage page doesn't list SaveStates/.
 
 ## Roadmap
 - 1.1.4 base check, AppLog. 1.2.0 NW.js saves. 1.3.0 controls. 1.4.0 library/backups/settings/plugins/cheats. 1.5.0 import pipeline. 1.6.0 translation. 1.9.0 mkxp scaffolding. 2.0.0 finish. 2.1.0 control bar, settings pages, 7z/RAR, black-screen fix.
+- 5.0.0: Play Assist (save states, quick save/load, auto states, rewind, message log, instant text, auto-advance). Not tested on a device: next, try it on an MV and an MZ game (state on the map, load from the title screen, from a battle and from the menu; rewind; auto state after backgrounding; instant text and auto-advance with message plugins). The game log has `save state (...)`, `loaded save state`, `rewound` lines.
 - 4.1.3: Godot launcher tested in Chromium with hand-made packs (format 1 for 3.x, format 2 for 4.x: project.binary + a ColorRect main.tscn) on every bundled runtime 3.5.3-4.7.2: all start. Safari-only problems (Project Kat) still need a device.
 - 4.1.1: bugs found by running the bundled runtimes in headless Chromium (Playwright) with game.zip built like the app: 8.3.7 engine bytecode was Python 3.9 but the web runtime is 3.11 ("bad magic number"); `_ren.py` scripts were dropped; game.zip lacked folder entries, so RenPyWeb couldn't write progressively downloaded files into a folder that had none in the ZIP (`StoredZipWriter.addDirectory`, packageFormat 2); the Flash launcher's backgroundColor hid the movie's own background. To re-test: build a test game, port of the placement rules, a server with the __renpy/ layout, then Playwright with --use-gl=swiftshader.
 - 4.1.0: Ren'Py saves in the game menu, Download from Link, Storage page, play links. Home Screen quick actions were skipped: they need a custom scene delegate, which could break onOpenURL (Open in NexPlay).
