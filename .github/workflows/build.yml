@@ -1,3 +1,4 @@
+# Paste as .github/workflows/build.yml (6.3.0: newest Xcode, StikJIT for the JIT helper, ldid for the helper too).
 name: Build NexPlay
 
 on:
@@ -27,11 +28,21 @@ jobs:
             echo "NEXPLAY_MKXP=0" >> "$GITHUB_ENV"
           fi
 
+      # StikJIT's Swift interface is made with a recent Xcode: use the newest one on the runner.
+      - name: Select the newest Xcode
+        run: |
+          NEWEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)
+          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST"; fi
+          xcodebuild -version
+
       - name: Generate app icon
         run: python3 tools/make_icon.py NexPlay/Assets.xcassets/AppIcon.appiconset/icon-1024.png
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install XcodeGen and ldid
+        run: brew install xcodegen ldid
+
+      - name: Fetch StikJIT (built-in JIT)
+        run: bash tools/fetch_stikjit.sh
 
       - name: Build the mkxp core (XP/VX/Ace)
         if: env.NEXPLAY_MKXP == '1'
@@ -67,6 +78,18 @@ jobs:
             fi
             NAME=NexPlay-mkxp-unsigned
           fi
+          # 6.3.0: the JIT helper and StikJIT must be in the app.
+          HELPER=Payload/NexPlay.app/PlugIns/NexPlayJITHelper.appex
+          test -f "$HELPER/NexPlayJITHelper" || { echo "::error::The JIT helper is missing from the app"; exit 1; }
+          test -d Payload/NexPlay.app/Frameworks/StikJIT.framework || { echo "::error::StikJIT.framework is missing from the app"; exit 1; }
+          # The Xcode build is unsigned, so write the entitlements into the binaries here (ad-hoc signature), helper first.
+          # Signing apps that keep binary entitlements pass them on; Settings > Diagnostics shows what survived.
+          ldid -SNexPlayJITHelper/NexPlayJITHelper.entitlements "$HELPER/NexPlayJITHelper"
+          ldid -SNexPlay/NexPlay.entitlements Payload/NexPlay.app/NexPlay
+          echo "Entitlements in the app binary:"
+          ldid -e Payload/NexPlay.app/NexPlay
+          echo "Entitlements in the JIT helper:"
+          ldid -e "$HELPER/NexPlayJITHelper"
           zip -qry "$NAME.ipa" Payload
           echo "IPA_NAME=$NAME" >> "$GITHUB_ENV"
 
