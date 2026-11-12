@@ -336,6 +336,15 @@ enum GodotRuntime {
         var platformScene: String?
         /// Every scene in the pack (res:// paths, remaps resolved to the original name).
         var scenes: [String] = []
+        /// C# scripts (.cs) in the pack: the game was made with Godot's .NET (Mono) edition, which the web runtime
+        /// can't run.
+        var csharpScripts = 0
+        /// GDScript files (.gd, .gdc, .gde).
+        var gdScripts = 0
+        /// A few of the C# script paths, for the log.
+        var csharpSamples: [String] = []
+
+        var needsDotNet: Bool { csharpScripts > 0 }
     }
 
     /// Reads the pack directory (formats 1-3, not encrypted) and the project settings in it.
@@ -374,6 +383,13 @@ enum GodotRuntime {
                 project = (base + offset, size)
             }
             if let scene = scenePath(name) { sceneSet.insert(scene) }
+            let lower = name.lowercased()
+            if lower.hasSuffix(".cs") {
+                info.csharpScripts += 1
+                if info.csharpSamples.count < 3 { info.csharpSamples.append(name) }
+            } else if lower.hasSuffix(".gd") || lower.hasSuffix(".gdc") || lower.hasSuffix(".gde") {
+                info.gdScripts += 1
+            }
         }
         info.scenes = sceneSet.sorted()
         guard let project, project.size > 0, project.size < 16_000_000,
@@ -544,6 +560,10 @@ enum GodotRuntime {
                 }
             }
             notes.append(line)
+            if info.needsDotNet {
+                notes.append("pack holds \(info.csharpScripts) C# scripts (\(info.csharpSamples.joined(separator: ", "))) and \(info.gdScripts) GDScript files: a Godot .NET game")
+                throw RuntimeError.dotNet(head.version.description)
+            }
             if info.mainScene == nil && cfgScene == nil && !info.scenes.isEmpty {
                 let top = info.scenes.sorted { (depth($0), $0) < (depth($1), $1) }.prefix(15)
                 notes.append("top scenes in the pack: " + top.joined(separator: ", "))
@@ -563,6 +583,7 @@ enum GodotRuntime {
         case unknownVersion
         case encrypted
         case noRuntime(String, [String])
+        case dotNet(String)
 
         var errorDescription: String? {
             switch self {
@@ -574,6 +595,8 @@ enum GodotRuntime {
                 return "The game's .pck doesn't say which Godot version made it (it may be encrypted)."
             case .encrypted:
                 return "This Godot game is encrypted with its developer's key, so the Godot runtime can't read it."
+            case .dotNet(let version):
+                return "This game is written in C# (Godot \(version) .NET edition). Godot's web runtime can only run GDScript, so this game can't run in NexPlay: no runtime choice will fix it. It needs the Windows/Mac/Linux build of Godot."
             case .noRuntime(let version, let have):
                 return "This game was made with Godot \(version), and this build of NexPlay has runtimes for \(have.joined(separator: ", ")). Packs from a newer Godot than the newest runtime can't load."
             }

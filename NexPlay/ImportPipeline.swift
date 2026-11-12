@@ -514,8 +514,8 @@ enum ImportPipeline {
                     notes.append(GodotRuntime.RuntimeError.noRuntime(head.version.description, have).errorDescription ?? "")
                 }
             }
-            if GodotRuntime.usesDotNet(root) {
-                notes.append("This is a C# (.NET) Godot game. Godot can't run C# on the web runtime, so it will most likely not start.")
+            if GodotRuntime.usesDotNet(root) || (GodotRuntime.inspect(pack)?.needsDotNet ?? false) {
+                notes.append(GodotRuntime.RuntimeError.dotNet((GodotRuntime.header(pack)?.version.description) ?? "").errorDescription ?? "")
             }
         case .godot:
             if !names.contains(where: { $0.hasSuffix(".pck") }) {

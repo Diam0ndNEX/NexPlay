@@ -1,7 +1,7 @@
 # NexPlay
 
 Personal iPhone game player for RPG Maker MV/MZ and HTML5 games (SwiftUI + WKWebView, iOS 16+), with RPG Maker XP/VX/Ace through the mkxp-z core in builds that turn on `NEXPLAY_MKXP`.
-Not a general web browser: everything in here is treated as a game. Version 6.1.0 (build 29). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
+Not a general web browser: everything in here is treated as a game. Version 6.1.1 (build 30). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
 
 **Read `docs/SPEC.md` for the plan, `docs/RESEARCH.md` for what the reference apps do. Paste-ready prompt for new chats: `docs/PROMPT.md`.**
 
@@ -96,6 +96,7 @@ The owner allows you to look up and copy code from Empo (github.com/mateo-m/empo
 - Cheats are always in the game menu for MV/MZ; only numbers are passed to JS.
 - 5.0.0: save states are NexPlay's own (not the game's slots): no globalInfo, `_lastAccessedId` or Continue side effects, same code for NW.js and browser mode. Save states are deleted with the game (they are not rescued; real saves still are). The message log hooks `Window_Message.startMessage` (text through `Window_Base.convertEscapeCharacters`, escape codes stripped; MZ speaker name) and `Game_Message.onChoice`. Instant text forces `_showFast`/`_lineShowFast` in `updateShowFast`; auto-advance makes `Window_Message.isTriggered` true N seconds after `startPause`. Rewind snapshots are skipped while `Graphics.frameCount` doesn't move (paused game).
 - 6.0.0: Game Speed and Pause for web engines are a clock warp, not engine APIs: they work when a game times itself with performance.now/Date.now/rAF timestamps/timers, not inside workers (threaded Godot, Construct worker mode), and audio keeps its real speed. Speed and user pause reset when the page reloads; volume is kept per game. MV/MZ get only Sound in the panel's playback area (they keep their own fast forward). Ren'Py tools change Ren'Py's own preferences (saved by Ren'Py), so NexPlay shows no current values for them.
+- 6.1.1: C# Godot games (pack has .cs files, e.g. Paper Lily, Godot 3.5 Mono) stop at launch with `RuntimeError.dotNet` and a clear banner instead of a frozen first frame; import warns too. The web runtime can't run C#; no runtime switch helps.
 - 6.1.0: the Play Assist and Game Tools submenus were replaced by the Game Panel sheet (cards, tiles, segmented pickers, slider); only Quick Save / Quick Load stay in the game menu for one-tap use.
 - An import whose title and engine match an installed game asks: Update It / Add as New / Cancel.
 - ZIP names that are not UTF-8: Shift-JIS when kana appear, else GBK, else Big5/EUC-KR, else CP437. libarchive names use `archive_entry_pathname_utf8` first.
