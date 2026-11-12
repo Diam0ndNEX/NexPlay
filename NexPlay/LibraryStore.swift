@@ -69,6 +69,7 @@ final class LibraryStore: ObservableObject {
         try? FileManager.default.removeItem(at: Paths.customCoverURL(for: game))
         Gallery.removeAll(for: game)
         ModStore.removeAll(for: game)
+        SaveStateStore.removeAll(for: game.id)
         RenPyRuntime.clearPackage(for: game)
         let parkedProfiles = SaveProfiles.root.appendingPathComponent(game.id.uuidString, isDirectory: true)
         if FileManager.default.fileExists(atPath: parkedProfiles.path) {
