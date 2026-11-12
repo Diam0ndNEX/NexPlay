@@ -50,8 +50,10 @@ dynamic library and loads it.
    App: `NexPlay/Windows/BCDBridge.swift` (`BCDRuntimeInfo` dlopen + launch crash guard, `BCDBridge.show/open`,
    `WindowsHostViewController`), Setup Center > Windows Games (Open Windows Games, Load at Launch), remote pairing file
    mirrored to BCD's Keychain item (MadeiraJITPairing/rppairing).
-2. **7.0.0** Windows games in NexPlay's library: import .exe folders, `GameEngine`/`Game.runtime == .windows`,
-   `WindowsGameRuntime` starts them through `BCDBridge.open(madeira://play?exe=...)` after JIT, exit back to the library.
+2. **7.0.0 (done, untested)** Windows games in NexPlay's library. Files stay in NexPlay's Games/<id>; a symlink
+   C:\NexPlay\<id> on BCD's drive points at them; `nexplay_bcd_add_game` makes the BCD library entry (BCD only starts
+   play links for games in its library); `madeira://play?exe=C:\NexPlay\<id>\<program>` starts it with BCD's own JIT
+   and launch sequence. Closing BCD's screen returns to NexPlay's library. BCD's per-game settings stay on BCD's page.
 3. 7.1+ as in SPEC-7.0 + review (routing, EasyRPG native, input, power, UI).
 
 Known risks to check on the first runtime build: BCD's code using `Bundle.main` paths (covered by merging its app folder

@@ -25,6 +25,8 @@ enum OrientationMode: String, Codable, CaseIterable, Identifiable {
 
 enum GameEngine: String, Codable {
     case rpgMV, rpgMZ, web, rpgXP, rpgVX, rpgVXAce, godot, construct, twine, tyrano, renpy, flash
+    /// 7.0.0: a Windows program, run by the Windows runtime (BCD).
+    case windows
 
     var badge: String {
         switch self {
@@ -40,6 +42,7 @@ enum GameEngine: String, Codable {
         case .tyrano: return "Tyrano"
         case .renpy: return "Ren'Py"
         case .flash: return "Flash"
+        case .windows: return "PC"
         }
     }
 
@@ -57,6 +60,7 @@ enum GameEngine: String, Codable {
         case .tyrano: return "TyranoBuilder / TyranoScript"
         case .renpy: return "Ren'Py visual novel"
         case .flash: return "Flash (Ruffle)"
+        case .windows: return "Windows game"
         }
     }
 
@@ -72,6 +76,7 @@ enum GameEngine: String, Codable {
         case .tyrano: return "text.bubble.fill"
         case .renpy: return "bubble.left.and.text.bubble.right.fill"
         case .flash: return "bolt.fill"
+        case .windows: return "pc"
         }
     }
 
@@ -79,7 +84,7 @@ enum GameEngine: String, Codable {
     var isRPGMaker: Bool {
         switch self {
         case .rpgMV, .rpgMZ: return true
-        case .web, .rpgXP, .rpgVX, .rpgVXAce, .godot, .construct, .twine, .tyrano, .renpy, .flash: return false
+        case .web, .rpgXP, .rpgVX, .rpgVXAce, .godot, .construct, .twine, .tyrano, .renpy, .flash, .windows: return false
         }
     }
 
@@ -87,7 +92,7 @@ enum GameEngine: String, Codable {
     var isRuby: Bool {
         switch self {
         case .rpgXP, .rpgVX, .rpgVXAce: return true
-        case .rpgMV, .rpgMZ, .web, .godot, .construct, .twine, .tyrano, .renpy, .flash: return false
+        case .rpgMV, .rpgMZ, .web, .godot, .construct, .twine, .tyrano, .renpy, .flash, .windows: return false
         }
     }
 
@@ -96,7 +101,7 @@ enum GameEngine: String, Codable {
     var isWebGame: Bool {
         switch self {
         case .web, .godot, .construct, .twine, .tyrano, .renpy, .flash: return true
-        case .rpgMV, .rpgMZ, .rpgXP, .rpgVX, .rpgVXAce: return false
+        case .rpgMV, .rpgMZ, .rpgXP, .rpgVX, .rpgVXAce, .windows: return false
         }
     }
 

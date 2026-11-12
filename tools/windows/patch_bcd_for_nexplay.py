@@ -6,6 +6,9 @@
 #      WindowGroup content, read from the file, so they follow BCD when the pinned version moves:
 #        nexplay_bcd_make_root() -> a retained UIViewController showing BCD's interface (ContentView and its modifiers)
 #        nexplay_bcd_open_url(const char *) -> the app's onOpenURL handling (madeira://play?exe=... starts a game)
+#        nexplay_bcd_add_game(const char *relativePath, const char *title) -> 1 when BCD's library has the game (7.0.0:
+#          NexPlay's Windows games, linked under C:\NexPlay\<id>, become BCD library entries so the play link starts them;
+#          entries under NexPlay/ whose program is gone are removed)
 #   3. app/Madeira/madeira-exports.txt: both symbols join the export list (the link exports only listed symbols).
 # BCD: https://github.com/thebcd69/bcd-games (GPL-3.0 with BCD's additional terms).
 # Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games).
@@ -87,6 +90,29 @@ public func nexplay_bcd_make_root() -> UnsafeMutableRawPointer? {
     return UnsafeMutableRawPointer(bitPattern: bits)
 }
 
+@_cdecl("nexplay_bcd_add_game")
+public func nexplay_bcd_add_game(_ path: UnsafePointer<CChar>?, _ title: UnsafePointer<CChar>?) -> Int32 {
+    guard let path, let title else { return 0 }
+    let relative = String(cString: path)
+    let name = String(cString: title)
+    return MainActor.assumeIsolated { () -> Int32 in
+        let model = LibraryModel.shared
+        let fm = FileManager.default
+        for old in model.entries where old.desktop != true && old.relativePath.lowercased().hasPrefix("nexplay/")
+            && !fm.fileExists(atPath: LibraryModel.drive.appendingPathComponent(old.relativePath).path) {
+            model.remove(old.id)
+        }
+        let key = relative.lowercased()
+        var entry = model.entries.first(where: { $0.desktop != true && $0.relativePath.lowercased() == key })
+            ?? (try? LibraryModel.inspect(LibraryModel.drive.appendingPathComponent(relative)))
+            ?? LibraryEntry(title: name, relativePath: relative, bits: 0)
+        entry.title = name
+        entry.relativePath = relative
+        model.save(entry)
+        return model.entries.contains(where: { $0.relativePath.lowercased() == key }) ? 1 : 0
+    }
+}
+
 @_cdecl("nexplay_bcd_open_url")
 public func nexplay_bcd_open_url(_ text: UnsafePointer<CChar>?) {
     guard let text, let url = URL(string: String(cString: text)) else { return }
@@ -103,7 +129,7 @@ public func nexplay_bcd_open_url(_ text: UnsafePointer<CChar>?) {
 def patch_exports(path):
     with open(path) as f:
         text = f.read()
-    added = [s for s in ("_nexplay_bcd_make_root", "_nexplay_bcd_open_url") if s not in text.split()]
+    added = [s for s in ("_nexplay_bcd_make_root", "_nexplay_bcd_open_url", "_nexplay_bcd_add_game") if s not in text.split()]
     if added:
         with open(path, "a") as f:
             if not text.endswith("\n"):

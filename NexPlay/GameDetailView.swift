@@ -311,6 +311,8 @@ struct GameDetailView: View {
             notice = RenPyRuntime.bundled.isEmpty ? RenPyRuntime.RenPyError.noRuntime.errorDescription : nil
         case .flash:
             notice = FlashRuntime.folder == nil ? FlashRuntime.FlashError.missing.errorDescription : nil
+        case .windows:
+            notice = BCDRuntimeInfo.unavailableReason
         default:
             notice = nil
         }

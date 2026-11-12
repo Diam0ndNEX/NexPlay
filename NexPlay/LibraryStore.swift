@@ -64,6 +64,7 @@ final class LibraryStore: ObservableObject {
         let target = game
         _ = await Task.detached(priority: .userInitiated) { SaveArchive.rescue(target) }.value
         await DataStores.wipe(for: game)
+        WindowsLibraryLink.remove(for: game)
         try? FileManager.default.removeItem(at: Paths.folder(for: game))
         try? FileManager.default.removeItem(at: Paths.backupFolder(for: game))
         try? FileManager.default.removeItem(at: Paths.customCoverURL(for: game))

@@ -102,7 +102,8 @@ enum GameRuntimes {
 
     /// The runtime an engine runs on natively.
     static func nativeKind(for engine: GameEngine) -> RuntimeKind {
-        engine.isRuby ? .ruby : .web
+        if engine == .windows { return .windows }
+        return engine.isRuby ? .ruby : .web
     }
 
     /// How this game runs: Windows only when chosen for it, else its engine's native runtime.
@@ -164,15 +165,14 @@ struct RubyGameRuntime: GameRuntime {
     }
 }
 
-/// Windows games (Wine + FEX + DXMT). Not in this build yet: the runner arrives with NEXPLAY_WINDOWS.
+/// Windows games (Wine + FEX + DXMT): BCD's runtime (BCDBridge.swift), started from the library (WindowsGames.swift).
 struct WindowsGameRuntime: GameRuntime {
     var kind: RuntimeKind { .windows }
-    var isAvailable: Bool { false }
+    var isAvailable: Bool { BCDRuntimeInfo.unavailableReason == nil }
 
     var unavailableReason: String {
-        BCDRuntimeInfo.isPresent
-            ? "Windows games start from Settings > Setup Center > Windows Games in this version. Starting them from the library comes in 7.0."
-            : "This build has no Windows runtime, so Windows games can't start yet. They stay in your library and will run once a build with the runtime is installed."
+        BCDRuntimeInfo.unavailableReason
+            ?? "This build has no Windows runtime, so Windows games can't start yet. They stay in your library and will run once a build with the runtime is installed."
     }
 
     func capabilities(for game: Game) -> RuntimeCapabilities {
@@ -183,7 +183,10 @@ struct WindowsGameRuntime: GameRuntime {
     }
 
     func makeViewController(game: Game, store: LibraryStore, onExit: @escaping () -> Void) -> UIViewController {
-        RuntimeUnavailableController.make(title: game.name, reason: unavailableReason, onExit: onExit)
+        guard isAvailable else {
+            return RuntimeUnavailableController.make(title: game.name, reason: unavailableReason, onExit: onExit)
+        }
+        return WindowsLaunchController(game: game, onExit: onExit)
     }
 }
 

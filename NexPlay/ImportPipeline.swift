@@ -417,6 +417,11 @@ enum ImportPipeline {
             let wrapper = web.map { $0.engine == .web && FlashRuntime.pageEmbedsFlash(root.appendingPathComponent($0.entry)) } ?? true
             if wrapper { return DetectedGame(engine: .flash, entry: GameScanner.relativePath(of: movie, in: root)) }
         }
+        // 7.0.0: no web, RPG Maker, Ren'Py, Godot or Flash game, but a Windows program: the Windows runtime runs it.
+        // RPG Maker 2000/2003 (RPG_RT) stays unsupported until EasyRPG (7.1.0).
+        if web == nil, UnsupportedEngine.isRPG2000(root) == false, let windows = WindowsGameFiles.detect(in: root) {
+            return windows
+        }
         return web
     }
 
@@ -472,6 +477,9 @@ enum ImportPipeline {
     static func gameTitle(_ found: DetectedGame, in root: URL) -> String? {
         if found.engine == .renpy {
             return RenPyRuntime.title(base: root.appendingPathComponent(found.entry).deletingLastPathComponent())
+        }
+        if found.engine == .windows {
+            return WindowsGameFiles.title(for: found.entry)
         }
         if found.engine == .flash {
             let name = (found.entry as NSString).lastPathComponent
@@ -535,6 +543,10 @@ enum ImportPipeline {
             }
         case .renpy:
             break
+        case .windows:
+            notes.append(BCDRuntimeInfo.isPresent
+                ? "Windows game: it runs on the Windows runtime (Wine, FEX, DXMT) with JIT on. It starts \(found.entry); pick another program in Game Settings if that's wrong."
+                : "Windows game: this build has no Windows runtime, so it stays in your library until a build with the runtime is installed.")
         case .flash:
             if FlashRuntime.folder == nil {
                 notes.append(FlashRuntime.FlashError.missing.errorDescription ?? "")
@@ -550,7 +562,7 @@ enum ImportPipeline {
             }
         }
         let dlls = names.filter { $0.hasSuffix(".dll") && !$0.hasPrefix("rgss") && !$0.contains("steam") }
-        if !dlls.isEmpty && !found.engine.isWebGame {
+        if !dlls.isEmpty && !found.engine.isWebGame && found.engine != .windows {
             notes.append("Contains Windows DLLs (\(dlls.prefix(3).joined(separator: ", "))): features that need them may not work.")
         }
         return notes
@@ -577,6 +589,11 @@ enum ImportPipeline {
         case .flash:
             game.orientation = .landscape
             game.gamepad = false
+        case .windows:
+            game.orientation = .landscape
+            game.gamepad = false
+            game.exePath = staged.found.entry
+            game.runtime = .windows
         case .rpgMV, .rpgMZ, .rpgXP, .rpgVX, .rpgVXAce:
             let raw = UserDefaults.standard.string(forKey: SettingsKey.newGameOrientation) ?? "landscape"
             game.orientation = OrientationMode(rawValue: raw) ?? .landscape
@@ -630,6 +647,22 @@ enum ImportPipeline {
 
 /// Recognizes engines NexPlay can't run, so a failed import says what the game is instead of "No game found".
 enum UnsupportedEngine {
+    static func isRPG2000(_ names: Set<String>) -> Bool {
+        names.contains("rpg_rt.exe") || names.contains("rpg_rt.ldb") || names.contains("rpg_rt.lmt")
+    }
+
+    /// RPG Maker 2000/2003 files at the top of the folder or one level down.
+    static func isRPG2000(_ root: URL) -> Bool {
+        let fm = FileManager.default
+        var names: Set<String> = []
+        let top = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        for item in top {
+            names.insert(item.lastPathComponent.lowercased())
+            for kid in (try? fm.contentsOfDirectory(atPath: item.path)) ?? [] { names.insert(kid.lowercased()) }
+        }
+        return isRPG2000(names)
+    }
+
     static func identify(_ root: URL) -> String? {
         let fm = FileManager.default
         var names: Set<String> = []
@@ -649,7 +682,7 @@ enum UnsupportedEngine {
             level = next
             if names.count > 20000 { break }
         }
-        if names.contains("rpg_rt.exe") || names.contains("rpg_rt.ldb") || names.contains("rpg_rt.lmt") {
+        if isRPG2000(names) {
             return "This is an RPG Maker 2000/2003 game. Those aren't supported yet."
         }
         if extensions.contains("jar") || names.contains("jre") {

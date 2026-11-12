@@ -4,7 +4,7 @@ import UIKit
 // 6.4.0: the Windows runtime. BCD's app (Wine + FEX + DXMT, by thebcd69, a fork of Madeira by Will Faust) is built by
 // NexPlay's "Build Windows runtime" workflow as a library, BCDCore.framework (tools/windows), and merged into the app
 // when NexPlay is built. NexPlay loads it with dlopen and shows BCD's own interface through two C entry points the
-// build adds to BCD: nexplay_bcd_make_root() and nexplay_bcd_open_url(). Per-game launch from NexPlay's library is 7.0.
+// build adds to BCD: nexplay_bcd_make_root() and nexplay_bcd_open_url(). 7.0.0: library games start through nexplay_bcd_add_game and BCD's play link (WindowsGames.swift).
 // BCD: https://github.com/thebcd69/bcd-games (GPL-3.0 with BCD's additional terms and the Madeira Converter Exception).
 // Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games).
 
@@ -120,12 +120,14 @@ enum BCDRuntimeInfo {
 enum BCDBridge {
     private typealias MakeRoot = @convention(c) () -> UnsafeMutableRawPointer?
     private typealias OpenURL = @convention(c) (UnsafePointer<CChar>?) -> Void
+    private typealias AddGame = @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
 
     private static var host: WindowsHostViewController?
 
     /// Presents BCD's interface over NexPlay. BCD's screen is made once and kept, so a running game survives closing it.
-    static func show() throws {
+    static func show(onClose: (() -> Void)? = nil) throws {
         let controller = try hostController()
+        controller.onClose = onClose
         guard let top = topViewController() else {
             throw WindowsRuntimeError(message: "NexPlay has no window to show Windows Games in.")
         }
@@ -135,10 +137,17 @@ enum BCDBridge {
     }
 
     /// Hands a link to BCD (for example madeira://play?exe=...), then shows it.
-    static func open(_ url: URL) throws {
-        try show()
+    static func open(_ url: URL, onClose: (() -> Void)? = nil) throws {
+        try show(onClose: onClose)
         let function = unsafeBitCast(try BCDRuntimeInfo.symbol("nexplay_bcd_open_url"), to: OpenURL.self)
         url.absoluteString.withCString { function($0) }
+    }
+
+    /// 7.0.0: adds a program on BCD's drive (relative to C:) to BCD's library. True when the library has it.
+    static func addGame(relativePath: String, title: String) throws -> Bool {
+        let function = unsafeBitCast(try BCDRuntimeInfo.symbol("nexplay_bcd_add_game"), to: AddGame.self)
+        let result = relativePath.withCString { path in title.withCString { name in function(path, name) } }
+        return result == 1
     }
 
     private static func hostController() throws -> WindowsHostViewController {
@@ -166,6 +175,8 @@ enum BCDBridge {
 /// Full-screen holder for BCD's interface with a small button back to NexPlay.
 final class WindowsHostViewController: UIViewController {
     private let content: UIViewController
+    /// Called after the screen is closed with its button (7.0.0: a library game returns to the library).
+    var onClose: (() -> Void)?
 
     init(content: UIViewController) {
         self.content = content
@@ -195,7 +206,13 @@ final class WindowsHostViewController: UIViewController {
         config.baseForegroundColor = .white
         config.cornerStyle = .capsule
         let close = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in
-            self?.dismiss(animated: true) { OrientationManager.unlock() }
+            guard let self else { return }
+            let done = self.onClose
+            self.onClose = nil
+            self.dismiss(animated: true) {
+                OrientationManager.unlock()
+                done?()
+            }
         })
         close.accessibilityLabel = "Back to NexPlay"
         close.alpha = 0.7

@@ -93,6 +93,7 @@ struct GameSettingsView: View {
             screenSection(game)
             if game.engine.isRPGMaker { engineSection(game) }
             if game.engine == .renpy || game.isGodotDesktop { runtimeSection(game) }
+            if game.engine == .windows { windowsSection(game) }
             notesSection
             dangerSection(game)
         }
@@ -328,6 +329,27 @@ struct GameSettingsView: View {
             Text(choices.isEmpty
                  ? "This build has no \(engine) runtime for this game."
                  : "If the game doesn't start, try another runtime. Automatic picks the closest one to the version the game was made with. Applies on the next start.")
+        }
+    }
+
+    /// 7.0.0: which program a Windows game starts.
+    private func windowsSection(_ game: Game) -> some View {
+        let programs = WindowsGameFiles.allExecutables(in: Paths.folder(for: game))
+        let current = WindowsGameFiles.program(for: game) ?? ""
+        return Section {
+            Picker(selection: Binding(
+                get: { current },
+                set: { value in store.mutate(gameID) { $0.exePath = value.isEmpty ? nil : value } }
+            )) {
+                if !programs.contains(current) { Text(current.isEmpty ? "None" : current).tag(current) }
+                ForEach(programs, id: \.self) { program in
+                    Text(program).tag(program)
+                }
+            } label: { Label("Program", systemImage: "app.badge") }
+        } header: {
+            SettingsHeader(title: "Windows", symbol: "pc", color: .blue)
+        } footer: {
+            Text("The .exe the game starts with. Runs on the Windows runtime with JIT on; Windows Games' own settings for this game (resolution, controls, FPS) are on its game page there.")
         }
     }
 
