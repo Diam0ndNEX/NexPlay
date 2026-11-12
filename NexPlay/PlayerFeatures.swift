@@ -44,11 +44,13 @@ class PlayerFeature {
 }
 
 enum PlayerFeatures {
-    /// Every feature the player runs.
+    /// Every feature the player runs. Play Assist and Game Tools live inside the Game Panel.
     @MainActor
     static func make(context: PlayerContext) -> [PlayerFeature] {
-        [PlayAssistFeature(context: context), WebToolsFeature(context: context), PluginsFeature(context: context),
-         CheatsFeature(context: context), TranslationFeature(context: context), RenPySavesFeature(context: context)]
+        let panel = GamePanelFeature(context: context, assist: PlayAssistFeature(context: context),
+                                     tools: WebToolsFeature(context: context))
+        return [panel, PluginsFeature(context: context), CheatsFeature(context: context),
+                TranslationFeature(context: context), RenPySavesFeature(context: context)]
     }
 
     /// Replacement file contents the scheme handler serves for a game (relative path, lowercased), or nil.

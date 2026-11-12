@@ -11,7 +11,7 @@ struct WhatsNewView: View {
     let standalone: Bool
     @Environment(\.dismiss) private var dismiss
 
-    static let version = "6.0"
+    static let version = "6.1"
 
     private struct Item: Identifiable {
         let symbol: String
@@ -22,18 +22,16 @@ struct WhatsNewView: View {
     }
 
     private let items: [Item] = [
-        Item(symbol: "slider.horizontal.below.rectangle", color: .indigo, title: "Game Tools",
-             text: "Every game now has Game Tools in the game menu: a volume control (or mute) that is kept per game."),
-        Item(symbol: "speedometer", color: .orange, title: "Game Speed for Every Engine",
-             text: "HTML5, Godot, Construct, Twine, Tyrano, Ren'Py and Flash games can run at 0.5× to 4×. Grind faster, or slow down a hard part. Works for games that time themselves with the browser clock."),
-        Item(symbol: "pause.fill", color: .gray, title: "Pause Any Game",
-             text: "Pause and resume games that have no pause of their own. These games now also pause when you leave the app."),
-        Item(symbol: "square.stack.3d.down.right.fill", color: .purple, title: "Twine Save States",
-             text: "SugarCube stories (Degrees of Lewdity and others) get save states, quick save/load and auto states, plus Story: Back and Forward."),
-        Item(symbol: "bubble.left.and.text.bubble.right.fill", color: .pink, title: "Ren'Py Tools",
-             text: "Quick Save, Auto-Forward, Text Speed (instant to slow) and Skip Unseen Text, right from the game menu."),
-        Item(symbol: "sparkles", color: .teal, title: "Play Assist (5.0)",
-             text: "RPG Maker MV/MZ: save states, quick save/load, auto states, rewind up to 5 minutes, message log, instant text and auto-advance."),
+        Item(symbol: "square.grid.2x2.fill", color: .indigo, title: "Game Panel",
+             text: "Every in-game tool in one place: game menu > Game Panel. Big buttons for Quick Save, Quick Load and Save States, a pause button and a speed picker, a volume slider, text options and the safety net, in cards instead of menus inside menus."),
+        Item(symbol: "square.stack.3d.down.right.fill", color: .purple, title: "New Save States Screen",
+             text: "States are cards with a large picture, place and time. Touch and hold one to delete it."),
+        Item(symbol: "text.bubble.fill", color: .blue, title: "Chat-style Message Log",
+             text: "Lines show as speech bubbles with the speaker's name; your choices appear on the right."),
+        Item(symbol: "bolt.circle.fill", color: .orange, title: "Quick Save in the Menu",
+             text: "Quick Save and Quick Load stay right in the game menu, next to Game Panel."),
+        Item(symbol: "speedometer", color: .teal, title: "Game Tools (6.0)",
+             text: "Volume for every game, pause and 0.5×-4× speed for HTML5, Godot, Construct, Twine, Tyrano, Ren'Py and Flash, Twine save states, Ren'Py text and auto-forward options."),
     ]
 
     var body: some View {

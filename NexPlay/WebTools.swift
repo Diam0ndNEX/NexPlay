@@ -1,7 +1,7 @@
 import UIKit
 import WebKit
 
-// Game Tools (6.0.0), game menu > Game Tools:
+// Game Tools (6.0.0), shown in the Game Panel (6.1.0):
 // - Volume for every web-view game: Web Audio connections to a context's destination go through one master gain per
 //   context; at 0, <audio>/<video> are muted too (iOS ignores media element volume).
 // - Pause and Game Speed for the other web engines (HTML5, Godot, Construct, Twine, Tyrano, Ren'Py, Flash): a clock
@@ -10,7 +10,7 @@ import WebKit
 //   NexPlay goes to the background like RPG Maker games. Speed works for games that time themselves with the clock;
 //   games running in a worker (some Construct exports, threaded Godot) are not affected.
 // - Twine (SugarCube): Back / Forward through the story history (Engine.backward/forward).
-// - Ren'Py: Quick Save, auto-forward, text speed, skip unseen text, through renpy_exec.
+// - Ren'Py: Python through renpy_exec (Quick Save, preferences).
 
 enum WebTools {
     static func audioScript(volume: Double) -> String {
@@ -267,9 +267,10 @@ extension PlayerContext {
     }
 }
 
+/// Scripts and actions behind the Game Panel's Playback, Sound, Story and Ren'Py cards.
 final class WebToolsFeature: PlayerFeature {
-    private var speed: Double = 1
-    private var paused = false
+    private(set) var speed: Double = 1
+    private(set) var paused = false
 
     override func userScripts(for game: Game) -> [WKUserScript] {
         let volume = AssistOptions.load(for: game.id).volume
@@ -285,135 +286,66 @@ final class WebToolsFeature: PlayerFeature {
         speed = 1
         paused = false
         let volume = AssistOptions.load(for: context.game().id).volume
-        context.evaluate("window.__nexWeb && window.__nexWeb.setVolume && window.__nexWeb.setVolume(\(volume))")
+        previewVolume(volume)
     }
 
     static func speedText(_ value: Double) -> String {
         value == value.rounded() ? "\(Int(value))×" : String(format: "%.1f×", value)
     }
 
-    override func menuItems(for game: Game) -> [UIMenuElement] {
-        let volume = AssistOptions.load(for: game.id).volume
-        var children: [UIMenuElement] = []
-        if game.engine.isWebGame {
-            let isPaused = paused
-            children.append(UIAction(title: isPaused ? "Resume Game" : "Pause Game",
-                                     image: UIImage(systemName: isPaused ? "play.fill" : "pause.fill")) { [weak self] _ in
-                self?.setPaused(!isPaused)
-            })
-            let current = speed
-            let speeds: [UIMenuElement] = [0.5, 1, 2, 3, 4].map { (value: Double) -> UIMenuElement in
-                UIAction(title: value == 1 ? "Normal" : WebToolsFeature.speedText(value), state: current == value ? .on : .off) { [weak self] _ in
-                    self?.setSpeed(value)
-                }
-            }
-            children.append(UIMenu(title: "Game Speed", image: UIImage(systemName: "speedometer"), children: speeds))
-        }
-        let levels: [UIMenuElement] = [0, 0.25, 0.5, 0.75, 1].map { (value: Double) -> UIMenuElement in
-            UIAction(title: value == 0 ? "Mute" : "\(Int(value * 100))%", state: abs(volume - value) < 0.01 ? .on : .off) { [weak self] _ in
-                self?.setVolume(value)
-            }
-        }
-        children.append(UIMenu(title: "Volume", image: UIImage(systemName: volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill"),
-                               children: levels))
-        if game.engine == .twine {
-            children.append(UIAction(title: "Story: Back", image: UIImage(systemName: "arrow.uturn.backward")) { [weak self] _ in
-                self?.twine("back")
-            })
-            children.append(UIAction(title: "Story: Forward", image: UIImage(systemName: "arrow.uturn.forward")) { [weak self] _ in
-                self?.twine("forward")
-            })
-        }
-        if game.engine == .renpy {
-            children.append(renpyMenu())
-        }
-        return [UIMenu(title: "Game Tools", image: UIImage(systemName: "slider.horizontal.below.rectangle"), children: children)]
-    }
-
-    private func setPaused(_ on: Bool) {
+    func setPaused(_ on: Bool, quiet: Bool = false) {
         paused = on
         context.evaluate("window.__nexWeb && window.__nexWeb.userPause && window.__nexWeb.userPause(\(on))")
         context.gameLog.add(on ? "game paused" : "game resumed")
-        context.toast(on ? "Paused. Game menu > Game Tools > Resume Game." : "Resumed")
+        if !quiet { context.toast(on ? "Paused" : "Resumed") }
     }
 
-    private func setSpeed(_ value: Double) {
+    func setSpeed(_ value: Double, quiet: Bool = false) {
         speed = value
         context.evaluate("window.__nexWeb && window.__nexWeb.setSpeed && window.__nexWeb.setSpeed(\(value))")
         context.gameLog.add("game speed \(WebToolsFeature.speedText(value))")
-        context.toast(value == 1 ? "Normal speed" : "Speed \(WebToolsFeature.speedText(value))")
+        if !quiet { context.toast(value == 1 ? "Normal speed" : "Speed \(WebToolsFeature.speedText(value))") }
     }
 
-    private func setVolume(_ value: Double) {
+    /// Changes the volume in the page without saving it (while a slider moves).
+    func previewVolume(_ value: Double) {
+        context.evaluate("window.__nexWeb && window.__nexWeb.setVolume && window.__nexWeb.setVolume(\(value))")
+    }
+
+    /// Changes the volume and keeps it for the game.
+    func setVolume(_ value: Double, quiet: Bool = false) {
         let id = context.game().id
         var options = AssistOptions.load(for: id)
         options.volume = value
         options.save(for: id)
-        context.evaluate("window.__nexWeb && window.__nexWeb.setVolume && window.__nexWeb.setVolume(\(value))")
-        context.toast(value == 0 ? "Muted" : "Volume \(Int(value * 100))%")
+        previewVolume(value)
+        if !quiet { context.toast(value == 0 ? "Muted" : "Volume \(Int(value * 100))%") }
     }
 
-    // MARK: Twine
-
-    private func twine(_ action: String) {
-        Task { @MainActor in
-            let script = "window.__nexAssist && window.__nexAssist.\(action) ? window.__nexAssist.\(action)() : 'The story is still starting.'"
-            let text = await context.evaluateString(script) ?? "The story didn't answer."
-            if text != "ok" { context.toast(text) }
-        }
+    /// Twine (SugarCube) "back" or "forward". Returns "ok" or why it didn't work.
+    func runTwine(_ action: String) async -> String {
+        let safe = action == "back" ? "back" : "forward"
+        let script = "window.__nexAssist && window.__nexAssist.\(safe) ? window.__nexAssist.\(safe)() : 'The story is still starting.'"
+        return await context.evaluateString(script) ?? "The story didn't answer."
     }
 
-    // MARK: Ren'Py
-
-    private func renpyMenu() -> UIMenu {
-        let quickSave = UIAction(title: "Quick Save", image: UIImage(systemName: "bolt.circle")) { [weak self] _ in
-            self?.renpy("renpy.run(renpy.store.QuickSave())", done: "Quick saved (Load screen, page Q)")
-        }
-        let autoForward = UIMenu(title: "Auto-Forward", image: UIImage(systemName: "forward.end.alt"), children: [
-            UIAction(title: "On") { [weak self] _ in
-                self?.renpy("p = renpy.game.preferences\np.afm_enable = True\nif not p.afm_time:\n    p.afm_time = 15", done: "Auto-forward on")
-            },
-            UIAction(title: "Off") { [weak self] _ in
-                self?.renpy("renpy.game.preferences.afm_enable = False", done: "Auto-forward off")
-            },
-        ])
-        let textSpeeds: [(String, Int)] = [("Instant", 0), ("Fast", 120), ("Normal", 40), ("Slow", 20)]
-        let textSpeed = UIMenu(title: "Text Speed", image: UIImage(systemName: "text.cursor"), children: textSpeeds.map { item in
-            UIAction(title: item.0) { [weak self] _ in
-                self?.renpy("renpy.game.preferences.text_cps = \(item.1)", done: "Text speed: \(item.0)")
-            }
-        })
-        let skip = UIMenu(title: "Skip Unseen Text", image: UIImage(systemName: "forward.fill"), children: [
-            UIAction(title: "On") { [weak self] _ in
-                self?.renpy("renpy.game.preferences.skip_unseen = True", done: "Skip skips unseen text too")
-            },
-            UIAction(title: "Off") { [weak self] _ in
-                self?.renpy("renpy.game.preferences.skip_unseen = False", done: "Skip skips seen text only")
-            },
-        ])
-        return UIMenu(title: "Ren'Py", image: UIImage(systemName: "bubble.left.and.text.bubble.right"),
-                      children: [quickSave, autoForward, textSpeed, skip])
-    }
-
-    private func renpy(_ body: String, done: String) {
-        guard let webView = context.webView else { return }
+    /// Runs Ren'Py Python; returns `done` when it worked, else Ren'Py's error text.
+    func runRenPy(_ body: String, done: String) async -> String {
+        guard let webView = context.webView else { return "The game isn't running." }
         let python = WebTools.renpyPython(body)
-        Task { @MainActor in
-            do {
-                let value = try await webView.callAsyncJavaScript(WebTools.renpyRunScript, arguments: ["code": python],
-                                                                  in: nil, contentWorld: .page)
-                let text = value as? String ?? ""
-                if text == "ok" {
-                    context.toast(done)
-                    context.gameLog.add("ren'py: \(done)")
-                } else {
-                    context.toast(text.isEmpty ? "Ren'Py didn't answer." : text)
-                    context.gameLog.add("ren'py tools: \(text)")
-                }
-            } catch {
-                context.toast(error.localizedDescription)
-                context.gameLog.add("ren'py tools failed: \(error.localizedDescription)")
+        do {
+            let value = try await webView.callAsyncJavaScript(WebTools.renpyRunScript, arguments: ["code": python],
+                                                              in: nil, contentWorld: .page)
+            let text = value as? String ?? ""
+            if text == "ok" {
+                context.gameLog.add("ren'py: \(done)")
+                return done
             }
+            context.gameLog.add("ren'py tools: \(text)")
+            return text.isEmpty ? "Ren'Py didn't answer." : text
+        } catch {
+            context.gameLog.add("ren'py tools failed: \(error.localizedDescription)")
+            return error.localizedDescription
         }
     }
 }

@@ -2,7 +2,8 @@ import UIKit
 import SwiftUI
 import WebKit
 
-// Play Assist (5.0.0), RPG Maker MV/MZ, and save states for Twine SugarCube stories (6.0.0):
+// Play Assist (5.0.0), RPG Maker MV/MZ, and save states for Twine SugarCube stories (6.0.0). Shown in the Game Panel
+// (6.1.0); this feature adds no menu entries itself.
 // - Save states (manual, quick, auto): RPG Maker = the game's own save contents (DataManager.makeSaveContents through
 //   JsonEx); SugarCube = Save.base64.save()/Save.serialize(). Kept by NexPlay in SaveStates/<game-uuid>/, outside the
 //   game's save slots, so they never touch the game's save files. RPG Maker loading does what Scene_Load does.
@@ -480,65 +481,12 @@ final class PlayAssistFeature: PlayerFeature {
         observers = []
     }
 
-    override func menuItems(for game: Game) -> [UIMenuElement] {
-        guard PlayAssist.supports(game) else { return [] }
-        let current = AssistOptions.load(for: game.id)
-        let hasQuick = SaveStateStore.list(for: game.id).contains { $0.kind == .quick }
-
-        let stateItems: [UIMenuElement] = [0, 5, 10, 15, 30].map { (value: Int) -> UIMenuElement in
-            UIAction(title: value == 0 ? "Off" : "Every \(value) min",
-                     state: current.autoStateMinutes == value ? .on : .off) { [weak self] _ in
-                self?.change { $0.autoStateMinutes = value }
-            }
-        }
-
-        var children: [UIMenuElement] = [
-            UIAction(title: game.engine.isRPGMaker ? "Save States & Rewind…" : "Save States…",
-                     image: UIImage(systemName: "square.stack.3d.down.right.fill")) { [weak self] _ in
-                self?.openStates()
-            },
-            UIAction(title: "Quick Save", image: UIImage(systemName: "bolt.circle")) { [weak self] _ in
-                self?.quickSave()
-            },
-            UIAction(title: "Quick Load", image: UIImage(systemName: "bolt.horizontal.circle"),
-                     attributes: hasQuick ? [] : [.disabled]) { [weak self] _ in
-                self?.quickLoad()
-            },
-        ]
-
-        if game.engine.isRPGMaker {
-            let advanceItems: [UIMenuElement] = [0, 1.5, 3, 5].map { (value: Double) -> UIMenuElement in
-                UIAction(title: value == 0 ? "Off" : "After \(PlayAssistFeature.seconds(value))",
-                         state: current.autoAdvance == value ? .on : .off) { [weak self] _ in
-                    self?.change { $0.autoAdvance = value }
-                }
-            }
-            let instant = current.instantText
-            let rewind = current.rewind
-            children.append(UIAction(title: "Message Log…", image: UIImage(systemName: "text.bubble")) { [weak self] _ in
-                self?.openLog()
-            })
-            children.append(UIMenu(title: "Text", image: UIImage(systemName: "text.alignleft"), children: [
-                UIAction(title: "Instant Text", state: instant ? .on : .off) { [weak self] _ in
-                    self?.change { $0.instantText = !instant }
-                },
-                UIMenu(title: "Auto-Advance", children: advanceItems),
-            ]))
-            children.append(UIMenu(title: "Auto Save State", image: UIImage(systemName: "clock.arrow.circlepath"), children: stateItems))
-            children.append(UIAction(title: "Record Rewind", image: UIImage(systemName: "backward.fill"), state: rewind ? .on : .off) { [weak self] _ in
-                self?.change { $0.rewind = !rewind }
-            })
-        } else {
-            children.append(UIMenu(title: "Auto Save State", image: UIImage(systemName: "clock.arrow.circlepath"), children: stateItems))
-        }
-        return [UIMenu(title: "Play Assist", image: UIImage(systemName: "sparkles"), children: children)]
-    }
-
     static func seconds(_ value: Double) -> String {
         value == value.rounded() ? "\(Int(value)) s" : String(format: "%.1f s", value)
     }
 
-    private func change(_ edit: (inout AssistOptions) -> Void) {
+    /// Changes the game's options and applies them to the running game.
+    func change(_ edit: (inout AssistOptions) -> Void) {
         let id = context.game().id
         var updated = AssistOptions.load(for: id)
         edit(&updated)
@@ -662,7 +610,8 @@ final class PlayAssistFeature: PlayerFeature {
         return nil
     }
 
-    private func quickSave() {
+    /// Quick Save from the game menu (a note on the game screen says how it went).
+    func quickSave() {
         Task { @MainActor in
             if let error = await capture(kind: .quick) {
                 context.toast(error)
@@ -673,7 +622,8 @@ final class PlayAssistFeature: PlayerFeature {
         }
     }
 
-    private func quickLoad() {
+    /// Quick Load from the game menu.
+    func quickLoad() {
         let gameID = context.game().id
         guard let quick = SaveStateStore.list(for: gameID).first(where: { $0.kind == .quick }) else {
             context.toast("No quick save yet")
@@ -708,7 +658,7 @@ final class PlayAssistFeature: PlayerFeature {
         context.present(host)
     }
 
-    private func openLog() {
+    func openLog() {
         Task { @MainActor in
             var lines: [AssistLogLine] = []
             if let text = await context.evaluateString("window.__nexAssist ? window.__nexAssist.logJSON() : '[]'") {
@@ -801,6 +751,8 @@ struct SaveStatesView: View {
     @State private var pending: SaveStateInfo?
     @State private var pendingRewind: RewindPoint?
 
+    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
+
     static func ago(_ seconds: Int) -> String {
         if seconds < 60 { return "\(seconds) s ago" }
         let minutes = seconds / 60
@@ -810,75 +762,82 @@ struct SaveStatesView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
                     Button {
                         Task { @MainActor in await model.saveNow() }
                     } label: {
-                        HStack {
-                            Label("Save State Now", systemImage: "plus.square.on.square.fill").font(.headline)
-                            Spacer()
-                            if model.working { ProgressView() }
+                        HStack(spacing: 10) {
+                            if model.working {
+                                ProgressView().tint(.white)
+                            } else {
+                                Image(systemName: "plus.square.on.square.fill")
+                            }
+                            Text("Save State Now")
                         }
                     }
+                    .buttonStyle(PlayButtonStyle())
                     .disabled(model.working)
-                } footer: {
-                    Text("A save state is a snapshot you can load any time, even where the game doesn't let you save. It doesn't touch the game's own saves. RPG Maker states are made on the map; Twine states work in SugarCube stories. Auto states: game menu > Play Assist.")
-                }
 
-                if !model.rewind.isEmpty {
-                    Section {
+                    Text("Load any time, even where the game doesn't let you save. The game's own saves are never touched. RPG Maker states are made on the map; Twine states work in SugarCube stories.")
+                        .font(.caption).foregroundStyle(.secondary)
+
+                    if !model.rewind.isEmpty {
+                        sectionTitle("Rewind", symbol: "backward.fill", count: nil)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(model.rewind) { point in
                                     Button {
                                         pendingRewind = point
                                     } label: {
-                                        VStack(spacing: 2) {
-                                            Text(SaveStatesView.ago(point.ago)).font(.subheadline.weight(.semibold))
-                                            Text(point.map.isEmpty ? " " : point.map)
-                                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                        }
-                                        .frame(minWidth: 70)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                                        RewindChip(point: point)
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(PressScaleStyle())
                                 }
                             }
-                            .padding(.vertical, 4)
                         }
-                    } header: {
-                        Text("Rewind")
-                    } footer: {
-                        Text("A snapshot every 15 seconds on the map, for the last 5 minutes. Loading keeps where you were, so it can be undone here.")
                     }
-                }
 
-                Section {
+                    sectionTitle("States", symbol: "square.stack.3d.down.right.fill", count: model.states.count)
                     if model.states.isEmpty {
-                        Text("No states yet.").foregroundStyle(.secondary)
-                    }
-                    ForEach(model.states) { state in
-                        Button {
-                            pending = state
-                        } label: {
-                            SaveStateRow(state: state, gameID: model.gameID)
+                        VStack(spacing: 8) {
+                            Image(systemName: "square.stack.3d.down.right")
+                                .font(.system(size: 34)).foregroundStyle(NexStyle.accent)
+                            Text("No states yet").font(.headline)
+                            Text("Tap Save State Now, or use Quick Save.").font(.subheadline).foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
-                        .swipeActions {
-                            Button(role: .destructive) {
-                                model.delete(state)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 28)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(model.states) { state in
+                                Button {
+                                    pending = state
+                                } label: {
+                                    SaveStateCard(state: state, gameID: model.gameID)
+                                }
+                                .buttonStyle(PressScaleStyle())
+                                .contextMenu {
+                                    Button {
+                                        pending = state
+                                    } label: {
+                                        Label("Load State", systemImage: "arrow.down.circle")
+                                    }
+                                    Button(role: .destructive) {
+                                        model.delete(state)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
                             }
                         }
+                        Text("Touch and hold a state to delete it.").font(.caption).foregroundStyle(.secondary)
                     }
-                } header: {
-                    Text("States")
                 }
+                .padding(16)
             }
+            .background(AppBackground().ignoresSafeArea())
             .confirmationDialog("Rewind?", isPresented: Binding(get: { pendingRewind != nil }, set: { if !$0 { pendingRewind = nil } }),
                                 titleVisibility: .visible, presenting: pendingRewind) { point in
                 Button("Rewind \(SaveStatesView.ago(point.ago))") {
@@ -925,9 +884,22 @@ struct SaveStatesView: View {
             Text(model.message ?? "")
         }
     }
+
+    private func sectionTitle(_ title: String, symbol: String, count: Int?) -> some View {
+        HStack {
+            Label(title, systemImage: symbol)
+                .font(.pixel(14, relativeTo: .subheadline, weight: .semibold))
+                .foregroundStyle(NexStyle.accent)
+            Spacer()
+            if let count, count > 0 {
+                Text("\(count)").font(.caption.weight(.bold).monospacedDigit()).foregroundStyle(.secondary)
+            }
+        }
+    }
 }
 
-struct SaveStateRow: View {
+/// A state as a card: the picture with its kind, then where, when and who.
+struct SaveStateCard: View {
     let state: SaveStateInfo
     let gameID: UUID
     @State private var image: UIImage?
@@ -940,35 +912,47 @@ struct SaveStateRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06))
-                if let image {
-                    Image(uiImage: image).resizable().scaledToFill()
-                } else {
-                    Image(systemName: "photo").foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 92)
+                .overlay {
+                    if let image {
+                        Image(uiImage: image).resizable().scaledToFill()
+                    } else {
+                        Image(systemName: "photo").font(.title2).foregroundStyle(.secondary)
+                    }
                 }
-            }
-            .frame(width: 96, height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
+                .clipped()
+                .overlay(alignment: .topLeading) {
                     Text(state.kind.title)
-                        .font(.caption2.weight(.bold))
+                        .font(.caption2.weight(.heavy))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(state.kind.color.opacity(0.85), in: Capsule())
-                    Text(state.map.isEmpty ? "State" : state.map).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(state.kind.color.opacity(0.9), in: Capsule())
+                        .padding(8)
                 }
-                Text(state.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(state.map.isEmpty ? "State" : state.map)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(state.date.formatted(.relative(presentation: .named)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 if !details.isEmpty {
                     Text(details).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
-            Spacer(minLength: 0)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .contentShape(Rectangle())
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(NexStyle.cardStroke))
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onAppear {
             if image == nil {
                 image = UIImage(contentsOfFile: SaveStateStore.imageURL(state, gameID: gameID).path)
@@ -979,6 +963,7 @@ struct SaveStateRow: View {
 
 // MARK: - Message log
 
+/// What was said, as chat bubbles: speakers on the left, the player's choices on the right.
 struct MessageLogView: View {
     let lines: [AssistLogLine]
     @Environment(\.dismiss) private var dismiss
@@ -986,33 +971,29 @@ struct MessageLogView: View {
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
-                List(lines) { line in
-                    VStack(alignment: .leading, spacing: 4) {
-                        if !line.n.isEmpty {
-                            Text(line.n).font(.caption.weight(.bold)).foregroundStyle(NexStyle.accent)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if lines.isEmpty {
+                            VStack(spacing: 8) {
+                                Image(systemName: "text.bubble").font(.system(size: 36)).foregroundStyle(NexStyle.accent)
+                                Text("No messages yet").font(.headline)
+                                Text("Lines the game shows from now on appear here.")
+                                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 60)
                         }
-                        Text(line.t)
-                            .font(.subheadline)
-                            .foregroundStyle(line.c ? Color.yellow : Color.primary)
-                            .textSelection(.enabled)
-                    }
-                    .padding(.vertical, 2)
-                    .id(line.id)
-                }
-                .overlay {
-                    if lines.isEmpty {
-                        VStack(spacing: 8) {
-                            Image(systemName: "text.bubble").font(.system(size: 36)).foregroundStyle(NexStyle.accent)
-                            Text("No messages yet").font(.headline)
-                            Text("Lines the game shows from now on appear here.").font(.subheadline).foregroundStyle(.secondary)
+                        ForEach(lines) { line in
+                            bubble(line).id(line.id)
                         }
-                        .padding()
                     }
+                    .padding(16)
                 }
                 .onAppear {
                     if let last = lines.last { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
             }
+            .background(AppBackground().ignoresSafeArea())
             .navigationTitle("Message Log")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1020,5 +1001,40 @@ struct MessageLogView: View {
             }
         }
         .environment(\.colorScheme, .dark)
+    }
+
+    @ViewBuilder
+    private func bubble(_ line: AssistLogLine) -> some View {
+        if line.c {
+            HStack {
+                Spacer(minLength: 48)
+                Text(line.t)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(NexStyle.accentGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .textSelection(.enabled)
+            }
+        } else {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !line.n.isEmpty {
+                        Text(line.n)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(NexStyle.accent)
+                            .padding(.leading, 6)
+                    }
+                    Text(line.t)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                        .padding(12)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NexStyle.cardStroke))
+                        .textSelection(.enabled)
+                }
+                Spacer(minLength: 48)
+            }
+        }
     }
 }
