@@ -10,8 +10,10 @@ enum RuntimeKind: String, Codable, CaseIterable, Identifiable {
     case web
     /// The mkxp core (RPG Maker XP/VX/Ace).
     case ruby
-    /// Wine + FEX + DXMT (from BCD), in builds with NEXPLAY_WINDOWS.
+    /// Wine + FEX + DXMT (from BCD's runtime, BCDCore.framework).
     case windows
+    /// 7.1.1: EasyRPG Player's libretro core (RPG Maker 2000/2003).
+    case easyrpg
 
     var id: String { rawValue }
 
@@ -20,6 +22,7 @@ enum RuntimeKind: String, Codable, CaseIterable, Identifiable {
         case .web: return "Native (web)"
         case .ruby: return "Native (mkxp)"
         case .windows: return "Windows"
+        case .easyrpg: return "Native (EasyRPG)"
         }
     }
 
@@ -28,6 +31,7 @@ enum RuntimeKind: String, Codable, CaseIterable, Identifiable {
         case .web: return "globe"
         case .ruby: return "shield.lefthalf.filled"
         case .windows: return "pc"
+        case .easyrpg: return "map"
         }
     }
 }
@@ -99,10 +103,12 @@ enum GameRuntimes {
     static let web: GameRuntime = WebGameRuntime()
     static let ruby: GameRuntime = RubyGameRuntime()
     static let windows: GameRuntime = WindowsGameRuntime()
+    static let easyrpg: GameRuntime = EasyRPGGameRuntime()
 
     /// The runtime an engine runs on natively.
     nonisolated static func nativeKind(for engine: GameEngine) -> RuntimeKind {
         if engine == .windows { return .windows }
+        if engine == .rpg2k { return .easyrpg }
         return engine.isRuby ? .ruby : .web
     }
 
@@ -135,6 +141,7 @@ enum GameRuntimes {
         case .web: return web
         case .ruby: return ruby
         case .windows: return windows
+        case .easyrpg: return easyrpg
         }
     }
 

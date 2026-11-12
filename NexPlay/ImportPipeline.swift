@@ -417,8 +417,11 @@ enum ImportPipeline {
             let wrapper = web.map { $0.engine == .web && FlashRuntime.pageEmbedsFlash(root.appendingPathComponent($0.entry)) } ?? true
             if wrapper { return DetectedGame(engine: .flash, entry: GameScanner.relativePath(of: movie, in: root)) }
         }
+        // 7.1.1: RPG Maker 2000/2003 (RPG_RT.ldb) runs natively on EasyRPG; Windows stays a choice in Game Settings.
+        if web == nil, let database = EasyRPGCore.findDatabase(in: root) {
+            return DetectedGame(engine: .rpg2k, entry: database)
+        }
         // 7.0.0: no web, RPG Maker, Ren'Py, Godot or Flash game, but a Windows program: the Windows runtime runs it.
-        // 7.1.0: RPG Maker 2000/2003 too (RPG_RT.exe), until a native EasyRPG build exists.
         if web == nil, let windows = WindowsGameFiles.detect(in: root) {
             return windows
         }
@@ -480,6 +483,9 @@ enum ImportPipeline {
         }
         if found.engine == .windows {
             return WindowsGameFiles.title(for: found.entry)
+        }
+        if found.engine == .rpg2k {
+            return EasyRPGCore.title(database: root.appendingPathComponent(found.entry))
         }
         if found.engine == .flash {
             let name = (found.entry as NSString).lastPathComponent
@@ -543,6 +549,10 @@ enum ImportPipeline {
             }
         case .renpy:
             break
+        case .rpg2k:
+            notes.append(EasyRPGCore.isPresent
+                ? "RPG Maker 2000/2003 game: it runs natively on EasyRPG Player. Games that need the RTP need it in Settings > Setup Center > RPG Maker 2000/2003."
+                : "RPG Maker 2000/2003 game: this build has no EasyRPG core. Pick Windows in Game Settings > Runtime, or install a newer build.")
         case .windows:
             if let info = WindowsPE.inspect(program: found.entry, in: root) {
                 notes.append("Windows runtime outlook: \(info.summary).")
@@ -595,6 +605,9 @@ enum ImportPipeline {
         case .flash:
             game.orientation = .landscape
             game.gamepad = false
+        case .rpg2k:
+            game.orientation = .landscape
+            game.gamepad = true
         case .windows:
             game.orientation = .landscape
             game.gamepad = false

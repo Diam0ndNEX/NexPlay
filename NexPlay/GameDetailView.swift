@@ -311,6 +311,9 @@ struct GameDetailView: View {
             notice = RenPyRuntime.bundled.isEmpty ? RenPyRuntime.RenPyError.noRuntime.errorDescription : nil
         case .flash:
             notice = FlashRuntime.folder == nil ? FlashRuntime.FlashError.missing.errorDescription : nil
+        case .rpg2k:
+            let fine = EasyRPGCore.isPresent || target.runtime == .windows
+            notice = fine ? nil : "This build has no EasyRPG core. Pick Windows in Game Settings > Runtime, or install a newer build."
         case .windows:
             notice = BCDRuntimeInfo.unavailableReason ?? target.windowsInfo.flatMap {
                 $0.outlook == .likely ? nil : "Windows runtime outlook: \($0.summary)."

@@ -162,6 +162,7 @@ enum DeviceInfo {
             ComponentStatus(name: "JIT helper (StikJIT)",
                             present: JITHelperHost.helperIdentifier != nil && framework("StikJIT.framework")),
             ComponentStatus(name: "Windows runtime (BCD)", present: BCDRuntimeInfo.isPresent),
+            ComponentStatus(name: "EasyRPG (RPG Maker 2000/2003)", present: EasyRPGCore.isPresent),
         ]
     }
 

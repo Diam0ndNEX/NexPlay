@@ -129,6 +129,8 @@ struct SetupCenterView: View {
 
     @AppStorage(SettingsKey.windowsLoadAtLaunch) private var windowsLoadAtLaunch = true
     @State private var windowsError: String?
+    @State private var rtpImport: String?
+    @State private var rtpMessage: String?
 
     private var windowsRuntime: Bool { BCDRuntimeInfo.isPresent }
 
@@ -186,6 +188,40 @@ struct SetupCenterView: View {
                     Text(message).foregroundStyle(.red)
                 } else if windowsRuntime {
                     Text("Windows Games opens BCD's own screen: add .exe games and play them there. Turn JIT on first. Load at Launch prepares the runtime when NexPlay starts, so it opens faster.")
+                }
+            }
+
+            // 7.1.1: EasyRPG and its RTP.
+            Section {
+                SetupRow(title: "EasyRPG in This Build", ok: EasyRPGCore.isPresent,
+                         why: EasyRPGCore.isPresent
+                            ? "Runs RPG Maker 2000/2003 games natively\(EasyRPGCore.buildDate.map { " (core from \($0))" } ?? "")."
+                            : "Runs RPG Maker 2000/2003 games natively. Comes with builds made by the 7.1.1 workflow.")
+                SetupRow(title: "RTP 2000", ok: EasyRPGCore.hasRTP("2000"),
+                         why: "Only games shipped without the standard graphics and sounds need it.",
+                         actionTitle: "Import Folder", action: { rtpImport = "2000" })
+                SetupRow(title: "RTP 2003", ok: EasyRPGCore.hasRTP("2003"),
+                         why: "The same for RPG Maker 2003 games.",
+                         actionTitle: "Import Folder", action: { rtpImport = "2003" })
+            } header: {
+                SettingsHeader(title: "RPG Maker 2000/2003", symbol: "map", color: .orange)
+            } footer: {
+                Text(rtpMessage ?? "Pick the installed RTP folder (it holds Backdrop, CharSet, Music and the other folders).")
+            }
+            .fileImporter(isPresented: Binding(get: { rtpImport != nil }, set: { if !$0 { rtpImport = nil } }),
+                          allowedContentTypes: [.folder]) { result in
+                let version = rtpImport ?? "2000"
+                rtpImport = nil
+                switch result {
+                case .success(let url):
+                    do {
+                        try EasyRPGCore.importRTP(from: url, version: version)
+                        rtpMessage = "RTP \(version) imported."
+                    } catch {
+                        rtpMessage = "The RTP couldn't be copied: \(error.localizedDescription)"
+                    }
+                case .failure(let error):
+                    rtpMessage = error.localizedDescription
                 }
             }
         }

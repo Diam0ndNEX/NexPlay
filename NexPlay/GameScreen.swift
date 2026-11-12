@@ -18,6 +18,9 @@ struct GameScreen: UIViewControllerRepresentable {
         if let player = uiViewController as? PlayerViewController {
             player.shutdown()
         }
+        if let easyrpg = uiViewController as? EasyRPGViewController {
+            easyrpg.shutdown()
+        }
         if let ruby = uiViewController as? RubyPlayerControlling {
             ruby.shutdownRuby()
         }

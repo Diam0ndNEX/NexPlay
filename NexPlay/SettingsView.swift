@@ -764,6 +764,7 @@ struct CreditsView: View {
             }
             Section("Libraries") {
                 Text("StikJIT, https://github.com/StikDebug/StikJIT (MPL-2.0), based on StikDebug: built-in JIT (debugger attach over LocalDevVPN, Developer Disk Image). It bundles idevice, Copyright (c) Jackson Coxson, https://github.com/jkcoxson/idevice (MIT).")
+                Text("EasyRPG Player, https://easyrpg.org (GPL-3.0), with liblcf (MIT): runs RPG Maker 2000/2003 games natively. Its libretro core comes from the libretro buildbot (https://buildbot.libretro.com); NexPlay's frontend follows the libretro API (libretro.h, MIT, The RetroArch team).")
                 Text("ZIPFoundation, Copyright (c) 2017-2026 Thomas Zoechling, https://github.com/weichsel/ZIPFoundation (MIT).")
                 Text("libarchive (part of iOS), https://www.libarchive.org (BSD-2-Clause): 7z, RAR and TAR import.")
                 Text("Godot Engine web runtimes (official export templates), Copyright (c) 2014-present Godot Engine contributors, https://godotengine.org/license (MIT): run desktop Godot games.")
