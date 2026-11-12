@@ -80,8 +80,7 @@ struct GameSavesView: View {
     @State private var selected: Set<String> = []
     @State private var shareURLs: [URL] = []
     @State private var sharing = false
-    @State private var pickingZip = false
-    @State private var pendingRestore: URL?
+    @State private var pickingSaves = false
     @State private var pendingBackup: BackupEntry?
     @State private var confirmDelete = false
     @State private var message: String?
@@ -132,16 +131,17 @@ struct GameSavesView: View {
         .environment(\.colorScheme, .dark)
         .task { await refresh() }
         .sheet(isPresented: $sharing) { ActivityView(items: shareURLs) }
-        .fileImporter(isPresented: $pickingZip, allowedContentTypes: [.zip]) { result in
-            if case .success(let url) = result { pendingRestore = url }
-        }
-        .confirmationDialog("Import these saves?", isPresented: Binding(get: { pendingRestore != nil }, set: { if !$0 { pendingRestore = nil } }),
-                            titleVisibility: .visible) {
-            Button("Import") {
-                if let url = pendingRestore { restore(url) }
-                pendingRestore = nil
+        // ZIPs, loose .rpgsave/.rmmzsave files (from a PC's www/save folder) or a whole save folder. No confirmation
+        // dialog: one shown while the picker is still closing never appears. The import backs up first anyway.
+        .fileImporter(isPresented: $pickingSaves, allowedContentTypes: [.zip, .folder, .item],
+                      allowsMultipleSelection: true) { result in
+            switch result {
+            case .success(let urls):
+                if !urls.isEmpty { importSaves(urls) }
+            case .failure(let error):
+                message = "Couldn't open the files: \(error.localizedDescription)"
             }
-        } message: { Text("Current saves are backed up first, and every replaced file is kept as a .nex-displaced.bak copy.") }
+        }
         .confirmationDialog("Restore this backup?", isPresented: Binding(get: { pendingBackup != nil }, set: { if !$0 { pendingBackup = nil } }),
                             titleVisibility: .visible) {
             Button("Restore") {
@@ -169,7 +169,7 @@ struct GameSavesView: View {
     private var actionTiles: some View {
         HStack(spacing: 10) {
             SaveActionTile(title: "Backup", symbol: "square.and.arrow.down", enabled: !files.isEmpty) { backUpNow() }
-            SaveActionTile(title: "Import", symbol: "square.and.arrow.up", enabled: game?.usesNWMode == true) { pickingZip = true }
+            SaveActionTile(title: "Import", symbol: "square.and.arrow.up", enabled: game?.usesNWMode == true) { pickingSaves = true }
             SaveActionTile(title: "Share", symbol: "square.and.arrow.up.on.square", enabled: !files.isEmpty) { share() }
             SaveActionTile(title: "Delete", symbol: "trash", enabled: selecting && !selected.isEmpty, destructive: true) {
                 confirmDelete = true
@@ -199,7 +199,7 @@ struct GameSavesView: View {
     private var localList: some View {
         VStack(spacing: 12) {
             if files.isEmpty {
-                emptyNote("No save files yet", "Save in the game and they show up here.")
+                emptyNote("No save files yet", "Save in the game and they show up here. To bring saves from a PC, tap Import and pick the .rpgsave/.rmmzsave files (or a ZIP of the save folder).")
             }
             ForEach(files) { file in
                 let isSelected = selected.contains(file.id)
@@ -285,7 +285,7 @@ struct GameSavesView: View {
     private var browserModeNote: some View {
         ScrollView {
             emptyNote("Saves are in web storage",
-                      "This game keeps its saves inside the browser. Back them up from the game: tap its bubble, then the gear, then Saves. RPG Maker games can switch to NW.js mode in Game Settings to keep saves as files.")
+                      "This game keeps its saves inside the browser. Back them up from the game: tap its bubble, then the gear, then Saves. Twine games (like Degrees of Lewdity) also have their own Saves menu with Export and Import. RPG Maker games can switch to NW.js mode in Game Settings to keep saves as files.")
                 .padding(20)
         }
     }
@@ -350,12 +350,28 @@ struct GameSavesView: View {
         }
     }
 
+    /// Imports picked ZIPs, save files or folders (SaveArchive.importSaves opens each one's security scope).
+    private func importSaves(_ urls: [URL]) {
+        guard let game else { return }
+        busy = true
+        Task {
+            do {
+                let count = try await Task.detached { try SaveArchive.importSaves(from: urls, into: game) }.value
+                message = "Imported \(count) save file(s). Your old saves were backed up first (see Backups)."
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                message = "Import failed: \(error.localizedDescription)"
+            }
+            busy = false
+            tab = .local
+            await refresh()
+        }
+    }
+
     private func restore(_ url: URL) {
         guard let game else { return }
         busy = true
         Task {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
                 let count = try await Task.detached { try SaveArchive.restore(zip: url, into: game) }.value
                 message = "Restored \(count) save file(s)."
