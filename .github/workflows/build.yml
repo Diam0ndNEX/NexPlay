@@ -1,4 +1,4 @@
-# Paste as .github/workflows/build.yml (6.3.0: newest Xcode, StikJIT for the JIT helper, ldid for the helper too).
+# Paste as .github/workflows/build.yml (6.4.0: as 6.3.0, plus the newest Windows runtime release merged into the app).
 name: Build NexPlay
 
 on:
@@ -65,6 +65,8 @@ jobs:
             "${EXTRA[@]}"
 
       - name: Package IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir Payload
           cp -R build/Build/Products/Release-iphoneos/NexPlay.app Payload/
@@ -82,6 +84,9 @@ jobs:
           HELPER=Payload/NexPlay.app/PlugIns/NexPlayJITHelper.appex
           test -f "$HELPER/NexPlayJITHelper" || { echo "::error::The JIT helper is missing from the app"; exit 1; }
           test -d Payload/NexPlay.app/Frameworks/StikJIT.framework || { echo "::error::StikJIT.framework is missing from the app"; exit 1; }
+          # 6.4.0: the Windows runtime (BCDCore.framework and its files) from the newest windows-runtime release.
+          # None yet: a warning, and the app is built without Windows games.
+          bash tools/windows/merge_runtime.sh Payload/NexPlay.app
           # The Xcode build is unsigned, so write the entitlements into the binaries here (ad-hoc signature), helper first.
           # Signing apps that keep binary entitlements pass them on; Settings > Diagnostics shows what survived.
           ldid -SNexPlayJITHelper/NexPlayJITHelper.entitlements "$HELPER/NexPlayJITHelper"
@@ -90,7 +95,8 @@ jobs:
           ldid -e Payload/NexPlay.app/NexPlay
           echo "Entitlements in the JIT helper:"
           ldid -e "$HELPER/NexPlayJITHelper"
-          zip -qry "$NAME.ipa" Payload
+          zip -qry -1 "$NAME.ipa" Payload
+          ls -la "$NAME.ipa"
           echo "IPA_NAME=$NAME" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
