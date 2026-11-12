@@ -43,12 +43,17 @@ struct GodotLaunch {
     /// Lines for the game log (pack header, repairs).
     let notes: [String]
     /// Extra command-line arguments for the engine (a main scene the project only names for some platforms).
+    /// May hold `GodotRuntime.overrideMarker` entries, which the launcher page turns into preloaded files.
     let args: [String]
 }
 
 enum GodotRuntime {
     private static let magic: UInt32 = 0x4350_4447 // "GDPC" little-endian
     static let executableExtensions: Set<String> = ["exe", "x86_64", "x86_32", "arm64", ""]
+    /// An argument starting with this names an override.cfg beside the pack (file name only). The launcher page
+    /// removes it from the engine arguments and copies the file next to the pack in Godot's file system, where
+    /// Godot loads it like a desktop build does (override.cfg beside the executable / main pack).
+    static let overrideMarker = "--nexplay-override="
 
     // MARK: - Packs
 
@@ -329,6 +334,8 @@ enum GodotRuntime {
         var mainScene: String?
         /// A main scene named only for some platforms ("application/run/main_scene.pc"), passed on the command line.
         var platformScene: String?
+        /// Every scene in the pack (res:// paths, remaps resolved to the original name).
+        var scenes: [String] = []
     }
 
     /// Reads the pack directory (formats 1-3, not encrypted) and the project settings in it.
@@ -355,17 +362,20 @@ enum GodotRuntime {
         var info = PackInfo()
         info.files = Int(count)
         var project: (offset: UInt64, size: UInt64)?
+        var sceneSet = Set<String>()
         for _ in 0..<count {
             guard let length = reader.u32(at: position), length < 65_536,
-                  let nameData = reader.data(at: position + 4, count: Int(length)) else { return info }
+                  let nameData = reader.data(at: position + 4, count: Int(length)) else { break }
             position += 4 + UInt64(length)
-            guard let offset = reader.u64(at: position), let size = reader.u64(at: position + 8) else { return info }
+            guard let offset = reader.u64(at: position), let size = reader.u64(at: position + 8) else { break }
             position += head.format >= 2 ? 36 : 32
             let name = String(decoding: nameData.prefix { $0 != 0 }, as: UTF8.self)
             if name.hasSuffix("project.binary") && !name.contains("/.godot/") {
                 project = (base + offset, size)
             }
+            if let scene = scenePath(name) { sceneSet.insert(scene) }
         }
+        info.scenes = sceneSet.sorted()
         guard let project, project.size > 0, project.size < 16_000_000,
               let data = reader.data(at: project.offset, count: Int(project.size)) else { return info }
         info.hasProject = data.prefix(4) == Data("ECFG".utf8)
@@ -374,6 +384,46 @@ enum GodotRuntime {
             info.platformScene = sceneValue(after: "application/run/main_scene.", in: data, exact: false)
         }
         return info
+    }
+
+    /// A pack entry as a scene path ("res://Main.tscn"), or nil when it is not a scene. "x.tscn.remap" becomes
+    /// "x.tscn" (Godot follows the remap); converted copies and import caches are skipped.
+    private static func scenePath(_ entry: String) -> String? {
+        var path = entry
+        if path.lowercased().hasSuffix(".remap") { path = String(path.dropLast(6)) }
+        let lower = path.lowercased()
+        guard lower.hasSuffix(".tscn") || lower.hasSuffix(".scn") || lower.hasSuffix(".escn") else { return nil }
+        if lower.contains(".converted.") || lower.contains(".import/") || lower.contains(".godot/") { return nil }
+        if !path.hasPrefix("res://") {
+            path = path.hasPrefix("/") ? "res:/" + path : "res://" + path
+        }
+        if path.lowercased().hasPrefix("res://addons/") { return nil }
+        return path
+    }
+
+    /// How deep a res:// path is (0 = at the top of the project).
+    private static func depth(_ path: String) -> Int {
+        path.dropFirst(6).filter { $0 == "/" }.count
+    }
+
+    /// A likely main scene when the project names none: a scene called main, boot, splash, title... (shallowest
+    /// first), else the only scene at the top of the project. nil when nothing looks right.
+    static func guessMainScene(_ scenes: [String]) -> String? {
+        let preferred = ["main", "boot", "bootstrap", "start", "startup", "launcher", "entry", "init", "root",
+                         "splash", "splashscreen", "splash_screen", "intro", "title", "titlescreen", "title_screen",
+                         "mainmenu", "main_menu", "menu", "game", "loader", "loading"]
+        var best: (score: Int, path: String)?
+        for path in scenes {
+            let file = (path as NSString).lastPathComponent
+            let name = (file as NSString).deletingPathExtension.lowercased()
+            guard let rank = preferred.firstIndex(of: name) else { continue }
+            let score = rank * 10 + min(depth(path), 9)
+            if let current = best, current.score <= score { continue }
+            best = (score: score, path: path)
+        }
+        if let best { return best.path }
+        let top = scenes.filter { depth($0) == 0 }
+        return top.count == 1 ? top[0] : nil
     }
 
     /// The first res:// or uid:// string after a settings key (the key is followed by its value in project.binary).
@@ -395,6 +445,49 @@ enum GodotRuntime {
             }
         }
         return nil
+    }
+
+    // MARK: - override.cfg
+
+    /// An override.cfg beside the pack (any letter case). Desktop Godot loads it from beside the executable and
+    /// lets it change project settings, including the main scene.
+    static func overrideFile(beside pack: URL) -> URL? {
+        let dir = pack.deletingLastPathComponent()
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        guard let name = names.first(where: { $0.lowercased() == "override.cfg" }) else { return nil }
+        return dir.appendingPathComponent(name)
+    }
+
+    /// The main scene an override.cfg sets ([application] run/main_scene="res://..."), a per-platform one if that
+    /// is all it has.
+    static func overrideScene(_ url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url), data.count < 4_000_000 else { return nil }
+        let text = String(decoding: data, as: UTF8.self)
+        var section = ""
+        var exact: String?
+        var perPlatform: String?
+        for raw in text.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix(";") || line.hasPrefix("#") { continue }
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                section = String(line.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+                continue
+            }
+            guard let equals = line.firstIndex(of: "=") else { continue }
+            var key = line[..<equals].trimmingCharacters(in: .whitespaces)
+            if key.hasPrefix("\"") && key.hasSuffix("\"") && key.count >= 2 { key = String(key.dropFirst().dropLast()) }
+            var value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            if value.hasPrefix("\"") { value.removeFirst() }
+            if value.hasSuffix("\"") { value.removeLast() }
+            guard value.hasPrefix("res://") || value.hasPrefix("uid://") else { continue }
+            let full = section.isEmpty ? key : section + "/" + key
+            if full == "application/run/main_scene" {
+                exact = value
+            } else if full.hasPrefix("application/run/main_scene.") && perPlatform == nil {
+                perPlatform = value
+            }
+        }
+        return exact ?? perPlatform
     }
 
     /// Unpacks a bundled runtime into Application Support/NexPlay/GodotRuntimes/<version>/ once, and returns the
@@ -423,16 +516,38 @@ enum GodotRuntime {
         notes.append(head.summary)
         if head.encrypted { throw RuntimeError.encrypted }
         var args: [String] = []
+        var cfgScene: String?
+        if let cfg = overrideFile(beside: pack) {
+            args.append(overrideMarker + cfg.lastPathComponent)
+            cfgScene = overrideScene(cfg)
+            var line = "\(cfg.lastPathComponent) found beside the pack, loaded into the game"
+            if let cfgScene { line += " (main scene \(cfgScene))" }
+            notes.append(line)
+        }
         if let info = inspect(pack) {
-            var line = "pack holds \(info.files) files"
+            var line = "pack holds \(info.files) files, \(info.scenes.count) scenes"
             line += info.hasProject ? ", project settings found" : ", NO project settings (project.binary) found"
             if let scene = info.mainScene { line += ", main scene \(scene)" }
             if let scene = info.platformScene {
                 line += ", main scene only set per platform (\(scene)), passed on the command line"
                 args.append(scene)
             }
-            if info.hasProject && info.mainScene == nil && info.platformScene == nil { line += ", no main scene set" }
+            if info.mainScene == nil && info.platformScene == nil {
+                if let cfgScene {
+                    line += ", main scene from override.cfg \(cfgScene), passed on the command line"
+                    args.append(cfgScene)
+                } else if let guess = guessMainScene(info.scenes) {
+                    line += ", no main scene set; guessed \(guess), passed on the command line"
+                    args.append(guess)
+                } else {
+                    line += ", no main scene set and none could be guessed"
+                }
+            }
             notes.append(line)
+            if info.mainScene == nil && cfgScene == nil && !info.scenes.isEmpty {
+                let top = info.scenes.sorted { (depth($0), $0) < (depth($1), $1) }.prefix(15)
+                notes.append("top scenes in the pack: " + top.joined(separator: ", "))
+            }
         }
         guard let picked = GodotRuntime.runtime(for: head.version, override: chosen) else {
             throw RuntimeError.noRuntime(head.version.description, GodotRuntime.bundled.map { $0.description })
@@ -468,9 +583,25 @@ enum GodotRuntime {
     // MARK: - Launcher
 
     /// The page that starts a desktop game on the web runtime. Paths are URL paths on the local server.
+    /// `packPath` is percent-encoded and relative to the game folder.
     static func launcherPage(packPath: String, title: String, threads: Bool, args: [String] = []) -> Data {
         let pack = PageScripts.jsString("/" + packPath)
-        let argList = "[" + args.map { PageScripts.jsString($0) }.joined(separator: ", ") + "]"
+        // override.cfg goes next to the pack in Godot's file system (same folder as the pack's path there).
+        let packDir = (packPath as NSString).deletingLastPathComponent
+        let prefix = packDir.isEmpty ? "/" : "/" + packDir + "/"
+        var preloads: [String] = []
+        var engineArgs: [String] = []
+        for arg in args {
+            if arg.hasPrefix(overrideMarker) {
+                let name = String(arg.dropFirst(overrideMarker.count))
+                let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+                preloads.append("[" + PageScripts.jsString(prefix + encoded) + ", " + PageScripts.jsString(prefix + "override.cfg") + "]")
+            } else {
+                engineArgs.append(arg)
+            }
+        }
+        let argList = "[" + engineArgs.map { PageScripts.jsString($0) }.joined(separator: ", ") + "]"
+        let preloadList = "[" + preloads.joined(separator: ", ") + "]"
         let name = title.replacingOccurrences(of: "<", with: "").replacingOccurrences(of: "&", with: "")
         let html = """
         <!DOCTYPE html>
@@ -523,14 +654,25 @@ enum GodotRuntime {
                     if (missing && missing.length) { fail('Missing browser features: ' + missing.join(', ')); return; }
                 }
                 text.textContent = 'Loading…';
-                engine.startGame({
-                    onProgress: function (current, total) {
-                        if (total > 0) {
-                            var p = Math.min(100, Math.floor(current * 100 / total));
-                            fill.style.width = p + '%';
-                            text.textContent = 'Loading… ' + p + '%';
+                var preloads = \(preloadList);
+                var ready = Promise.all(preloads.map(function (p) {
+                    if (typeof engine.preloadFile !== 'function') { return null; }
+                    return Promise.resolve(engine.preloadFile(p[0], p[1])).then(function () {
+                        console.log('godot: loaded ' + decodeURIComponent(p[0]) + ' as ' + decodeURIComponent(p[1]));
+                    }, function (e) {
+                        console.log('godot: could not load ' + decodeURIComponent(p[0]) + ': ' + (e && e.message ? e.message : e));
+                    });
+                }));
+                ready.then(function () {
+                    return engine.startGame({
+                        onProgress: function (current, total) {
+                            if (total > 0) {
+                                var p = Math.min(100, Math.floor(current * 100 / total));
+                                fill.style.width = p + '%';
+                                text.textContent = 'Loading… ' + p + '%';
+                            }
                         }
-                    }
+                    });
                 }).then(function () {
                     status.style.display = 'none';
                     canvas.focus();
