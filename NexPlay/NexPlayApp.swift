@@ -98,6 +98,7 @@ struct NexPlayApp: App {
         SettingsKey.portraitGameOffset: 0.0,
         SettingsKey.animatedBackground: true,
         SettingsKey.backgroundTheme: "nebula",
+        SettingsKey.colorProfile: "nebula",
         SettingsKey.whatsNewSeen: "",
         SettingsKey.jitAutoForGames: true,
         SettingsKey.jitAtLaunch: false,

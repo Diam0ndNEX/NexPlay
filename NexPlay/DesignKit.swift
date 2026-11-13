@@ -7,10 +7,14 @@ import CoreText
 // cover/photo pickers. Layout ideas (ring with percent, pre-launch page, tiles) come from RPGPlayer screenshots;
 // the code is NexPlay's own.
 
+/// 8.1.0: follows the selected colour profile (DesignSystem.swift, dark values; Nebula = the old colours).
+/// New code uses `NexColor` instead.
 enum NexStyle {
-    static let accent = Color(red: 0.62, green: 0.48, blue: 1)
-    static let accentDeep = Color(red: 0.45, green: 0.3, blue: 0.95)
-    static let accentGradient = LinearGradient(colors: [accentDeep, accent], startPoint: .leading, endPoint: .trailing)
+    static var accent: Color { NexColor.dark(.accentSoft) }
+    static var accentDeep: Color { NexColor.dark(.accent) }
+    static var accentGradient: LinearGradient {
+        LinearGradient(colors: [accentDeep, accent], startPoint: .leading, endPoint: .trailing)
+    }
     static let cardStroke = Color.white.opacity(0.12)
 }
 

@@ -222,9 +222,10 @@ struct SettingsView: View {
     private func resetDefaults() {
         let defaults = UserDefaults.standard
         let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys + SettingsKey.powerKeys + SettingsKey.hudKeys
-            + [SettingsKey.translationEnabled]
+            + [SettingsKey.translationEnabled, SettingsKey.colorProfile, SettingsKey.colorProfileSeed]
         for key in keys { defaults.removeObject(forKey: key) }
         OrientationManager.unlock()
+        NexTheme.shared.reload()
         AppLog.log("settings reset to defaults")
         message = "Settings are back to their defaults."
     }

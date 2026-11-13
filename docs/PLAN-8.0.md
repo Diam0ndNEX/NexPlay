@@ -7,7 +7,8 @@ once all steps are done, then pastes build errors (first error first).
 | Step | Version | State |
 |---|---|---|
 | Core merge | 8.0.0 (64) | pushed 2026-11-13, not built yet |
-| Design system | 8.1.0 | next |
+| Design system: tokens, profiles, fonts, glass, motion, placeholder covers | 8.1.0 (66) | pushed 2026-11-13 |
+| Design system applied: Home, Library, tab bar, Settings, Setup Center | 8.1.1 | next |
 | Controls | 8.2.0 | |
 | In-game | 8.3.0 | |
 | Game page | 8.4.0 | |
@@ -17,6 +18,13 @@ once all steps are done, then pastes build errors (first error first).
 
 8.0.0 notes: BCD's store (Steam, GOG, Epic, EA), Dock, front-end, update, feedback-upload and JIT-setup files are still
 compiled (unreachable: no screen shows them). What's New still says 7.8 (8.7.0 updates it).
+
+8.1.0 notes: split in two. 8.1.0 adds `NexPlay/DesignSystem.swift` only (no screen uses it yet): `NexTheme`/`NexThemeProfile`
+(Nebula default = the old NexStyle violet, plus BCD's Violet, Ocean, Forest, Ember, Rose, Graphite and a custom profile from
+one colour; settings `colorProfile`, `colorProfileSeed`), `NexColor` tokens (light-mode variants derived from the dark profile;
+`NexColor.dark` for always-dark screens), `NexMetrics`, `NexType` (pixel font only in `display`), `nexGlass`/`nexCard`, button
+styles, `NexMotion` + `nexAnimation` (Reduce Motion), `NexHaptics`, `GameEngine.accent`, `NexPlaceholderCover`. `NexStyle`
+now follows the profile. 8.1.1 applies it (and adds the profile picker to Appearance).
 
 ## Owner's decisions of 2026-11-13 (second round)
 - **Other stores stay in the code, hidden** (replaces "Drop Steam, GOG, Epic and EA" below). Reason: BCD updates. An
