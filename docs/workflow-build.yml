@@ -1,0 +1,151 @@
+# Paste as .github/workflows/build.yml (NexPlay 7.13.2; replaces docs/workflow-7.1.1.yml).
+# Same build as 7.1.1, faster:
+#  - a newer push cancels a build of an older one that is still running,
+#  - StikJIT, the app icon and the Godot / Ren'Py / Ruffle downloads are cached between runs,
+#  - Swift compiles files in parallel (batch mode) and no dSYM or code index is made.
+# The parts added after the Xcode build (Windows runtime, EasyRPG core, later ones) come from
+# tools/ci/package_extras.sh, so they don't need a new workflow file.
+name: Build NexPlay
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mkxp:
+        description: "Build with the RPG Maker XP/VX/Ace core (experimental)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Choose build type
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.mkxp }}" = "true" ]; then
+            echo "NEXPLAY_MKXP=1" >> "$GITHUB_ENV"
+          else
+            echo "NEXPLAY_MKXP=0" >> "$GITHUB_ENV"
+          fi
+
+      # StikJIT's Swift interface is made with a recent Xcode: use the newest one on the runner.
+      - name: Select the newest Xcode
+        run: |
+          NEWEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)
+          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST"; fi
+          xcodebuild -version
+          echo "XCODE_ID=$(xcodebuild -version | tr -d '\n ' )" >> "$GITHUB_ENV"
+
+      - name: Restore cached downloads
+        uses: actions/cache@v4
+        with:
+          key: nexplay-app-${{ env.XCODE_ID }}-${{ hashFiles('tools/jit/stikjit.version', 'tools/fetch_stikjit.sh', 'tools/godot/runtimes.txt', 'tools/renpy/runtimes.txt', 'tools/ruffle/version.txt', 'tools/make_icon.py') }}
+          restore-keys: |
+            nexplay-app-${{ env.XCODE_ID }}-
+          path: |
+            vendor/StikJIT
+            build/godot-cache
+            build/renpy-cache
+            build/ruffle-cache
+            build/icon-cache
+
+      - name: Generate app icon
+        run: |
+          ICON=NexPlay/Assets.xcassets/AppIcon.appiconset/icon-1024.png
+          STAMP="$(shasum -a 256 tools/make_icon.py | cut -c1-16)"
+          if [ -f "build/icon-cache/$STAMP.png" ]; then
+            cp "build/icon-cache/$STAMP.png" "$ICON"
+            echo "icon from the cache"
+          else
+            python3 tools/make_icon.py "$ICON"
+            mkdir -p build/icon-cache
+            rm -f build/icon-cache/*.png
+            cp "$ICON" "build/icon-cache/$STAMP.png"
+          fi
+
+      - name: Install XcodeGen and ldid
+        run: brew install xcodegen ldid
+
+      - name: Fetch StikJIT (built-in JIT)
+        run: bash tools/fetch_stikjit.sh
+
+      - name: Build the mkxp core (XP/VX/Ace)
+        if: env.NEXPLAY_MKXP == '1'
+        run: bash tools/fetch_mkxp_core.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          EXTRA=()
+          if [ "$NEXPLAY_MKXP" = "1" ]; then
+            EXTRA+=("SWIFT_ACTIVE_COMPILATION_CONDITIONS=NEXPLAY_MKXP" "GCC_PREPROCESSOR_DEFINITIONS=NEXPLAY_MKXP=1")
+          fi
+          xcodebuild -project NexPlay.xcodeproj -scheme NexPlay \
+            -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            SWIFT_COMPILATION_MODE=singlefile \
+            DEBUG_INFORMATION_FORMAT=dwarf \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            ONLY_ACTIVE_ARCH=YES \
+            "${EXTRA[@]}"
+
+      - name: Package IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/NexPlay.app Payload/
+          NAME=NexPlay-unsigned
+          if [ "$NEXPLAY_MKXP" = "1" ]; then
+            DEPS=vendor/empo/ios/Dependencies
+            mkdir -p Payload/NexPlay.app/Frameworks
+            cp -R "$DEPS/build-iphoneos-arm64/MkxpCore.framework" Payload/NexPlay.app/Frameworks/
+            if [ -d "$DEPS/ANGLE/iphoneos" ]; then
+              find "$DEPS/ANGLE/iphoneos" -maxdepth 2 -name '*.framework' -exec cp -R {} Payload/NexPlay.app/Frameworks/ \;
+            fi
+            NAME=NexPlay-mkxp-unsigned
+          fi
+          # 6.3.0: the JIT helper and StikJIT must be in the app.
+          HELPER=Payload/NexPlay.app/PlugIns/NexPlayJITHelper.appex
+          test -f "$HELPER/NexPlayJITHelper" || { echo "::error::The JIT helper is missing from the app"; exit 1; }
+          test -d Payload/NexPlay.app/Frameworks/StikJIT.framework || { echo "::error::StikJIT.framework is missing from the app"; exit 1; }
+          # 7.1.1: Windows runtime (newest windows-runtime release) and EasyRPG core; each missing part is a warning.
+          bash tools/ci/package_extras.sh Payload/NexPlay.app
+          # The Xcode build is unsigned, so write the entitlements into the binaries here (ad-hoc signature), helper first.
+          # Signing apps that keep binary entitlements pass them on; Settings > Diagnostics shows what survived.
+          ldid -SNexPlayJITHelper/NexPlayJITHelper.entitlements "$HELPER/NexPlayJITHelper"
+          ldid -SNexPlay/NexPlay.entitlements Payload/NexPlay.app/NexPlay
+          echo "Entitlements in the app binary:"
+          ldid -e Payload/NexPlay.app/NexPlay
+          echo "Entitlements in the JIT helper:"
+          ldid -e "$HELPER/NexPlayJITHelper"
+          zip -qry -1 "$NAME.ipa" Payload
+          ls -la "$NAME.ipa"
+          echo "IPA_NAME=$NAME" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}
+          path: ${{ env.IPA_NAME }}.ipa
+          compression-level: 0
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}${{ env.NEXPLAY_MKXP == '1' && '-mkxp' || '' }}
+          name: NexPlay build ${{ github.run_number }}${{ env.NEXPLAY_MKXP == '1' && ' (XP/VX/Ace core)' || '' }}
+          files: ${{ env.IPA_NAME }}.ipa

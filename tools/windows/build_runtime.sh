@@ -40,6 +40,9 @@ shasum -a 256 "$BCD/app/Madeira/d3d12/libmetalirconverter.dylib"
 bash build/madeira-d3d12/deps.sh && echo "deps.sh: converter OK"
 echo "::endgroup::"
 
+# Compiler cache (set up by the workflow): count this run's hits from zero.
+if command -v ccache >/dev/null 2>&1; then ccache -z >/dev/null 2>&1 || true; fi
+
 echo "::group::BCD's build steps"
 python3 "$NX/run_bcd_ci.py" --root "$BCD" --until "Archive (unsigned)"
 echo "::endgroup::"
@@ -64,3 +67,9 @@ fi
 
 python3 "$NX/run_bcd_ci.py" --root "$BCD" --only "Verify the macdrv symbols DXMT resolves at runtime"
 bash "$NX/package_runtime.sh" "$BCD" "$WS/out"
+
+if command -v ccache >/dev/null 2>&1; then
+  echo "::group::Compiler cache"
+  ccache -s || true
+  echo "::endgroup::"
+fi

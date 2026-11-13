@@ -83,6 +83,29 @@ def truthy(value):
     return value not in (None, "", False, 0, 0.0)
 
 
+# Parts the "Build Windows runtime" workflow builds on their own runners at the same time (its `part` jobs), each
+# with only the BCD steps it needs. They are an accelerator only: when a part fails or is skipped, the main job's
+# full replay builds that piece itself (BCD's restore steps miss and its build steps run).
+PARTS = {
+    "llvm": ["Select newest Xcode", "Restore LLVM 15.0.7 iOS build",
+             "Build LLVM 15.0.7 for iOS (two-stage, per build/dxmt-ios/README.md)", "Verify LLVM iOS build",
+             "Save LLVM 15.0.7 iOS build"],
+    "gnutls": ["Select newest Xcode", "Restore GnuTLS iOS stack", "Build GnuTLS stack for iOS",
+               "Verify GnuTLS iOS headers and libs", "Save GnuTLS iOS stack"],
+    "ffmpeg": ["Select newest Xcode", "Restore FFmpeg iOS", "Build FFmpeg for iOS", "Save FFmpeg iOS"],
+    "opengl": ["Select newest Xcode", "Install newer bison (macOS ships an ancient 2.3)",
+               "Restore OpenGL libraries (MoltenVK, Mesa OSMesa + Zink)", "Build MoltenVK for iOS",
+               "Build Mesa OSMesa + Zink for iOS", "Save OpenGL libraries"],
+    "wine-native": ["Select newest Xcode", "Install newer bison (macOS ships an ancient 2.3)", "Wine submodule revision",
+                    "Work around wine's uncommitted arm64ec_x64_export_iat.c", "Restore native wine tools",
+                    "Build native wine (for host-side tools: widl/wrc/wmc)", "Save native wine tools"],
+    "fex-ios": ["Select newest Xcode", "FEX submodule revision", "Restore FEX iOS build",
+                "Patch FEX IOS_RPM_GUARD for the system-allocator branch",
+                "Guard FEX diagnostic probes for the iOS static-lib target", "Build FEX for iOS",
+                "Verify FEX iOS archives", "Save FEX iOS build"],
+}
+
+
 class Runner:
     def __init__(self, root, workflow_path):
         self.root = os.path.abspath(root)
@@ -91,16 +114,22 @@ class Runner:
         self.job = jobs[next(iter(jobs))]
         self.state_path = os.path.join(self.root, ".nexplay-ci-state.json")
         self.cache_dir = os.path.join(self.root, ".nexplay-cache")
-        self.keys_path = os.path.join(self.cache_dir, "keys.json")
+        # A part job writes keys-<part>.json; the main job reads every keys*.json (its own and the parts') and
+        # writes keys.json.
+        part = os.environ.get("NEXPLAY_PART", "")
+        self.keys_path = os.path.join(self.cache_dir, "keys-%s.json" % part if part else "keys.json")
         os.makedirs(self.cache_dir, exist_ok=True)
         self.state = {"env": {}, "path": [], "outputs": {}, "outcomes": {}, "failed": False}
         if os.path.exists(self.state_path):
             with open(self.state_path) as f:
                 self.state.update(json.load(f))
         self.keys = {}
-        if os.path.exists(self.keys_path):
-            with open(self.keys_path) as f:
-                self.keys = json.load(f)
+        for path in sorted(glob.glob(os.path.join(self.cache_dir, "keys*.json"))):
+            try:
+                with open(path) as f:
+                    self.keys.update(json.load(f))
+            except (OSError, ValueError):
+                print("::warning::unreadable cache key file %s" % os.path.basename(path))
 
     # ---------- state ----------
     def save_state(self):
@@ -460,9 +489,23 @@ def main():
     parser.add_argument("--workflow", default=".github/workflows/build-ipa.yml")
     parser.add_argument("--until")
     parser.add_argument("--only", action="append")
+    parser.add_argument("--part", choices=sorted(PARTS))
     args = parser.parse_args()
+    # Print each line as it happens (the log used to arrive in one block at the end).
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
     runner = Runner(args.root, args.workflow)
-    sys.exit(runner.execute(until=args.until, only=args.only))
+    only = args.only
+    if args.part:
+        names = [s.get("name") for s in (runner.job.get("steps") or [])]
+        missing = [n for n in PARTS[args.part] if n not in names]
+        if missing:
+            print("::warning::part %s: BCD has no step %s; the main job builds it" % (args.part, missing))
+            sys.exit(1)
+        only = PARTS[args.part]
+    sys.exit(runner.execute(until=args.until, only=only))
 
 
 if __name__ == "__main__":

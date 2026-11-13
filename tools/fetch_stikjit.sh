@@ -8,9 +8,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(tr -d ' \n\r' < "$ROOT/tools/jit/stikjit.version")"
 DEST="$ROOT/vendor/StikJIT"
+STAMP="$VERSION / $(xcodebuild -version | head -1)"
+# 7.13.2: the workflow caches vendor/StikJIT; reuse it when it was made for this version and this Xcode.
+if [ -d "$DEST/StikJIT.xcframework" ] && [ "$(cat "$DEST/.stamp" 2>/dev/null)" = "$STAMP" ]; then
+  echo "StikJIT $STAMP from the cache"
+  exit 0
+fi
 rm -rf "$DEST"
 mkdir -p "$DEST"
-echo "StikJIT $VERSION with $(xcodebuild -version | head -1)"
+echo "StikJIT $STAMP"
 
 if curl -fsSL -o "$DEST/StikJIT.xcframework.zip" \
     "https://github.com/StikDebug/StikJIT/releases/download/$VERSION/StikJIT.xcframework.zip"; then
@@ -52,3 +58,5 @@ if [ ! -d "$DEST/StikJIT.xcframework" ]; then
 fi
 echo "StikJIT ready:"
 ls "$DEST/StikJIT.xcframework"
+
+if [ -d "$DEST/StikJIT.xcframework" ]; then echo "$STAMP" > "$DEST/.stamp"; fi
