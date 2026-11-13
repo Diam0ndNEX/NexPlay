@@ -21,7 +21,7 @@ MSC_DYLIB="$BCD/app/Madeira/d3d12/libmetalirconverter.dylib"
 if [ ! -f "$MSC_DYLIB" ]; then
   echo "::group::Metal Shader Converter (from the draft release msc-installer)"
   PKG_DIR="$BCD/research/GPTK"
-  PKG="$PKG_DIR/Metal Shader Converter 4.0 beta 2.pkg"
+  PKG="$PKG_DIR/Metal Shader Converter 4.0 beta 3.pkg"
   mkdir -p "$PKG_DIR"
   if [ -z "${GH_TOKEN:-}" ]; then
     echo "::error::GH_TOKEN is not set for this step: paste the newest docs/workflow-windows-runtime.yml as build-windows-runtime.yml"
@@ -35,7 +35,30 @@ if [ ! -f "$MSC_DYLIB" ]; then
   fi
   gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" > "$PKG"
   ls -l "$PKG"
-  echo "pkg sha256: $(shasum -a 256 "$PKG" | cut -d' ' -f1) (BCD pins 1acc33c87ea663933df89721a998d066106685473020bcbe007cee7a16155734)"
+    # BCD pins beta 2 (pkg 1acc33c8..., iOS dylib 073f903b...). The installer Apple offers now is beta 3: when that is what
+  # we got, point BCD's two scripts at it (same version line 4.0; its headers replace the vendored ones in fetch-converter.sh).
+  B2_PKG=1acc33c87ea663933df89721a998d066106685473020bcbe007cee7a16155734
+  B2_LIB=073f903be98e973ff38f4d79f2c48d61ef938754a77b1caedda79c9f05a068c2
+  B3_PKG=449833211e4ef0d46bfaa94848e801acff49e226d3c348bba0673f13716be622
+  B3_LIB=3040a91ea3559dbcf966f3dfbb21614275e217b4f63fcf8c67de23b17d3f5518
+  GOT=$(shasum -a 256 "$PKG" | cut -d' ' -f1)
+  if [ "$GOT" = "$B3_PKG" ]; then
+    python3 - "$BCD" "$B2_PKG" "$B3_PKG" "$B2_LIB" "$B3_LIB" <<'PY'
+import sys
+bcd, o_pkg, n_pkg, o_lib, n_lib = sys.argv[1:6]
+for rel in ("build/madeira-d3d12/fetch-converter.sh", "build/madeira-d3d12/deps.sh"):
+    p = bcd + "/" + rel
+    s = open(p).read()
+    t = s.replace(o_pkg, n_pkg).replace(o_lib, n_lib).replace("4.0 beta 2.pkg", "4.0 beta 3.pkg")
+    print(rel, "patched" if t != s else "NOT CHANGED")
+    open(p, "w").write(t)
+PY
+  elif [ "$GOT" = "$B2_PKG" ]; then
+    mv "$PKG" "$PKG_DIR/Metal Shader Converter 4.0 beta 2.pkg"
+  else
+    echo "::error::The installer is neither beta 2 nor beta 3 (sha256 $GOT): BCD's pinned hashes would reject it"
+    exit 1
+  fi
   bash build/madeira-d3d12/fetch-converter.sh
   echo "::endgroup::"
 fi
