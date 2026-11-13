@@ -11,13 +11,35 @@ once all steps are done, then pastes build errors (first error first).
 | Controls | 8.2.0 | |
 | In-game | 8.3.0 | |
 | Game page | 8.4.0 | |
-| itch.io (stores out) | 8.5.0 | |
+| itch.io (other stores hidden) | 8.5.0 | |
 | Settings and extras | 8.6.0 | |
 | Polish and cleanup | 8.7.0 | |
 
 8.0.0 notes: BCD's store (Steam, GOG, Epic, EA), Dock, front-end, update, feedback-upload and JIT-setup files are still
-compiled (unreachable: no screen shows them) because ~80 references in ContentView, Library, the game page and Settings
-name them. 8.5.0 removes the stores, 8.7.0 the rest. What's New still says 7.8 (8.7.0 updates it).
+compiled (unreachable: no screen shows them). What's New still says 7.8 (8.7.0 updates it).
+
+## Owner's decisions of 2026-11-13 (second round)
+- **Other stores stay in the code, hidden** (replaces "Drop Steam, GOG, Epic and EA" below). Reason: BCD updates. An
+  update re-copies BCD's app/Madeira and re-applies NEXPLAY-CHANGES.md; every BCD file we edit is a file to merge by
+  hand each time, and removing the stores means ~80 edits in the files BCD changes most (ContentView, Library, the game
+  page, Settings). So: no store screen, sign-in or Settings row for Steam/GOG/Epic/EA/Dock appears in NexPlay; only
+  itch.io is shown. Their code stays compiled and untouched, so a later "show Steam" is a small change.
+  Rule for every 8.x step: change BCD files as little as possible; put NexPlay's behaviour in NexPlay files or in small
+  hooks, and list each BCD edit in NEXPLAY-CHANGES.md.
+- **Helper memory (BCD's MadeiraMemoryHost extension):** Claude's call. Plan: 8.6.0 adds it as an optional second
+  extension, off by default (BCD's `mempool-mb` per game), only if its entitlements fit the owner's certificate;
+  skipped otherwise. It lends big games extra RAM: the extension reserves memory, hands it over and quits, and memory
+  owned by a quit process doesn't count against NexPlay's limit.
+- **One Windows game per app launch stays** (Wine runs as threads inside NexPlay; iOS can't start a new process, so
+  only quitting the app resets Wine). Ideas around it instead:
+  - 8.3.0: the second-game case is an error card with a clear message and a **Close NexPlay** button; Play buttons
+    of other Windows games say "Restart NexPlay to play" once a Windows game ran this launch (library card, game page).
+  - 8.3.0: Quit Game in the Windows panel and BCD's menu warns that another Windows game needs a restart.
+  - 8.4.0: games that only need a restart after an installer (setup.exe, redistributables) get a "Restart and Play"
+    hint, so installing and playing is understood as two launches.
+  - 8.7.0: when NexPlay comes back after the owner swiped it away, a Windows game started from the error card's
+    "Close NexPlay" can open its game page again (a pending-play note saved before exit(0)).
+  - Web, Ren'Py, Godot, Flash, EasyRPG games are not affected and can still be played after a Windows game.
 
 ## Owner's decisions
 - **Stores:** itch.io only, for now. Steam, GOG, Epic and EA stay out.
@@ -75,6 +97,6 @@ Fits every game type: sections appear by capability (`RuntimeCapabilities`): a T
 3. **8.2.0 Controls:** Controls Style (both systems), shared extras, merged physical controllers.
 4. **8.3.0 In-game:** BCD's HUD and in-game menu merged into the Game Panel and Performance HUD, for every engine.
 5. **8.4.0 Game page:** BCD's layout with engine-aware sections. Also AutoTune and recommendations, graphics, prefix tools, installers and saves for PC games.
-6. **8.5.0 itch.io:** sign in, library, download and install into NexPlay, every engine.
-7. **8.6.0 Settings and extras:** BCD settings sections, external drives, foldables, logs, readiness checks in Setup Center.
+6. **8.5.0 itch.io:** sign in, library, download and install into NexPlay, every engine. The other stores stay in the code, hidden (no screen).
+7. **8.6.0 Settings and extras:** BCD settings sections, external drives, foldables, logs, readiness checks in Setup Center; optional helper memory (MadeiraMemoryHost) if its entitlements fit.
 8. **8.7.0 Polish and cleanup:** transitions, controller navigation everywhere, remove the old bridge, update docs and Credits.
