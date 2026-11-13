@@ -564,3 +564,155 @@ struct NexPlaceholderCover: View {
         .accessibilityLabel("\(title), \(engine.title)")
     }
 }
+
+// MARK: - Grouped rows (8.1.1)
+
+/// Bottom content inset for scroll views under the floating tab bar (0 outside the tab view).
+private struct NexTabBarInsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var nexTabBarInset: CGFloat {
+        get { self[NexTabBarInsetKey.self] }
+        set { self[NexTabBarInsetKey.self] = newValue }
+    }
+}
+
+private struct NexTabBarInsetModifier: ViewModifier {
+    @Environment(\.nexTabBarInset) private var inset
+
+    func body(content: Content) -> some View {
+        content.contentMargins(.bottom, inset, for: .scrollContent)
+    }
+}
+
+extension View {
+    /// Keeps the last rows and footers of a scroll view, form or list clear of the floating tab bar.
+    func nexClearsTabBar() -> some View {
+        modifier(NexTabBarInsetModifier())
+    }
+}
+
+/// A section title over a row group: small tinted symbol tile and rounded caps text.
+struct NexSectionHeader: View {
+    let title: String
+    var symbol: String? = nil
+    var tint: Color = NexColor.accent
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(tint, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            Text(title.uppercased())
+                .font(.system(.caption, design: .rounded).weight(.bold))
+                .tracking(0.6)
+                .foregroundStyle(NexColor.textSoft)
+        }
+        .padding(.horizontal, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A rounded group of rows. Glass for groups of controls (navigation rows), opaque for reading (checklists).
+struct NexRowGroup<Content: View>: View {
+    var glass = true
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: NexMetrics.cornerL, style: .continuous)
+        if glass {
+            VStack(spacing: 0) { content }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .nexGlass(in: shape)
+                .clipShape(shape)
+        } else {
+            VStack(spacing: 0) { content }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(NexColor.surface, in: shape)
+                .overlay(shape.strokeBorder(NexColor.stroke, lineWidth: 1))
+                .clipShape(shape)
+        }
+    }
+}
+
+/// A hairline between rows in a `NexRowGroup`, inset past the row's icon.
+struct NexRowDivider: View {
+    var inset: CGFloat = 62
+
+    var body: some View {
+        Rectangle()
+            .fill(NexColor.stroke.opacity(0.7))
+            .frame(height: 1)
+            .padding(.leading, inset)
+    }
+}
+
+/// A navigation row: coloured symbol tile, title, optional subtitle, chevron.
+struct NexNavRow: View {
+    let title: String
+    var subtitle: String? = nil
+    var symbol: String? = nil
+    var tint: Color = NexColor.accent
+    var value: String? = nil
+    var showsChevron = true
+
+    var body: some View {
+        HStack(spacing: 14) {
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(tint.gradient, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(NexType.label)
+                    .foregroundStyle(NexColor.text)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(NexType.caption)
+                        .foregroundStyle(NexColor.textSoft)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+            Spacer(minLength: 8)
+            if let value {
+                Text(value)
+                    .font(NexType.caption)
+                    .foregroundStyle(NexColor.textSoft)
+            }
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(NexColor.textSoft.opacity(0.7))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .frame(minHeight: NexMetrics.rowHeight)
+        .contentShape(Rectangle())
+    }
+}
+
+/// A status mark: green tick, amber warning, grey question mark when unknown.
+struct NexStatusMark: View {
+    let ok: Bool?
+
+    var body: some View {
+        Image(systemName: ok == true ? "checkmark.circle.fill" : (ok == false ? "exclamationmark.triangle.fill" : "questionmark.circle.fill"))
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(ok == true ? NexColor.success : (ok == false ? NexColor.warning : NexColor.textSoft))
+            .frame(width: 34, height: 34)
+            .accessibilityLabel(ok == true ? "Done" : (ok == false ? "Needs attention" : "Unknown"))
+    }
+}

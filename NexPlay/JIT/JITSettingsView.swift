@@ -133,60 +133,91 @@ struct SetupCenterView: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                SetupRow(title: "Pairing File", ok: jit.pairingPresent,
-                         why: "Lets NexPlay ask iOS for JIT without a computer.",
-                         actionTitle: "Import", action: { ImportPicker.pickOneFile { jit.importPairing($0) } })
-                SetupRow(title: "LocalDevVPN Connected", ok: jit.vpnReachable,
-                         why: jit.vpnDetail ?? "The JIT helper reaches this iPhone through it.",
-                         actionTitle: LocalDevVPN.actionTitle, action: { LocalDevVPN.open() })
-                SetupRow(title: "JIT Test Passed", ok: jit.testPassed,
-                         why: "Windows games run only with JIT on.",
-                         actionTitle: jit.busy ? nil : "Enable JIT", action: { jit.enable() })
-                SetupRow(title: "Entitlements Present", ok: entitlementsOK,
-                         why: "get-task-allow for JIT, a higher memory limit for big games. Your signing app decides.")
-            } header: {
-                SettingsHeader(title: "JIT", symbol: "bolt.fill", color: .yellow)
-            } footer: {
-                if let error = jit.error { Text(error).foregroundStyle(.red) }
-            }
+        // 8.1.1: custom rows on the profile's backdrop (was a stock Form). Fonts are set here so the sheet stays
+        // readable when it opens from a screen that uses the pixel font.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("What NexPlay needs for every kind of game, with a fix for each item.")
+                    .font(NexType.caption)
+                    .foregroundStyle(NexColor.textSoft)
+                    .padding(.horizontal, 6)
 
-            Section {
-                SetupRow(title: "Windows Engine in This Build", ok: windowsReady,
-                         why: WindowsEngine.unavailableReason
-                            ?? "\(WindowsEngine.summary): Wine, FEX and DXMT, built into NexPlay.")
-                SetupRow(title: "Free Storage", ok: (DeviceInfo.freeDiskGB ?? 0) >= 10,
-                         why: String(format: "%.1f GB free. Windows games and their C: drives need room (10 GB or more).",
-                                     DeviceInfo.freeDiskGB ?? 0))
-            } header: {
-                SettingsHeader(title: "Windows Games", symbol: "pc", color: .blue)
-            } footer: {
-                if windowsReady {
-                    Text("Add .exe games to the library like any other game and press Play. Turn JIT on first (above). NexPlay runs one Windows game per app launch.")
+                NexSectionHeader(title: "JIT", symbol: "bolt.fill", tint: .yellow)
+                    .padding(.top, 6)
+                NexRowGroup(glass: false) {
+                    SetupRow(title: "Pairing File", ok: jit.pairingPresent,
+                             why: "Lets NexPlay ask iOS for JIT without a computer.",
+                             actionTitle: "Import", action: { ImportPicker.pickOneFile { jit.importPairing($0) } })
+                    NexRowDivider()
+                    SetupRow(title: "LocalDevVPN Connected", ok: jit.vpnReachable,
+                             why: jit.vpnDetail ?? "The JIT helper reaches this iPhone through it.",
+                             actionTitle: LocalDevVPN.actionTitle, action: { LocalDevVPN.open() })
+                    NexRowDivider()
+                    SetupRow(title: "JIT Test Passed", ok: jit.testPassed,
+                             why: "Windows games run only with JIT on.",
+                             actionTitle: jit.busy ? nil : "Enable JIT", action: { jit.enable() })
+                    NexRowDivider()
+                    SetupRow(title: "Entitlements Present", ok: entitlementsOK,
+                             why: "get-task-allow for JIT, a higher memory limit for big games. Your signing app decides.")
                 }
-            }
+                if let error = jit.error {
+                    footer(error, color: NexColor.danger)
+                }
 
-            // 7.1.1: EasyRPG and its RTP.
-            Section {
-                SetupRow(title: "EasyRPG in This Build", ok: EasyRPGCore.isPresent,
-                         why: EasyRPGCore.isPresent
-                            ? "Runs RPG Maker 2000/2003 games natively\(EasyRPGCore.buildDate.map { " (core from \($0))" } ?? "")."
-                            : "Runs RPG Maker 2000/2003 games natively. Comes with builds made by the 7.1.1 workflow.")
-                SetupRow(title: "RTP 2000", ok: EasyRPGCore.hasRTP("2000"),
-                         why: "Only games shipped without the standard graphics and sounds need it.",
-                         actionTitle: "Import Folder", action: { importRTP("2000") })
-                SetupRow(title: "RTP 2003", ok: EasyRPGCore.hasRTP("2003"),
-                         why: "The same for RPG Maker 2003 games.",
-                         actionTitle: "Import Folder", action: { importRTP("2003") })
-            } header: {
-                SettingsHeader(title: "RPG Maker 2000/2003", symbol: "map", color: .orange)
-            } footer: {
-                Text(rtpMessage ?? "Pick the installed RTP folder (it holds Backdrop, CharSet, Music and the other folders).")
+                NexSectionHeader(title: "Windows Games", symbol: "pc", tint: .blue)
+                    .padding(.top, 10)
+                NexRowGroup(glass: false) {
+                    SetupRow(title: "Windows Engine in This Build", ok: windowsReady,
+                             why: WindowsEngine.unavailableReason
+                                ?? "\(WindowsEngine.summary): Wine, FEX and DXMT, built into NexPlay.")
+                    NexRowDivider()
+                    SetupRow(title: "Free Storage", ok: (DeviceInfo.freeDiskGB ?? 0) >= 10,
+                             why: String(format: "%.1f GB free. Windows games and their C: drives need room (10 GB or more).",
+                                         DeviceInfo.freeDiskGB ?? 0))
+                }
+                if windowsReady {
+                    footer("Add .exe games to the library like any other game and press Play. Turn JIT on first (above). NexPlay runs one Windows game per app launch.")
+                }
+
+                // 7.1.1: EasyRPG and its RTP.
+                NexSectionHeader(title: "RPG Maker 2000/2003", symbol: "map", tint: .orange)
+                    .padding(.top, 10)
+                NexRowGroup(glass: false) {
+                    SetupRow(title: "EasyRPG in This Build", ok: EasyRPGCore.isPresent,
+                             why: EasyRPGCore.isPresent
+                                ? "Runs RPG Maker 2000/2003 games natively\(EasyRPGCore.buildDate.map { " (core from \($0))" } ?? "")."
+                                : "Runs RPG Maker 2000/2003 games natively. Comes with builds made by the 7.1.1 workflow.")
+                    NexRowDivider()
+                    SetupRow(title: "RTP 2000", ok: EasyRPGCore.hasRTP("2000"),
+                             why: "Only games shipped without the standard graphics and sounds need it.",
+                             actionTitle: "Import Folder", action: { importRTP("2000") })
+                    NexRowDivider()
+                    SetupRow(title: "RTP 2003", ok: EasyRPGCore.hasRTP("2003"),
+                             why: "The same for RPG Maker 2003 games.",
+                             actionTitle: "Import Folder", action: { importRTP("2003") })
+                }
+                footer(rtpMessage ?? "Pick the installed RTP folder (it holds Backdrop, CharSet, Music and the other folders).")
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
         }
+        .font(NexType.body)
+        .background(ProfileBackdrop().ignoresSafeArea())
+        .navigationTitle("Setup Center")
+        .navigationBarTitleDisplayMode(.inline)
         // 7.13.5: the pairing file and the RTP folders use the UIKit pickers (ImportPicker), no fileImporter.
         .onAppear { jit.refresh() }
+    }
+
+    private func footer(_ text: String, color: Color = NexColor.textSoft) -> some View {
+        Text(text)
+            .font(NexType.caption)
+            .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 6)
     }
 
     private func importRTP(_ version: String) {
@@ -203,6 +234,7 @@ struct SetupCenterView: View {
 }
 
 /// One checklist row: status mark, why it matters, and a fix button while it isn't done.
+/// 8.1.1: drawn with the design system (rounded type, status colours, glass fix button).
 struct SetupRow: View {
     let title: String
     let ok: Bool?
@@ -211,13 +243,31 @@ struct SetupRow: View {
     var action: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            DiagnosticCheckRow(title: title, ok: ok, detail: why)
-            if let actionTitle, let action, ok != true {
-                Button(actionTitle, action: action)
-                    .buttonStyle(.bordered)
-                    .font(.caption.bold())
+        HStack(alignment: .top, spacing: 12) {
+            NexStatusMark(ok: ok)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(NexType.label)
+                    .foregroundStyle(NexColor.text)
+                Text(why)
+                    .font(NexType.caption)
+                    .foregroundStyle(NexColor.textSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let actionTitle, let action, ok != true {
+                    Button {
+                        NexHaptics.tap()
+                        action()
+                    } label: {
+                        Text(actionTitle)
+                    }
+                    .buttonStyle(NexGlassButtonStyle(fullWidth: false))
+                    .padding(.top, 4)
+                }
             }
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
     }
 }

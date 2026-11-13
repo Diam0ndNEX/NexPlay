@@ -26,7 +26,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
     var subtitle: String {
         switch self {
         case .setupCenter: return "A checklist of what Windows games need, with a fix for each"
-        case .appearance: return "Theme, background, library layout"
+        case .appearance: return "Colour profile, theme, background, library layout"
         case .controls: return "Virtual gamepad, control bar, haptics and physical controllers"
         case .gameplay: return "Power profiles, idle pause, orientation, sound and RPG Maker modes"
         case .jit: return "Built-in JIT: pairing file, LocalDevVPN, status and test"
@@ -74,8 +74,8 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .setupCenter:
             return ["Checklist", "Pairing File", "LocalDevVPN", "JIT Test", "Entitlements", "Windows Runtime", "Free Storage"]
         case .appearance:
-            return ["Dark Mode", "Theme", "Animated Background", "Background Theme", "Library View", "Title Under the Cover",
-                    "Continue Playing Card"]
+            return ["Colour Profile", "Custom Colour", "Dark Mode", "Theme", "Animated Background", "Background Theme",
+                    "Library View", "Title Under the Cover", "Continue Playing Card", "Pixel Font"]
         case .controls:
             return ["Virtual Gamepad Size", "Virtual Gamepad Opacity", "Control Type", "Joystick", "D-Pad",
                     "Reset Default Touch Layout", "Control Bar Opacity", "Control Bar Size", "Drawer Direction",
@@ -138,14 +138,20 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if search.isEmpty {
-                    mainSections
-                } else {
-                    searchResults
+            // 8.1.1: custom glass rows instead of the stock List look.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if search.isEmpty {
+                        mainSections
+                    } else {
+                        searchResults
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+                .padding(.bottom, 20)
             }
-            .scrollContentBackground(.hidden)
+            .nexClearsTabBar()
             .background(AppBackground().ignoresSafeArea())
             .navigationTitle("Settings")
             .searchable(text: $search, prompt: "Search settings")
@@ -157,7 +163,6 @@ struct SettingsView: View {
                     if !embedded { SheetCloseButton { dismiss() } }
                 }
             }
-            .safeAreaInset(edge: .bottom) { Color.clear.frame(height: embedded ? 70 : 0) }
             .confirmationDialog("Reset all settings?", isPresented: $confirmReset, titleVisibility: .visible) {
                 Button("Reset Settings", role: .destructive) { resetDefaults() }
             } message: {
@@ -170,50 +175,66 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var mainSections: some View {
-        Section {
-            ForEach(NexSettingsPage.allCases) { page in
+        NexSectionHeader(title: "Settings", symbol: "gearshape.fill", tint: NexColor.accent)
+        NexRowGroup {
+            ForEach(Array(NexSettingsPage.allCases.enumerated()), id: \.element) { index, page in
+                if index > 0 { NexRowDivider() }
                 NavigationLink(value: page) { SettingsTile(page: page) }
+                    .buttonStyle(.plain)
             }
-        } header: {
-            SettingsHeader(title: "Settings", symbol: "gearshape.fill", color: .purple)
         }
-        Section {
+
+        NexSectionHeader(title: "About", symbol: "info.circle.fill", tint: .teal)
+            .padding(.top, 10)
+        NexRowGroup {
             HStack(spacing: 14) {
                 Image(systemName: "gamecontroller.fill")
                     .font(.title2)
                     .foregroundStyle(.white)
                     .frame(width: 48, height: 48)
-                    .background(LinearGradient(colors: [.purple, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(NexColor.accentGradient, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("NexPlay").font(.headline)
-                    Text(version).font(.subheadline).foregroundStyle(.secondary)
+                    Text("NexPlay").font(NexType.display(20)).foregroundStyle(NexColor.text)
+                    Text("\(version) · \(platform)").font(NexType.caption).foregroundStyle(NexColor.textSoft)
                 }
+                Spacer(minLength: 0)
             }
-            LabeledContent("Platform", value: platform)
-            NavigationLink("Credits") { CreditsView() }
-        } header: {
-            SettingsHeader(title: "About", symbol: "info.circle.fill", color: .teal)
-        }
-        Section {
-            Button(role: .destructive) { confirmReset = true } label: {
-                Label("Reset to Defaults", systemImage: "arrow.counterclockwise")
+            .padding(14)
+            NexRowDivider()
+            NavigationLink { CreditsView() } label: {
+                NexNavRow(title: "Credits", symbol: "heart.text.square.fill", tint: .pink)
             }
-        } footer: {
-            Text("Resets settings only. Games, saves, layouts and collections stay.")
+            .buttonStyle(.plain)
         }
+
+        NexRowGroup {
+            Button { confirmReset = true } label: {
+                NexNavRow(title: "Reset to Defaults", symbol: "arrow.counterclockwise", tint: NexColor.danger, showsChevron: false)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 10)
+        Text("Resets settings only. Games, saves, layouts and collections stay.")
+            .font(NexType.caption)
+            .foregroundStyle(NexColor.textSoft)
+            .padding(.horizontal, 6)
     }
 
     @ViewBuilder private var searchResults: some View {
         if hits.isEmpty {
-            Text("No settings match \u{201C}\(search)\u{201D}.").foregroundStyle(.secondary)
+            Text("No settings match \u{201C}\(search)\u{201D}.")
+                .font(NexType.body)
+                .foregroundStyle(NexColor.textSoft)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 30)
         } else {
-            ForEach(Array(hits.enumerated()), id: \.offset) { _, hit in
-                NavigationLink(value: hit.page) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(hit.row)
-                        Text(hit.page.title).font(.caption).foregroundStyle(.secondary)
+            NexRowGroup {
+                ForEach(Array(hits.enumerated()), id: \.offset) { index, hit in
+                    if index > 0 { NexRowDivider() }
+                    NavigationLink(value: hit.page) {
+                        NexNavRow(title: hit.row, subtitle: hit.page.title, symbol: hit.page.symbol, tint: hit.page.color)
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -236,18 +257,8 @@ struct SettingsTile: View {
     let page: NexSettingsPage
 
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: page.symbol)
-                .font(.body.bold())
-                .foregroundStyle(.white)
-                .frame(width: 36, height: 36)
-                .background(page.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(page.title).font(.body.weight(.medium))
-                Text(page.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            }
-        }
-        .padding(.vertical, 4)
+        // 8.1.1: a glass-group row (NexNavRow).
+        NexNavRow(title: page.title, subtitle: page.subtitle, symbol: page.symbol, tint: page.color)
     }
 }
 
@@ -330,7 +341,11 @@ struct SettingsPageView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(AppBackground().ignoresSafeArea())
+        // 8.1.1: last rows and footers stay clear of the tab bar; Setup Center draws its own backdrop.
+        .nexClearsTabBar()
+        .background {
+            if page != .setupCenter { AppBackground().ignoresSafeArea() }
+        }
         .navigationTitle(page.title)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -339,6 +354,8 @@ struct SettingsPageView: View {
 // MARK: - Appearance
 
 struct AppearanceSettings: View {
+    @State private var themeStore = NexTheme.shared
+    @State private var customColor = Color(red: 0.62, green: 0.48, blue: 1)
     @AppStorage(SettingsKey.theme) private var theme = "dark"
     @AppStorage(SettingsKey.animatedBackground) private var animated = true
     @AppStorage(SettingsKey.backgroundTheme) private var backgroundTheme = "nebula"
@@ -350,9 +367,27 @@ struct AppearanceSettings: View {
 
     var body: some View {
         Form {
+            // 8.1.1: colour profiles (the design system's semantic colours).
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(themeStore.profiles) { profile in
+                            profileButton(profile)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+                ColorPicker("Custom Colour", selection: $customColor, supportsOpacity: false)
+                    .onChange(of: customColor) { color in themeStore.setMainColor(color) }
+            } header: {
+                SettingsHeader(title: "Colour Profile", symbol: "swatchpalette.fill", color: .pink)
+            } footer: {
+                Text("Every screen follows the chosen colours. A custom colour tints the surfaces too.")
+            }
+
             Section {
                 Toggle(isOn: $pixelFont) {
-                    SettingLabel("Pixel Font", "Retro pixel lettering (Departure Mono) across the app and the touch controls. Fully applies after reopening the app.")
+                    SettingLabel("Pixel Font", "Retro pixel lettering (Departure Mono) for big titles and the touch controls. Fully applies after reopening the app.")
                 }
                 Toggle(isOn: $tapOpensPage) {
                     SettingLabel("Tap Opens Game Page", "Tapping a game shows its page with saves, gallery and mods. Turn off to start games right away.")
@@ -381,7 +416,7 @@ struct AppearanceSettings: View {
             } header: {
                 Text("Background Theme")
             } footer: {
-                Text("Shown behind the library and settings in dark mode.")
+                Text("Shown behind the library and settings in dark mode. Light mode always uses the colour profile.")
             }
 
             Section {
@@ -397,13 +432,52 @@ struct AppearanceSettings: View {
         }
     }
 
+    private func profileButton(_ profile: NexThemeProfile) -> some View {
+        let selected = themeStore.current.id == profile.id
+        return Button {
+            NexHaptics.selection()
+            NexMotion.run(NexMotion.snappy) { themeStore.select(profile.id) }
+        } label: {
+            VStack(spacing: 6) {
+                ZStack {
+                    LinearGradient(colors: [Color(uiColor: profile.dark(.groundTop).uiColor), Color(uiColor: profile.dark(.ground).uiColor)],
+                                   startPoint: .top, endPoint: .bottom)
+                    HStack(spacing: -6) {
+                        Circle().fill(Color(uiColor: profile.dark(.accent).uiColor)).frame(width: 22, height: 22)
+                        Circle().fill(Color(uiColor: profile.dark(.accentSecondary).uiColor)).frame(width: 22, height: 22)
+                        Circle().fill(Color(uiColor: profile.dark(.accentSoft).uiColor)).frame(width: 22, height: 22)
+                    }
+                }
+                .frame(width: 84, height: 60)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(selected ? NexColor.accentSoft : Color.white.opacity(0.15), lineWidth: selected ? 3 : 1)
+                )
+                Text(profile.name)
+                    .font(.caption)
+                    .foregroundStyle(selected ? NexColor.accentSoft : .secondary)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(profile.name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
     private func themeButton(_ item: BackgroundTheme) -> some View {
         let selected = backgroundTheme == item.rawValue
         return Button {
             backgroundTheme = item.rawValue
         } label: {
             VStack(spacing: 6) {
-                BackgroundCanvas(theme: item, time: 0)
+                Group {
+                    if item == .plain {
+                        ProfileBackdrop()
+                    } else {
+                        BackgroundCanvas(theme: item, time: 0)
+                    }
+                }
                     .frame(width: 84, height: 120)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(

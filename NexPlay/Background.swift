@@ -20,7 +20,7 @@ enum BackgroundTheme: String, CaseIterable, Identifiable {
         case .frost: return "Frost"
         case .ember: return "Ember"
         case .aurora: return "Aurora"
-        case .plain: return "Plain"
+        case .plain: return "Colour Profile"
         }
     }
 
@@ -92,15 +92,28 @@ struct AppBackground: View {
 
     var body: some View {
         let theme = BackgroundTheme(rawValue: themeRaw) ?? .nebula
-        if colorScheme == .light {
-            Color(UIColor.systemGroupedBackground)
-        } else if animated && theme != .plain {
+        if colorScheme == .light || theme == .plain {
+            // 8.1.1: light mode and Plain use the colour profile's ground with a soft accent glow.
+            ProfileBackdrop()
+        } else if animated {
             TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: false)) { context in
                 BackgroundCanvas(theme: theme, time: context.date.timeIntervalSinceReferenceDate)
             }
         } else {
             BackgroundCanvas(theme: theme, time: 0)
         }
+    }
+}
+
+/// 8.1.1: the colour profile's ground (light or dark) with the accent's glow at the top.
+struct ProfileBackdrop: View {
+    var body: some View {
+        NexColor.backdrop
+            .overlay(alignment: .top) {
+                RadialGradient(colors: [NexColor.accent.opacity(0.28), .clear], center: .top, startRadius: 0, endRadius: 420)
+                    .frame(height: 420)
+            }
+            .clipped()
     }
 }
 

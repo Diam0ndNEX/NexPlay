@@ -7,8 +7,8 @@ once all steps are done, then pastes build errors (first error first).
 | Step | Version | State |
 |---|---|---|
 | Core merge | 8.0.0 (64) | pushed 2026-11-13, not built yet |
-| Design system: tokens, profiles, fonts, glass, motion, placeholder covers | 8.1.0 (66) | pushed 2026-11-13 |
-| Design system applied: Home, Library, tab bar, Settings, Setup Center | 8.1.1 | next |
+| Design system: tokens, profiles, fonts, glass, motion, placeholder covers | 8.1.0 (66) | built OK 2026-11-13 |
+| Design system applied: Home, Library, tab bar, Settings, Setup Center | 8.1.1 (67) | pushed 2026-11-13 |
 | Controls | 8.2.0 | |
 | In-game | 8.3.0 | |
 | Game page | 8.4.0 | |
@@ -25,6 +25,16 @@ one colour; settings `colorProfile`, `colorProfileSeed`), `NexColor` tokens (lig
 `NexColor.dark` for always-dark screens), `NexMetrics`, `NexType` (pixel font only in `display`), `nexGlass`/`nexCard`, button
 styles, `NexMotion` + `nexAnimation` (Reduce Motion), `NexHaptics`, `GameEngine.accent`, `NexPlaceholderCover`. `NexStyle`
 now follows the profile. 8.1.1 applies it (and adds the profile picker to Appearance).
+
+8.1.1 notes: the app's root font is SF Rounded (`NexType.body` + `.fontDesign(.rounded)`, was the pixel font); the pixel font
+stays in navigation titles and `NexType.display`. The game page still sets `.font(.pixel(16))` (LibraryView) until 8.4.0.
+Library: engine placeholder covers, token colours and fonts, glass chips (engine chips in the engine colour), row cards,
+Continue card, glass selection bar. Tab bar: Liquid Glass, sliding selection, `NexTabBarEdgeFade`, haptics; scroll views
+under it use `nexClearsTabBar()` (contentMargins from the `nexTabBarInset` environment value, set on the Settings tab).
+Settings home and search: custom glass rows (`NexRowGroup`, `NexNavRow`); the Settings sub-pages stay Forms until 8.6.0.
+Setup Center: `ScrollView` with opaque row groups, `SetupRow` = `NexStatusMark` + glass fix button, `ProfileBackdrop`,
+explicit rounded fonts (readable when opened from the game page). Background theme Plain = "Colour Profile"
+(`ProfileBackdrop`), also used in light mode. Appearance > Colour Profile: profile swatches + Custom Colour.
 
 ## Owner's decisions of 2026-11-13 (second round)
 - **Other stores stay in the code, hidden** (replaces "Drop Steam, GOG, Epic and EA" below). Reason: BCD updates. An

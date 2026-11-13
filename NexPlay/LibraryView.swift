@@ -32,11 +32,8 @@ enum CoverCache {
 struct CoverView: View {
     let game: Game
     @State private var image: UIImage?
-
-    private var hue: Double {
-        let sum = game.name.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
-        return Double(sum % 360) / 360
-    }
+    /// 8.1.1: small covers (shelf thumbnails, list rows) leave the title out of the placeholder.
+    var compact = false
 
     var body: some View {
         Color.clear
@@ -48,14 +45,8 @@ struct CoverView: View {
                         .interpolation(.none)
                         .scaledToFill()
                 } else {
-                    ZStack {
-                        LinearGradient(colors: [Color(hue: hue, saturation: 0.55, brightness: 0.55),
-                                                Color(hue: hue, saturation: 0.7, brightness: 0.25)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
-                        Text(String(game.name.prefix(1)).uppercased())
-                            .font(.system(size: 44, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.85))
-                    }
+                    // 8.1.1: engine-tinted placeholder (gradient, glyph, title) instead of a single letter.
+                    NexPlaceholderCover(title: game.name, engine: game.engine, compact: compact)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -79,7 +70,7 @@ struct EngineBadge: View {
             Image(systemName: engine.symbol).font(.system(size: 8, weight: .bold))
             Text(engine.badge)
         }
-            .font(.caption2.bold())
+            .font(.system(.caption2, design: .rounded).weight(.bold))
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(.ultraThinMaterial, in: Capsule())
@@ -93,7 +84,7 @@ struct GameCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            CoverView(game: game)
+            CoverView(game: game, compact: !titleUnder)
                 .overlay(alignment: .top) {
                     HStack {
                         EngineBadge(engine: game.engine)
@@ -111,7 +102,7 @@ struct GameCard: View {
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
-                                .background(NexStyle.accentDeep, in: Capsule())
+                                .background(NexColor.accent, in: Capsule())
                         }
                         if game.isFavorite {
                             Image(systemName: "heart.fill").foregroundStyle(.pink).font(.caption)
@@ -138,7 +129,8 @@ struct GameCard: View {
                 .overlay(alignment: .bottomLeading) {
                     if !titleUnder {
                         Text(game.name)
-                            .font(.subheadline.weight(.semibold))
+                            .font(NexType.label)
+                            .foregroundStyle(.white)
                             .lineLimit(2)
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,18 +149,19 @@ struct GameCard: View {
                     if let selected {
                         Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                             .font(.title2)
-                            .foregroundStyle(selected ? Color.accentColor : .white)
+                            .foregroundStyle(selected ? NexColor.accentSoft : .white)
                             .padding(8)
                     }
                 }
             if titleUnder {
                 Text(game.name)
-                    .font(.subheadline.weight(.semibold))
+                    .font(NexType.label)
+                    .foregroundStyle(NexColor.text)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 Text(formatDuration(game.playSeconds))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(NexType.caption)
+                    .foregroundStyle(NexColor.textSoft)
             }
         }
         .accessibilityElement(children: .combine)
@@ -183,22 +176,26 @@ struct GameRow: View {
         HStack(spacing: 12) {
             if let selected {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selected ? Color.accentColor : .secondary)
+                    .foregroundStyle(selected ? NexColor.accent : NexColor.textSoft)
             }
-            CoverView(game: game).frame(width: 52)
+            CoverView(game: game, compact: true).frame(width: 52)
                 .overlay {
                     if let tint = game.tagColor {
                         RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(tint, lineWidth: 2)
                     }
                 }
             VStack(alignment: .leading, spacing: 3) {
-                Text(game.name).font(.body.weight(.semibold)).lineLimit(1)
+                Text(game.name).font(NexType.label).foregroundStyle(NexColor.text).lineLimit(1)
                 Text("\(game.engine.title) · \(formatDuration(game.playSeconds))")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(NexType.caption).foregroundStyle(NexColor.textSoft)
             }
             Spacer()
             if game.isFavorite { Image(systemName: "heart.fill").foregroundStyle(.pink).font(.caption) }
         }
+        // 8.1.1: an opaque reading card per row.
+        .padding(10)
+        .background(NexColor.surface, in: RoundedRectangle(cornerRadius: NexMetrics.cornerM, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NexMetrics.cornerM, style: .continuous).strokeBorder(NexColor.stroke, lineWidth: 1))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -250,13 +247,14 @@ enum GameReadiness {
 struct NexTabBar: View {
     @Binding var tab: RootTab
     var badge: Int = 0
+    @Namespace private var tabNamespace
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(RootTab.allCases) { item in
                 Button {
                     if tab != item {
-                        UISelectionFeedbackGenerator().selectionChanged()
+                        NexHaptics.selection()
                         tab = item
                     }
                 } label: {
@@ -265,16 +263,17 @@ struct NexTabBar: View {
                             .font(.system(size: 18, weight: .semibold))
                             .overlay(alignment: .topTrailing) {
                                 if item == .settings && badge > 0 {
-                                    Circle().fill(Color.orange).frame(width: 8, height: 8).offset(x: 6, y: -3)
+                                    Circle().fill(NexColor.warning).frame(width: 8, height: 8).offset(x: 6, y: -3)
                                 }
                             }
-                        Text(item.title).font(.system(size: 11, weight: .semibold))
+                        Text(item.title).font(.system(size: 11, weight: .semibold, design: .rounded))
                     }
-                    .foregroundStyle(tab == item ? Color.white : Color.white.opacity(0.55))
+                    .foregroundStyle(tab == item ? NexColor.onAccent : NexColor.textSoft)
                     .frame(width: 84, height: 50)
                     .background {
                         if tab == item {
-                            Capsule().fill(NexStyle.accentGradient).opacity(0.9)
+                            Capsule().fill(NexColor.accentGradient)
+                                .matchedGeometryEffect(id: "selectedTab", in: tabNamespace)
                         }
                     }
                     .contentShape(Capsule())
@@ -285,10 +284,23 @@ struct NexTabBar: View {
             }
         }
         .padding(5)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(NexStyle.cardStroke))
-        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: tab)
+        // 8.1.1: Liquid Glass (material below iOS 26, opaque with Reduce Transparency).
+        .nexGlassCapsule()
+        .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
+        .nexAnimation(NexMotion.snappy, value: tab)
+    }
+}
+
+/// 8.1.1: fades scrolling content out behind the floating tab bar.
+struct NexTabBarEdgeFade: View {
+    var body: some View {
+        LinearGradient(colors: [NexColor.ground.opacity(0), NexColor.ground.opacity(0.85), NexColor.ground],
+                       startPoint: .top, endPoint: .bottom)
+            .frame(height: 110)
+            .frame(maxWidth: .infinity)
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -415,10 +427,12 @@ struct LibraryView: View {
                 SettingsView(embedded: true)
                     .environmentObject(store)
                     .environmentObject(privacy)
+                    .environment(\.nexTabBarInset, NexMetrics.tabBarClearance)
             } else {
                 libraryStack
             }
             if !selecting {
+                NexTabBarEdgeFade()
                 NexTabBar(tab: $tab)
                     .padding(.bottom, 4)
             }
@@ -593,7 +607,7 @@ struct LibraryView: View {
                         .padding(.bottom, selecting ? 76 : 136)
                 }
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: store.isImporting)
+            .nexAnimation(NexMotion.smooth, value: store.isImporting)
             .background(AppBackground().ignoresSafeArea())
             .navigationTitle(tab == .home ? "NexPlay" : "Library")
             // 7.13.5: under the title. The default placement on iOS 26+ is a bottom bar, which sat behind NexTabBar.
@@ -619,21 +633,24 @@ struct LibraryView: View {
         ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text(summary).font(.caption).foregroundStyle(.secondary)
+                Text(summary).font(NexType.caption).foregroundStyle(NexColor.textSoft)
                 if let game = continueGame { continueCard(game) }
                 if !needsSetup.isEmpty { setupCard }
                 if !recentlyPlayed.isEmpty { shelf("Recently Played", symbol: "clock.fill", games: recentlyPlayed) }
                 if !favorites.isEmpty { shelf("Favorites", symbol: "heart.fill", games: favorites) }
                 if !recentlyAdded.isEmpty { shelf("Recently Added", symbol: "sparkles", games: recentlyAdded) }
                 if !needsSetup.isEmpty { shelf("Needs Setup", symbol: "exclamationmark.triangle.fill", games: needsSetup) }
-                Button { tab = .library } label: {
+                Button {
+                    NexHaptics.tap()
+                    tab = .library
+                } label: {
                     Label("All \(store.games.filter(isVisible).count) Games", systemImage: "square.grid.2x2.fill")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(PlayButtonStyle())
+                .buttonStyle(NexGlassButtonStyle())
             }
             .padding()
-            .padding(.bottom, 90)
+            // 8.1.1: room for the + button and the tab bar.
+            .padding(.bottom, NexMetrics.tabBarClearance + 56)
         }
         .onChange(of: focusID) { id in
             guard let id else { return }
@@ -649,45 +666,51 @@ struct LibraryView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.white)
                     .frame(width: 46, height: 46)
-                    .background(Color.orange.gradient, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .background(NexColor.warning.gradient, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(needsSetup.count) game\(needsSetup.count == 1 ? " needs" : "s need") setup")
-                        .font(.headline).foregroundStyle(.white)
+                        .font(NexType.heading).foregroundStyle(NexColor.text)
                     Text("Open Setup Center for the pairing file, JIT and runtimes.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(NexType.caption).foregroundStyle(NexColor.textSoft)
                         .multilineTextAlignment(.leading)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").foregroundStyle(NexColor.textSoft)
             }
             .padding(14)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.orange.opacity(0.5)))
+            .background(NexColor.surface, in: RoundedRectangle(cornerRadius: NexMetrics.cornerL, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: NexMetrics.cornerL, style: .continuous).strokeBorder(NexColor.warning.opacity(0.6), lineWidth: 1))
         }
         .buttonStyle(PressScaleStyle())
     }
 
     private func shelf(_ title: String, symbol: String, games: [Game]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: symbol).font(.headline)
+            Label {
+                Text(title).foregroundStyle(NexColor.text)
+            } icon: {
+                Image(systemName: symbol).foregroundStyle(NexColor.accentSoft)
+            }
+            .font(NexType.heading)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
                     ForEach(games) { game in
                         VStack(alignment: .leading, spacing: 6) {
-                            CoverView(game: game)
+                            CoverView(game: game, compact: true)
                                 .frame(width: 112)
                                 .focusRing(focusID == game.id)
                                 .overlay(alignment: .topTrailing) {
                                     if GameReadiness.setupReason(for: game) != nil {
-                                        Circle().fill(Color.orange).frame(width: 10, height: 10)
+                                        Circle().fill(NexColor.warning).frame(width: 10, height: 10)
                                             .overlay(Circle().stroke(Color.black.opacity(0.4)))
                                             .padding(7)
                                     }
                                 }
                             Text(game.name)
-                                .font(.caption.weight(.semibold))
+                                .font(NexType.captionStrong)
+                                .foregroundStyle(NexColor.text)
                                 .lineLimit(2)
-                                .frame(width: 112, alignment: .leading)
+                                .frame(width: 112, height: 32, alignment: .topLeading)
                         }
                         .id(game.id)
                         .contentShape(Rectangle())
@@ -717,8 +740,8 @@ struct LibraryView: View {
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 58, height: 58)
-                .background(NexStyle.accentGradient, in: Circle())
-                .shadow(color: NexStyle.accent.opacity(0.55), radius: 12, y: 5)
+                .background(NexColor.accentGradient, in: Circle())
+                .shadow(color: NexColor.accent.opacity(0.5), radius: 12, y: 5)
         }
         .accessibilityLabel("Add games")
     }
@@ -812,12 +835,13 @@ struct LibraryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if !store.games.isEmpty && search.isEmpty {
-                    Text(summary).font(.caption).foregroundStyle(.secondary)
+                    Text(summary).font(NexType.caption).foregroundStyle(NexColor.textSoft)
                 }
                 chips
                 if visible.isEmpty {
                     Text(search.isEmpty ? "Nothing here yet." : "No games match \u{201C}\(search)\u{201D}.")
-                        .foregroundStyle(.secondary)
+                        .font(NexType.body)
+                        .foregroundStyle(NexColor.textSoft)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
                 } else if layout == "list" {
@@ -844,7 +868,8 @@ struct LibraryView: View {
                 }
             }
             .padding()
-            .padding(.bottom, selecting ? 70 : 90)
+            // 8.1.1: room for the + button and the tab bar.
+            .padding(.bottom, selecting ? 70 : NexMetrics.tabBarClearance + 56)
         }
         .background(GeometryReader { geo in
             Color.clear
@@ -861,11 +886,11 @@ struct LibraryView: View {
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                chip("All", color: .gray, active: filter == .all) { filter = .all }
+                chip("All", color: NexColor.accent, active: filter == .all) { filter = .all }
                 chip("Favorites", color: .pink, active: filter == .favorites) { filter = .favorites }
-                chip("Ready to Play", color: .green, active: filter == .ready, symbol: "checkmark.seal.fill") { filter = .ready }
+                chip("Ready to Play", color: NexColor.success, active: filter == .ready, symbol: "checkmark.seal.fill") { filter = .ready }
                 ForEach(engines, id: \.self) { engine in
-                    chip("\(engine.badge) \(engineCount(engine))", color: .indigo, active: filter == .engine(engine),
+                    chip("\(engine.badge) \(engineCount(engine))", color: engine.accent, active: filter == .engine(engine),
                          symbol: engine.symbol) { filter = .engine(engine) }
                 }
                 ForEach(visibleCollections) { collection in
@@ -873,27 +898,44 @@ struct LibraryView: View {
                          locked: collection.isHidden) { filter = .collection(collection.id) }
                 }
                 Button { showCollections = true } label: {
-                    Image(systemName: "folder.badge.plus").padding(.horizontal, 8)
+                    Image(systemName: "folder.badge.plus")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(NexColor.text)
+                        .frame(width: 40, height: 32)
+                        .nexGlassCapsule(interactive: true)
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel("Manage collections")
             }
+            .padding(.vertical, 2)
         }
     }
 
     private func chip(_ title: String, color: Color, active: Bool, locked: Bool = false, symbol: String? = nil,
                       action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
+        Button {
+            if !active { NexHaptics.selection() }
+            NexMotion.run(NexMotion.snappy) { action() }
+        } label: {
+            // 8.1.1: active chips are filled with their colour; the others are glass with the colour as a dot.
+            HStack(spacing: 5) {
                 if locked { Image(systemName: "lock.fill").font(.caption2) }
-                if let symbol { Image(systemName: symbol).font(.caption2) }
-                Text(title).font(.subheadline.weight(.medium)).lineLimit(1)
+                if let symbol {
+                    Image(systemName: symbol).font(.caption2.weight(.semibold))
+                        .foregroundStyle(active ? Color.white : color)
+                }
+                Text(title).font(NexType.label).lineLimit(1)
             }
+            .foregroundStyle(active ? Color.white : NexColor.text)
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(active ? color.opacity(0.85) : color.opacity(0.22), in: Capsule())
-            .foregroundStyle(.white)
+            .frame(height: 32)
+            .background {
+                if active { Capsule().fill(color) }
+            }
+            .modifier(ChipGlass(active: active))
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     /// The last played game as a big card over its own blurred cover, with Resume and Details.
@@ -912,25 +954,28 @@ struct LibraryView: View {
                     .shadow(color: .black.opacity(0.5), radius: 10, y: 6)
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Continue Playing", systemImage: "clock.arrow.circlepath")
-                        .font(.caption.weight(.semibold))
+                        .font(NexType.captionStrong)
                         .foregroundStyle(.white.opacity(0.75))
                     Text(game.name)
-                        .font(.title3.weight(.bold))
+                        .font(NexType.title(20))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .minimumScaleFactor(0.7)
                     Text(continueLine(game))
-                        .font(.caption)
+                        .font(NexType.caption)
                         .foregroundStyle(.white.opacity(0.7))
                         .lineLimit(1)
                     HStack(spacing: 10) {
-                        Button { playing = game } label: {
+                        Button {
+                            NexHaptics.press()
+                            playing = game
+                        } label: {
                             Label("Resume", systemImage: "play.fill")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(.white)
+                                .font(NexType.label.weight(.bold))
+                                .foregroundStyle(NexColor.onAccent)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 9)
-                                .background(NexStyle.accentGradient, in: Capsule())
+                                .background(NexColor.accentGradient, in: Capsule())
                         }
                         .buttonStyle(PressScaleStyle())
                         Button { detail = game } label: {
@@ -938,7 +983,7 @@ struct LibraryView: View {
                                 .font(.subheadline.weight(.bold))
                                 .foregroundStyle(.white)
                                 .frame(width: 36, height: 36)
-                                .background(.ultraThinMaterial, in: Circle())
+                                .nexGlass(in: Circle(), interactive: true)
                         }
                         .buttonStyle(PressScaleStyle())
                         .accessibilityLabel("Game page")
@@ -951,7 +996,7 @@ struct LibraryView: View {
         }
         .frame(height: 176)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(game.tagColor ?? Color.white.opacity(0.14), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(game.tagColor ?? NexColor.stroke, lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .focusRing(focusID == game.id)
         .id(game.id)
@@ -981,8 +1026,12 @@ struct LibraryView: View {
             } label: { Label("Delete (\(selection.count))", systemImage: "trash") }
                 .disabled(selection.isEmpty)
         }
-        .padding()
-        .background(.regularMaterial)
+        .font(NexType.label)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .nexGlass(in: RoundedRectangle(cornerRadius: NexMetrics.cornerL, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
     }
 
     @ToolbarContentBuilder
@@ -1018,16 +1067,18 @@ struct LibraryView: View {
         VStack(spacing: 14) {
             Image(systemName: "gamecontroller.fill")
                 .font(.system(size: 54))
-                .foregroundStyle(.secondary)
-            Text("No games yet").font(.title2.bold())
+                .foregroundStyle(NexColor.accentSoft)
+            Text("No games yet").font(NexType.display(26)).foregroundStyle(NexColor.text)
             Text("Add a game as a ZIP, 7z or RAR archive, or as a folder. NexPlay plays RPG Maker MV/MZ, Ren'Py, Godot, Flash, Twine, Construct, TyranoBuilder and other HTML5 games. XP/VX/Ace games need a build with the mkxp core. Tip: open an archive from the Files app with NexPlay.")
+                .font(NexType.body)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(NexColor.textSoft)
             Button { importFiles() } label: { Label("Add a Game", systemImage: "plus") }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(NexPrimaryButtonStyle())
             Button { importFolders() } label: { Label("Add a Game Folder", systemImage: "folder") }
-                .buttonStyle(.bordered)
+                .buttonStyle(NexGlassButtonStyle())
         }
+        .frame(maxWidth: 420)
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1248,6 +1299,19 @@ struct BackupTargetPicker: View {
             } catch {
                 message = "Restore failed: \(error.localizedDescription)"
             }
+        }
+    }
+}
+
+/// 8.1.1: glass behind inactive library chips (active ones are filled with their colour).
+private struct ChipGlass: ViewModifier {
+    let active: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if active {
+            content
+        } else {
+            content.nexGlassCapsule(interactive: true)
         }
     }
 }

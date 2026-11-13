@@ -120,7 +120,9 @@ struct NexPlayApp: App {
     var body: some Scene {
         WindowGroup {
             LibraryView()
-                .font(.pixel(16))
+                // 8.1.1: SF Rounded for everything people read; the pixel font only in big titles (NexType.display).
+                .font(NexType.body)
+                .fontDesign(.rounded)
                 .environmentObject(store)
                 .environmentObject(collections)
                 .environmentObject(privacy)
