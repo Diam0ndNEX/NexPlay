@@ -206,6 +206,8 @@ struct WindowsPanelView: View {
         let game: Game
         let onStyle: (ControlsStyle?) -> Void
         let onEdit: () -> Void
+        /// 8.2.1: a layout preset for the game's Controls Style.
+        let onPreset: (LayoutPreset) -> Void
     }
 
     private var windowsLog: [String] {
@@ -228,17 +230,31 @@ struct WindowsPanelView: View {
                                 styleChoice = .some(style)
                                 controls.onStyle(style)
                             }
-                            Button {
-                                dismiss()
-                                controls.onEdit()
-                            } label: {
-                                Label("Edit Touch Controls", systemImage: "slider.horizontal.below.square.and.square.filled")
-                                    .frame(maxWidth: .infinity)
+                            HStack(spacing: 12) {
+                                Button {
+                                    dismiss()
+                                    controls.onEdit()
+                                } label: {
+                                    Label("Edit Controls", systemImage: "slider.horizontal.below.square.and.square.filled")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                Menu {
+                                    ForEach(LayoutPreset.allCases) { preset in
+                                        Button {
+                                            controls.onPreset(preset)
+                                        } label: {
+                                            Label(preset.title, systemImage: preset.symbol)
+                                        }
+                                    }
+                                } label: {
+                                    Label("Layout Preset", systemImage: "square.on.square")
+                                        .frame(maxWidth: .infinity)
+                                }
                             }
                             .buttonStyle(.bordered)
                             .tint(.white)
                         }
-                        Text("Controllers reach the game as XInput pads. PC Controls' layouts, mouse modes and BCD's extras are in the game's in-game menu.")
+                        Text("Controllers reach the game as XInput pads. Extras for Windows games (gyro aim, radial menu, turbo, key bar, magnifier, gestures, Pencil) are BCD's, in the game's in-game menu, with either style.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     PanelCard("Windows", symbol: "pc") {

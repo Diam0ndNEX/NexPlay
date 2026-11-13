@@ -21,6 +21,8 @@ final class PlayerContext {
     var controlsStyle: () -> ControlsStyle? = { nil }
     var setControlsStyle: (ControlsStyle?) -> Void = { _ in }
     var editControls: () -> Void = {}
+    /// 8.2.1: the game's Extras sheet.
+    var openExtras: () -> Void = {}
 
     init(gameLog: GameLog) {
         self.gameLog = gameLog
@@ -86,20 +88,59 @@ final class KeyRouter {
     private var counts: [Int: Int] = [:]
     private var keys: [Int: PadKey] = [:]
 
+    /// 8.2.1 turbo (Extras): these keys repeat while held, `turboRate` presses a second.
+    var turboKeys: Set<Int> = []
+    var turboRate = 10
+    private var turboTimers: [Int: Timer] = [:]
+
     func press(_ key: PadKey, _ down: Bool) {
         let current = counts[key.keyCode] ?? 0
         if down {
             counts[key.keyCode] = current + 1
             keys[key.keyCode] = key
-            if current == 0 { send(key, true) }
+            if current == 0 {
+                send(key, true)
+                if turboKeys.contains(key.keyCode) { startTurbo(key) }
+            }
         } else {
             guard current > 0 else { return }
             counts[key.keyCode] = current - 1
-            if current == 1 { send(key, false) }
+            if current == 1 {
+                stopTurbo(key.keyCode)
+                send(key, false)
+            }
         }
     }
 
+    private func startTurbo(_ key: PadKey) {
+        stopTurbo(key.keyCode)
+        let half = 0.5 / Double(min(max(turboRate, 2), 20))
+        let code = key.keyCode
+        turboDown[code] = true
+        let timer = Timer(timeInterval: half, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.turboTick(code) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        turboTimers[code] = timer
+    }
+
+    private var turboDown: [Int: Bool] = [:]
+
+    private func turboTick(_ code: Int) {
+        guard turboTimers[code] != nil, let key = keys[code] else { return }
+        let now = !(turboDown[code] ?? true)
+        turboDown[code] = now
+        send(key, now)
+    }
+
+    private func stopTurbo(_ code: Int) {
+        turboTimers[code]?.invalidate()
+        turboTimers[code] = nil
+    }
+
     func releaseAll() {
+        for timer in turboTimers.values { timer.invalidate() }
+        turboTimers = [:]
         for (code, count) in counts where count > 0 {
             if let key = keys[code] { send(key, false) }
         }

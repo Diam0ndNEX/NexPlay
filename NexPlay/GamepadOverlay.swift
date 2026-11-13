@@ -297,6 +297,8 @@ final class GamepadOverlayView: UIView {
     var onConfirmReset: ((@escaping () -> Void) -> Void)?
     /// 7.3.0: the layout for a preset, ready to show (global pad size applied).
     var onPreset: ((LayoutPreset) -> LayoutProfile)?
+    /// 8.2.1: Add > Extras opens the game's Extras sheet.
+    var onExtras: (() -> Void)?
 
     private(set) var profile: LayoutProfile = .builtIn
     private var views: [UUID: ControlView] = [:]
@@ -664,7 +666,11 @@ final class GamepadOverlayView: UIView {
                                  UIMenu(title: "Game Action", image: UIImage(systemName: "gamecontroller"), children: actions),
                                  UIMenu(title: "Mouse", image: UIImage(systemName: "computermouse"), children: mouse),
                                  UIMenu(title: "NexPlay", image: UIImage(systemName: "square.grid.2x2"), children: app),
-                                 UIMenu(title: "Presets", image: UIImage(systemName: "square.on.square"), children: presets)])
+                                 UIMenu(title: "Presets", image: UIImage(systemName: "square.on.square"), children: presets),
+                                 UIMenu(options: .displayInline, children: [
+                                     UIAction(title: "Extras…", subtitle: "Key bar, radial menu, turbo, gyro, gestures",
+                                              image: UIImage(systemName: "sparkles")) { [weak self] _ in self?.onExtras?() },
+                                 ])])
     }
 
     /// Edit mode: replaces both orientations with a preset (Done saves it, the reset arrow undoes it).

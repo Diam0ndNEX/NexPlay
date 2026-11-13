@@ -24,6 +24,7 @@ struct GameSettingsView: View {
     @State private var pickingPhoto = false
     @State private var pickingFromGame = false
     @State private var showControllerMap = false
+    @State private var showExtras = false
     @State private var showPlugins = false
     @State private var confirmDelete = false
     @State private var confirmWipe = false
@@ -78,6 +79,11 @@ struct GameSettingsView: View {
         }
         .sheet(isPresented: $showPlugins) {
             if let game { PluginListView(game: game) }
+        }
+        .sheet(isPresented: $showExtras) {
+            ExtrasView(gameName: game?.name ?? "", extras: ExtrasStore.load(gameID)) { extras in
+                ExtrasStore.save(extras, for: gameID)
+            }
         }
         .sheet(isPresented: $showControllerMap) {
             if let game { ControllerMapView(gameID: game.id, gameName: game.name) }
@@ -271,6 +277,9 @@ struct GameSettingsView: View {
             } label: { Label("Controls Style", systemImage: "hand.tap.fill") }
             Toggle(isOn: binding(\.gamepad, default: true)) { Label("On-Screen Controls", systemImage: "gamecontroller.fill") }
             Button { showControllerMap = true } label: { Label("Controller Mapping", systemImage: "gamecontroller") }
+            if !ControlsStyle.isWindows(game) {
+                Button { showExtras = true } label: { Label("Extras", systemImage: "sparkles") }
+            }
             Picker(selection: mouseBinding) {
                 ForEach(MouseMode.allCases) { mode in Text(mode.title).tag(mode) }
             } label: { Label("Mouse", systemImage: "computermouse.fill") }
@@ -453,6 +462,7 @@ struct GameSettingsView: View {
             collections.forget(game.id)
             privacy.setHidden(game.id, false)
             LayoutStore.delete(for: game.id)
+            ExtrasStore.delete(game.id)
             dismiss()
             onDeleted()
         }

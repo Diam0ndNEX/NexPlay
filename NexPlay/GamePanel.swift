@@ -116,6 +116,15 @@ final class GamePanelModel: ObservableObject {
         say("Controls: \(ControlsStyle.resolved(for: game).title)")
     }
 
+    /// Closes the panel, then opens the game's Extras sheet (8.2.1).
+    func openExtras() {
+        let context = panel?.context
+        shouldClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            context?.openExtras()
+        }
+    }
+
     /// Closes the panel, then opens the touch-control editor of the game's style.
     func editControls() {
         let context = panel?.context
@@ -535,11 +544,19 @@ struct GamePanelView: View {
         PanelCard("Input", symbol: "hand.point.up.left.fill") {
             Text("Controls Style").font(NexType.label)
             ControlsStylePicker(game: model.game, choice: model.controlsStyle) { model.setControlsStyle($0) }
-            Button {
-                model.editControls()
-            } label: {
-                Label("Edit Touch Controls", systemImage: "slider.horizontal.below.square.and.square.filled")
-                    .frame(maxWidth: .infinity)
+            HStack(spacing: 12) {
+                Button {
+                    model.editControls()
+                } label: {
+                    Label("Edit Controls", systemImage: "slider.horizontal.below.square.and.square.filled")
+                        .frame(maxWidth: .infinity)
+                }
+                Button {
+                    model.openExtras()
+                } label: {
+                    Label("Extras", systemImage: "sparkles")
+                        .frame(maxWidth: .infinity)
+                }
             }
             .buttonStyle(.bordered)
             .tint(.white)
@@ -572,7 +589,7 @@ struct GamePanelView: View {
                 .buttonStyle(.bordered)
             }
             .tint(.white)
-            Text("A preset replaces this game's NexPlay Pad layout (it switches PC Controls back to the pad). Edit with the pencil on the control bar.")
+            Text("A preset replaces the touch layout of the game's Controls Style. Extras (key bar, radial menu, turbo, gyro, aim zone, gestures, magnifier, Pencil) work with both styles.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

@@ -268,6 +268,49 @@ final class NexPCPadView: UIView {
     }
 }
 
+// MARK: - Layout presets as BCD layouts (8.2.1)
+
+@MainActor
+enum NexPCPresets {
+    /// The preset's landscape controls as BCD touch controls: keys keep their code (DOM key codes are Windows VKs for
+    /// these keys), NexPlay's game actions become their keys, sticks become key sticks, NexPlay-only actions are left out.
+    static func apply(_ profile: LayoutProfile) {
+        let model = TouchControlsModel.shared
+        if model.editing { model.editing = false }
+        var made: [TouchControl] = []
+        for item in profile.landscape where !item.hidden {
+            guard let action = action(for: item) else { continue }
+            var control = TouchControl()
+            control.nx = item.x
+            control.ny = item.y
+            control.scale = BCDTouchGeometry.clampScale(item.size / Double(TouchControlsModel.baseDiameter))
+            control.action = action
+            made.append(control)
+        }
+        model.layoutID = nil
+        model.controls = made
+        if !model.visible { model.visible = true }
+        AppLog.log("controls: preset \(profile.name) → \(made.count) PC controls")
+    }
+
+    private static func action(for item: ControlItem) -> BCDControlAction? {
+        switch item.action {
+        case .key: return item.keyCode.map { .key(Int32($0)) }
+        case .confirm: return .key(Int32(PadKey.confirm.keyCode))
+        case .cancel: return .key(Int32(PadKey.cancel.keyCode))
+        case .menu: return .key(Int32(PadKey.menu.keyCode))
+        case .dash: return .key(Int32(PadKey.dash.keyCode))
+        case .pageUp: return .key(Int32(PadKey.pageUp.keyCode))
+        case .pageDown: return .key(Int32(PadKey.pageDown.keyCode))
+        case .mouseLeft: return .mouseLeft
+        case .mouseRight: return .mouseRight
+        case .dpad, .joystick: return item.wasd == true ? .joystickWASD : .joystickArrows
+        case .showKeyboard: return .keyboardToggle
+        case .none, .fastForward, .scrollUp, .scrollDown, .quickSave, .quickLoad, .gamePanel: return nil
+        }
+    }
+}
+
 // MARK: - NexPlay Pad over a Windows game
 
 /// NexPlay's overlay keys and mouse buttons into Wine, and BCD's touch controls hidden while the pad is on.

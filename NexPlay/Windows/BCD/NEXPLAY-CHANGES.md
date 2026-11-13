@@ -33,3 +33,7 @@ into its own target (only in builds with the Windows engine, see `NexPlayWindows
 ### 2026-11-13, NexPlay 8.2.0 (Controls Style)
 - Added: `NexPlayPCControls.swift` (NexPlay's code, not BCD's): BCD's touch layer and editor over NexPlay's web-view
   games, and NexPlay's pad over Windows games. No BCD file was changed.
+
+### 2026-11-13, NexPlay 8.2.1 (layout presets)
+- `NexPlayPCControls.swift` (NexPlay's code) gains `NexPCPresets`: NexPlay's layout presets written as BCD touch
+  layouts. No BCD file was changed.

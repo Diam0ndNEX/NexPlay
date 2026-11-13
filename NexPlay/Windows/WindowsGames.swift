@@ -382,6 +382,20 @@ final class WindowsLaunchController: UIViewController {
         applyControlsStyle()
     }
 
+    /// 8.2.1: a layout preset for the game's style: the NexPlay Pad's layout, or BCD's touch layout.
+    private func applyPreset(_ preset: LayoutPreset) {
+        if ControlsStyle.resolved(for: currentGame) == .nexPad {
+            if !padReady { configurePad() }
+            if pad.isEditing { pad.endEditing(save: false) }
+            pad.applyPreset(preset)
+            if !currentGame.gamepad { store.mutate(game.id) { $0.gamepad = true } }
+            pad.isHidden = false
+        } else {
+            PCControls.applyPreset(preset.profile)
+        }
+        AppLog.log("windows: \(game.name): preset \(preset.title)")
+    }
+
     private func editControls() {
         if ControlsStyle.resolved(for: currentGame) == .nexPad {
             if !padReady { configurePad() }
@@ -429,7 +443,8 @@ final class WindowsLaunchController: UIViewController {
             onStyle: { [weak self] style in self?.setControlsStyle(style) },
             onEdit: { [weak self] in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.editControls() }
-            }
+            },
+            onPreset: { [weak self] preset in self?.applyPreset(preset) }
         )
         #endif
         let host = UIHostingController(rootView: panel)

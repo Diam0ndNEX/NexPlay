@@ -1147,6 +1147,7 @@ struct LibraryView: View {
                 collections.forget(game.id)
                 privacy.setHidden(game.id, false)
                 LayoutStore.delete(for: game.id)
+                ExtrasStore.delete(game.id)
                 CoverCache.forget(game)
             }
             selection = []

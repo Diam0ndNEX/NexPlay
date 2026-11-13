@@ -66,6 +66,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var isEditingControls = false
     /// 8.2.0: BCD's touch controls when the game's Controls Style is PC Controls (engine builds only).
     private var pcControls: PCControlsLayer?
+    /// 8.2.1: the game's extras (Extras.swift, ExtrasLayer.swift).
+    private var extrasController: ExtrasController?
+    /// 8.2.1: where the mouse is in Direct Touch mode once gyro aim or the aim zone moved it.
+    private var virtualCursor: CGPoint?
     private var controllerConnected = false
     private var loadTask: Task<Void, Never>?
     private var pickPurpose: PickPurpose = .jsonRestore
@@ -174,6 +178,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         context.controlsStyle = { [weak self] in self?.game.controlsStyle }
         context.setControlsStyle = { [weak self] style in self?.setControlsStyle(style) }
         context.editControls = { [weak self] in self?.editControls() }
+        context.openExtras = { [weak self] in self?.openExtras() }
         features = PlayerFeatures.make(context: context)
         for feature in features {
             for script in feature.userScripts(for: game) { content.addUserScript(script) }
@@ -227,6 +232,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         configureLabels()
         configureKeySender()
         applyControlsStyle()
+        installExtras()
 
         let wake = UITapGestureRecognizer(target: self, action: #selector(screenTapped))
         wake.cancelsTouchesInView = false
@@ -308,6 +314,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         }
         gamepad.onEditingChanged = { [weak self] editing in
             guard let self else { return }
+            self.extrasController?.setCovered(editing)
             self.isEditingControls = editing
             self.controlBar.isHidden = false
             self.controlBar.setEditing(editing)
@@ -321,6 +328,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             self.presentOnTop(host)
         }
         gamepad.onPreset = { preset in prefs.display(preset.profile) }
+        gamepad.onExtras = { [weak self] in self?.openExtras() }
         gamepad.onConfirmReset = { [weak self] reset in
             let alert = UIAlertController(title: "Reset Controls?", message: "This game's buttons go back to the default layout.", preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -344,6 +352,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             layer.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             layer.onEditingChanged = { [weak self] editing in
                 guard let self else { return }
+                self.extrasController?.setCovered(editing)
                 self.isEditingControls = editing
                 self.controlBar.isHidden = editing
                 if !editing { self.updateOverlays() }
@@ -359,6 +368,43 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         }
         gameLog.add("controls style: \(ControlsStyle.resolved(for: game).title)")
         updateOverlays()
+    }
+
+    // MARK: - Extras (8.2.1)
+
+    private func installExtras() {
+        let extras = ExtrasStore.load(game.id)
+        keyRouter.turboKeys = Set(extras.turboKeys)
+        keyRouter.turboRate = extras.turboRate
+        let controller = ExtrasController(host: self, extras: extras)
+        controller.install(in: view, game: webView, below: (trackpad as UIView?) ?? webView, above: gamepad)
+        extrasController = controller
+        if extras.anyOn { gameLog.add("extras on") }
+        bringBarsToFront()
+    }
+
+    private func openExtras() {
+        let gameID = game.id
+        let sheet = ExtrasView(gameName: game.name, extras: extrasController?.extras ?? ExtrasStore.load(gameID)) { [weak self] extras in
+            ExtrasStore.save(extras, for: gameID)
+            guard let self else { return }
+            self.keyRouter.turboKeys = Set(extras.turboKeys)
+            self.keyRouter.turboRate = extras.turboRate
+            self.extrasController?.update(extras, below: (self.trackpad as UIView?) ?? self.webView, above: self.gamepad)
+            self.bringBarsToFront()
+        }
+        let host = UIHostingController(rootView: sheet)
+        host.modalPresentationStyle = .pageSheet
+        if let sheetController = host.sheetPresentationController {
+            sheetController.detents = [.medium(), .large()]
+            sheetController.prefersGrabberVisible = true
+        }
+        presentOnTop(host)
+    }
+
+    /// The control bar stays above anything the extras add.
+    private func bringBarsToFront() {
+        view.bringSubviewToFront(controlBar)
     }
 
     private func setControlsStyle(_ style: ControlsStyle?) {
@@ -858,6 +904,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     /// Where mouse buttons click: the trackpad cursor, else the middle of the game.
     private var mousePoint: CGPoint {
         if let trackpad { return view.convert(trackpad.cursor, from: trackpad) }
+        if let virtualCursor { return virtualCursor }
         let frame = webView.frame
         return CGPoint(x: frame.midX, y: frame.midY)
     }
@@ -903,8 +950,20 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     }
 
     private func applyPreset(_ preset: LayoutPreset) {
-        // 8.2.0: the presets are NexPlay Pad layouts (8.2.1 brings them to PC Controls).
-        if usesPCControls { setControlsStyle(.nexPad) }
+        // 8.2.1: with PC Controls the preset becomes BCD's touch layout (PCControls.applyPreset).
+        if usesPCControls {
+            if pcControls?.isEditing == true { pcControls?.setEditing(false) }
+            PCControls.applyPreset(preset.profile)
+            if !game.gamepad { update { $0.gamepad = true } }
+            updateOverlays()
+            if preset.suggestsTrackpad && MouseMode.resolved(for: game) == .direct {
+                setMouseMode(.trackpad)
+                context.toast("\(preset.title): Trackpad mouse on")
+            } else {
+                context.toast(preset.title)
+            }
+            return
+        }
         if gamepad.isEditing { gamepad.endEditing(save: false) }
         if !game.gamepad { update { $0.gamepad = true } }
         gamepad.applyPreset(preset)
@@ -1426,6 +1485,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         loadTask?.cancel()
         gamepad.releaseAll()
         pcControls?.releaseAll()
+        extrasController?.stop()
+        extrasController = nil
         controllers?.stop()
         controllers = nil
         keyRouter.releaseAll()
@@ -1585,5 +1646,50 @@ extension PlayerViewController: PCControlsInput {
 
     func pcToggleKeyboard() {
         toggleKeyboard()
+    }
+}
+
+// MARK: - Extras host (8.2.1)
+
+extension PlayerViewController: ExtrasHost {
+    func extraKey(_ key: PadKey, _ down: Bool) {
+        keyRouter.press(key, down)
+    }
+
+    func extraMouse(right: Bool, down: Bool) {
+        handleAction(right ? .mouseRight : .mouseLeft, down)
+    }
+
+    func extraMoveMouse(by delta: CGPoint) {
+        if let trackpad {
+            trackpad.nudge(by: delta)
+            return
+        }
+        guard let webView else { return }
+        let frame = webView.frame
+        let start = virtualCursor ?? CGPoint(x: frame.midX, y: frame.midY)
+        let moved = CGPoint(x: min(max(start.x + delta.x, frame.minX), frame.maxX - 1),
+                            y: min(max(start.y + delta.y, frame.minY), frame.maxY - 1))
+        virtualCursor = moved
+        sendMouse("move", at: moved, 0)
+    }
+
+    func extraPointer(_ type: String, at point: CGPoint, button: Int) {
+        virtualCursor = point
+        sendMouse(type, at: point, button)
+    }
+
+    func extraWheel(_ deltaY: Int) {
+        webView?.evaluateJavaScript("window.__nexWheel && window.__nexWheel(\(deltaY))", completionHandler: nil)
+    }
+
+    func extraApp(_ kind: ExtraAction.Kind) {
+        switch kind {
+        case .gamePanel: handleAction(.gamePanel, true)
+        case .keyboard: handleAction(.showKeyboard, true)
+        case .quickSave: handleAction(.quickSave, true)
+        case .quickLoad: handleAction(.quickLoad, true)
+        default: break
+        }
     }
 }

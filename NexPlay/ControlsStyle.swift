@@ -97,6 +97,13 @@ enum PCControls {
         #endif
     }
 
+    /// 8.2.1: a NexPlay layout preset as BCD's touch layout (shared by every game with PC Controls).
+    @MainActor static func applyPreset(_ profile: LayoutProfile) {
+        #if NEXPLAY_WINDOWS
+        NexPCPresets.apply(profile)
+        #endif
+    }
+
     @MainActor static func makeLayer(input: PCControlsInput) -> PCControlsLayer? {
         #if NEXPLAY_WINDOWS
         return NexPCTouchLayer(input: input)

@@ -9,8 +9,9 @@ once all steps are done, then pastes build errors (first error first).
 | Core merge | 8.0.0 (64) | pushed 2026-11-13, not built yet |
 | Design system: tokens, profiles, fonts, glass, motion, placeholder covers | 8.1.0 (66) | built OK 2026-11-13 |
 | Design system applied: Home, Library, tab bar, Settings, Setup Center | 8.1.1 (67) | pushed 2026-11-13 |
-| Controls Style (NexPlay Pad / PC Controls) | 8.2.0 (68) | pushed 2026-11-13 |
-| Controls: shared extras, merged physical controllers | 8.2.1 | |
+| Controls Style (NexPlay Pad / PC Controls) | 8.2.0 (68) | built OK 2026-11-13 |
+| Controls: extras for web games, presets in both styles | 8.2.1 (69) | pushed 2026-11-13 |
+| Controls: merged physical controllers | 8.2.2 | |
 | In-game | 8.3.0 | |
 | Game page | 8.4.0 | |
 | itch.io (other stores hidden) | 8.5.0 | |
@@ -90,6 +91,13 @@ unchanged (NexPlay's code is `ControlsStyle.swift` and `Windows/BCD/NexPlayPCCon
 game creates BCD's LibraryModel (as a Windows game would). 8.2.1: the extras (gyro aim, aim zone, radial, turbo, extra key
 bar, magnifier, pencil, gesture map) in both editors, layout presets for PC Controls, and HardwareInput + controller hub
 merged with PhysicalControllers.
+
+8.2.1 notes: split again. 8.2.1 = extras for web-view games with either style (NexPlay's own code in `Extras.swift` and
+`ExtrasLayer.swift`, ideas from BCD's round 603/604 extras; works without the engine): key bar, radial menu, turbo, gyro aim,
+aim zone, gestures, magnifier, Pencil; opened from the Game Panel, the NexPlay Pad editor's + menu and Game Settings (BCD's
+editor is unchanged, so it has no Extras entry). Windows games keep BCD's own extras (in-game menu). Layout presets now
+work in both styles (PC Controls: converted to a BCD touch layout) and in the Windows panel. 8.2.2: BCD's HardwareInput and
+controller hub merged with PhysicalControllers.
 
 ## Controls: both systems, one place to choose
 - Every game has **Controls Style**:

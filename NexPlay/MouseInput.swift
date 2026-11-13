@@ -179,6 +179,13 @@ final class TrackpadView: UIView {
                              width: size.width, height: size.height)
     }
 
+    /// 8.2.1: moves the cursor by points without the trackpad's speed (gyro aim, aim zone).
+    func nudge(by delta: CGPoint) {
+        cursor = clamp(CGPoint(x: cursor.x + delta.x, y: cursor.y + delta.y))
+        placeArrow()
+        onMouse?("move", cursor, 0)
+    }
+
     private func moveCursor(by delta: CGPoint) {
         cursor = clamp(CGPoint(x: cursor.x + delta.x * speed, y: cursor.y + delta.y * speed))
         placeArrow()
