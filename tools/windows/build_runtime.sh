@@ -14,54 +14,31 @@ NX="$WS/nexplay/tools/windows"
 cd "$BCD"
 
 # BCD's public repo does not ship Apple's iOS libmetalirconverter.dylib (BCD's deps.sh stops without it, after an hour
-# of building). BCD's own fetch-converter.sh makes it from Apple's installer, which Apple's agreement keeps out of
-# public places: put "Metal Shader Converter 4.0 beta 2.pkg" as an asset of a DRAFT release with the tag
-# "msc-installer" in this repo (the token below can see drafts). Never commit or publish it.
-MSC_DYLIB="$BCD/app/Madeira/d3d12/libmetalirconverter.dylib"
-if [ ! -f "$MSC_DYLIB" ]; then
-  echo "::group::Metal Shader Converter (from the draft release msc-installer)"
-  PKG_DIR="$BCD/research/GPTK"
-  PKG="$PKG_DIR/Metal Shader Converter 4.0 beta 3.pkg"
-  mkdir -p "$PKG_DIR"
-  if [ -z "${GH_TOKEN:-}" ]; then
-    echo "::error::GH_TOKEN is not set for this step: paste the newest docs/workflow-windows-runtime.yml as build-windows-runtime.yml"
-    exit 1
-  fi
-  ASSET_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-    --jq '[.[] | select(.tag_name == "msc-installer" or .name == "msc-installer") | .assets[] | select(.name | test("\\.pkg$"))][0].id // empty')
-  if [ -z "$ASSET_ID" ]; then
-    echo "::error::No .pkg asset found on a release tagged msc-installer. Create a DRAFT release with that tag and attach Apple's 'Metal Shader Converter 4.0 beta 2.pkg' (see docs/WINDOWS-PORT.md)."
-    exit 1
-  fi
-  gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" > "$PKG"
-  ls -l "$PKG"
-    # BCD pins beta 2 (pkg 1acc33c8..., iOS dylib 073f903b...). The installer Apple offers now is beta 3: when that is what
-  # we got, point BCD's two scripts at it (same version line 4.0; its headers replace the vendored ones in fetch-converter.sh).
-  B2_PKG=1acc33c87ea663933df89721a998d066106685473020bcbe007cee7a16155734
-  B2_LIB=073f903be98e973ff38f4d79f2c48d61ef938754a77b1caedda79c9f05a068c2
-  B3_PKG=449833211e4ef0d46bfaa94848e801acff49e226d3c348bba0673f13716be622
-  B3_LIB=3040a91ea3559dbcf966f3dfbb21614275e217b4f63fcf8c67de23b17d3f5518
-  GOT=$(shasum -a 256 "$PKG" | cut -d' ' -f1)
-  if [ "$GOT" = "$B3_PKG" ]; then
-    python3 - "$BCD" "$B2_PKG" "$B3_PKG" "$B2_LIB" "$B3_LIB" <<'PY'
+# of building). NexPlay keeps the iOS dylib and headers of Metal Shader Converter 4.0 beta 3 in
+# third_party/metal-shader-converter: copy them into BCD's tree and point BCD's pinned hash (beta 2) at beta 3.
+MSC_SRC="$WS/nexplay/third_party/metal-shader-converter"
+MSC_VEND="$BCD/madeira-d3d12/third_party/metal-shader-converter"
+echo "::group::Metal Shader Converter 4.0 beta 3 (from NexPlay's third_party)"
+cp "$MSC_SRC/lib_iOS/libmetalirconverter.dylib" "$BCD/app/Madeira/d3d12/libmetalirconverter.dylib"
+rm -rf "$MSC_VEND/include"
+mkdir -p "$MSC_VEND"
+cp -R "$MSC_SRC/include" "$MSC_VEND/include"
+(cd "$MSC_VEND" && find include -type f | LC_ALL=C sort | xargs shasum -a 256 > SHA256SUMS)
+python3 - "$BCD" <<'PY'
 import sys
-bcd, o_pkg, n_pkg, o_lib, n_lib = sys.argv[1:6]
-for rel in ("build/madeira-d3d12/fetch-converter.sh", "build/madeira-d3d12/deps.sh"):
+bcd = sys.argv[1]
+old_lib = "073f903be98e973ff38f4d79f2c48d61ef938754a77b1caedda79c9f05a068c2"
+new_lib = "3040a91ea3559dbcf966f3dfbb21614275e217b4f63fcf8c67de23b17d3f5518"
+for rel in ("build/madeira-d3d12/deps.sh", "build/madeira-d3d12/fetch-converter.sh"):
     p = bcd + "/" + rel
     s = open(p).read()
-    t = s.replace(o_pkg, n_pkg).replace(o_lib, n_lib).replace("4.0 beta 2.pkg", "4.0 beta 3.pkg")
-    print(rel, "patched" if t != s else "NOT CHANGED")
+    t = s.replace(old_lib, new_lib)
+    print(rel, "re-pinned to beta 3" if t != s else "no beta 2 pin found")
     open(p, "w").write(t)
 PY
-  elif [ "$GOT" = "$B2_PKG" ]; then
-    mv "$PKG" "$PKG_DIR/Metal Shader Converter 4.0 beta 2.pkg"
-  else
-    echo "::error::The installer is neither beta 2 nor beta 3 (sha256 $GOT): BCD's pinned hashes would reject it"
-    exit 1
-  fi
-  bash build/madeira-d3d12/fetch-converter.sh
-  echo "::endgroup::"
-fi
+shasum -a 256 "$BCD/app/Madeira/d3d12/libmetalirconverter.dylib"
+bash build/madeira-d3d12/deps.sh && echo "deps.sh: converter OK"
+echo "::endgroup::"
 
 echo "::group::BCD's build steps"
 python3 "$NX/run_bcd_ci.py" --root "$BCD" --until "Archive (unsigned)"
