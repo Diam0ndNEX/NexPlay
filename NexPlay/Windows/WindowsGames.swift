@@ -1,3 +1,4 @@
+import SwiftUI
 import UIKit
 
 // 7.0.0: Windows games in NexPlay's library. A game's files stay in NexPlay's Games/<id> folder; a link to that folder
@@ -156,7 +157,35 @@ final class WindowsLaunchController: UIViewController {
         super.viewDidAppear(animated)
         guard !started else { return }
         started = true
-        start()
+        // 7.12.0: the JIT sheet first when JIT is off (Settings > JIT & Performance > JIT for Games).
+        let wantsJIT = UserDefaults.standard.object(forKey: SettingsKey.jitAutoForGames) as? Bool ?? true
+        if wantsJIT && !JITManager.shared.isActive && JITHelperHost.unavailableReason == nil {
+            loading.setStage("Waiting for JIT…")
+            let sheet = JITSheetView(gameName: game.name) { [weak self] ok in
+                guard let self else { return }
+                if ok {
+                    self.start()
+                } else {
+                    self.onExit()
+                }
+            }
+            let host = UIHostingController(rootView: sheet)
+            host.modalPresentationStyle = .formSheet
+            present(host, animated: true)
+        } else {
+            start()
+        }
+    }
+
+    /// Restart Game in the Windows panel: count the time played so far, then start again.
+    private func restart() {
+        if let start = playStart {
+            let seconds = Date().timeIntervalSince(start)
+            playStart = nil
+            store.mutate(game.id) { $0.playSeconds += seconds }
+        }
+        loading.resetToLoading("Restarting…")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.start() }
     }
 
     /// BCD's screen was closed: count the time and go back to the library.
@@ -216,7 +245,19 @@ final class WindowsLaunchController: UIViewController {
             var link = URLComponents()
             link.scheme = "madeira"
             link.host = "play"
-            link.queryItems = [URLQueryItem(name: "exe", value: paths.windows)]
+            var items = [URLQueryItem(name: "exe", value: paths.windows)]
+            // 7.12.0 Run Options. BCD reads exe; args, env and lang are passed for BCD builds that support them.
+            if let options = game.runOptions {
+                let args = options.argumentList
+                if !args.isEmpty { items.append(URLQueryItem(name: "args", value: args.joined(separator: " "))) }
+                for (key, value) in options.environmentPairs {
+                    items.append(URLQueryItem(name: "env", value: "\(key)=\(value)"))
+                }
+                if let locale = options.locale, !locale.isEmpty {
+                    items.append(URLQueryItem(name: "env", value: "LANG=\(locale.replacingOccurrences(of: "-", with: "_")).UTF-8"))
+                }
+            }
+            link.queryItems = items
             guard let url = link.url else { fail("The game's path can't be made into a link."); return }
             AppLog.log("windows: starting \(paths.windows)")
             loading.setStage("Loading game…")
@@ -224,6 +265,7 @@ final class WindowsLaunchController: UIViewController {
                 store.mutate(game.id) { $0.windowsInfo = info }
             }
             playStart = Date()
+            try BCDBridge.configurePanel(gameName: game.name, onRestart: { [weak self] in self?.restart() })
             try BCDBridge.open(url, onClose: { [weak self] in self?.finish() })
         } catch {
             fail((error as? WindowsRuntimeError)?.message ?? error.localizedDescription)

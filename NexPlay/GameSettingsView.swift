@@ -94,6 +94,7 @@ struct GameSettingsView: View {
             progressSection(game)
             organizationSection(game)
             controlsSection(game)
+            RunOptionsSection(game: game)
             screenSection(game)
             if game.engine.isRPGMaker { engineSection(game) }
             if game.engine == .renpy || game.isGodotDesktop { runtimeSection(game) }

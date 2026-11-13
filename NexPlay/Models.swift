@@ -195,6 +195,8 @@ struct Game: Identifiable, Codable, Hashable {
     var lastGoodRuntime: RuntimeKind?
     /// 7.3.0: how touches act as a mouse (web-view games); nil = Direct Touch.
     var mouseMode: MouseMode?
+    /// 7.12.0: arguments, environment and language for the game's runtime.
+    var runOptions: RunOptions?
 
     /// The hostname used in nexplay://<host>/ URLs. Unique per game, so every game has its own web storage.
     var host: String { id.uuidString.lowercased() }

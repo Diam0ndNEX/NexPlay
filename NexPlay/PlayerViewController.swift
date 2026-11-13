@@ -134,6 +134,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                                            injectionTime: .atDocumentStart, forMainFrameOnly: true))
         content.addUserScript(WKUserScript(source: PageScripts.keyBridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         content.addUserScript(WKUserScript(source: MouseScripts.bridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if let locale = game.runOptions?.locale, !locale.isEmpty {
+            content.addUserScript(WKUserScript(source: RunOptions.localeScript(locale), injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        }
         if game.engine == .renpy {
             content.addUserScript(WKUserScript(source: PageScripts.noServiceWorker, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
@@ -500,7 +503,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             let encoded = game.entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? game.entry
             let threads = launch.runtime.major == 4 && launch.runtime.minor < 3
             server.virtualPages["__nexplay/godot.html"] = GodotRuntime.launcherPage(packPath: encoded, title: game.name,
-                                                                                    threads: threads, args: launch.args)
+                                                                                    threads: threads, args: launch.args + (game.runOptions?.argumentList ?? []))
             launchPath = "__nexplay/godot.html"
             activeRuntime = launch.runtime.description
             gameLog.add("Godot \(launch.version) game on the Godot \(launch.runtime) web runtime")

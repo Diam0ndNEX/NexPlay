@@ -136,6 +136,13 @@ enum BCDBridge {
         top.present(controller, animated: true)
     }
 
+    /// 7.12.0: the game shown in the Windows panel (⋯ on BCD's screen) and what Restart Game does.
+    static func configurePanel(gameName: String, onRestart: (() -> Void)?) throws {
+        let controller = try hostController()
+        controller.gameName = gameName
+        controller.onRestart = onRestart
+    }
+
     /// Hands a link to BCD (for example madeira://play?exe=...), then shows it.
     static func open(_ url: URL, onClose: (() -> Void)? = nil) throws {
         try show(onClose: onClose)
@@ -177,6 +184,11 @@ final class WindowsHostViewController: UIViewController {
     private let content: UIViewController
     /// Called after the screen is closed with its button (7.0.0: a library game returns to the library).
     var onClose: (() -> Void)?
+    /// 7.12.0: Windows panel.
+    var gameName = "Windows Games"
+    var onRestart: (() -> Void)?
+    private let hud = PerformanceHUDView()
+    private var hudTimer: Timer?
 
     init(content: UIViewController) {
         self.content = content
@@ -218,11 +230,87 @@ final class WindowsHostViewController: UIViewController {
         close.alpha = 0.7
         close.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(close)
+
+        var more = UIButton.Configuration.filled()
+        more.image = UIImage(systemName: "ellipsis", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .bold))
+        more.baseBackgroundColor = UIColor.black.withAlphaComponent(0.45)
+        more.baseForegroundColor = .white
+        more.cornerStyle = .capsule
+        let panel = UIButton(configuration: more, primaryAction: UIAction { [weak self] _ in self?.openPanel() })
+        panel.accessibilityLabel = "Windows panel"
+        panel.alpha = 0.7
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(panel)
+
+        hud.isHidden = true
+        view.addSubview(hud)
         NSLayoutConstraint.activate([
             close.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
             close.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
             close.widthAnchor.constraint(equalToConstant: 30),
             close.heightAnchor.constraint(equalToConstant: 30),
+            panel.leadingAnchor.constraint(equalTo: close.trailingAnchor, constant: 8),
+            panel.topAnchor.constraint(equalTo: close.topAnchor),
+            panel.widthAnchor.constraint(equalToConstant: 30),
+            panel.heightAnchor.constraint(equalToConstant: 30),
         ])
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        hud.place(in: view.bounds, insets: view.safeAreaInsets)
+    }
+
+    private func openPanel() {
+        let panel = WindowsPanelView(
+            gameName: gameName,
+            hudOn: !hud.isHidden,
+            onToggleHUD: { [weak self] in self?.toggleHUD() },
+            onRestart: { [weak self] in self?.restartGame() },
+            onExit: { [weak self] in self?.closeScreen() }
+        )
+        let host = UIHostingController(rootView: panel)
+        host.modalPresentationStyle = .pageSheet
+        if let sheet = host.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(host, animated: true)
+    }
+
+    private func toggleHUD() {
+        hud.isHidden.toggle()
+        hudTimer?.invalidate()
+        hudTimer = nil
+        guard !hud.isHidden else { return }
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        hud.update(fps: nil)
+        view.bringSubviewToFront(hud)
+        hudTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.hud.update(fps: nil) }
+        }
+    }
+
+    /// Closes BCD's screen without counting it as leaving, then starts the game again.
+    private func restartGame() {
+        let restart = onRestart
+        onClose = nil
+        hudTimer?.invalidate()
+        hudTimer = nil
+        dismiss(animated: true) {
+            OrientationManager.unlock()
+            restart?()
+        }
+    }
+
+    private func closeScreen() {
+        let done = onClose
+        onClose = nil
+        hudTimer?.invalidate()
+        hudTimer = nil
+        dismiss(animated: true) {
+            OrientationManager.unlock()
+            done?()
+        }
     }
 }

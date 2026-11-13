@@ -103,13 +103,16 @@ final class PerformanceHUDView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Called once a second with the page's frame rate.
-    func update(fps: Int) {
-        samples.append(fps)
-        if samples.count > 60 { samples.removeFirst(samples.count - 60) }
+    /// Called once a second with the page's frame rate (nil when NexPlay can't measure it: Windows games).
+    func update(fps: Int?) {
+        if let fps {
+            samples.append(fps)
+            if samples.count > 60 { samples.removeFirst(samples.count - 60) }
+        }
         let cpu = Int(PerfSampler.cpuPercent().rounded())
         let used = PerfSampler.footprintMB()
-        line1.text = "\(fps) FPS · CPU \(cpu)% · \(used) MB"
+        let rate = fps.map { "\($0) FPS" } ?? "CPU+GPU"
+        line1.text = "\(rate) · CPU \(cpu)% · \(used) MB"
         if full {
             let level = UIDevice.current.batteryLevel
             let battery = level < 0 ? "--" : "\(Int(level * 100))%"
