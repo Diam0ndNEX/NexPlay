@@ -127,7 +127,7 @@ final class WindowsLaunchController: UIViewController {
     private let game: Game
     private let store: LibraryStore
     private let onExit: () -> Void
-    private let label = UILabel()
+    private var loading: LoadingScreenView!
     private var started = false
     private var playStart: Date?
 
@@ -143,25 +143,13 @@ final class WindowsLaunchController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        label.text = "Starting \(game.name)…"
-        label.textColor = .white
-        label.numberOfLines = 0
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        let back = UIButton(type: .system)
-        back.setTitle("Back to Library", for: .normal)
-        back.addAction(UIAction { [weak self] _ in self?.onExit() }, for: .touchUpInside)
-        back.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(label)
-        view.addSubview(back)
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
-            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -32),
-            back.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 24),
-            back.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-        ])
+        // 7.10.0: the shared loading screen; it stays behind BCD's screen and shows errors.
+        loading = LoadingScreenView(gameName: game.name, art: CoverCache.cached(for: game))
+        loading.frame = view.bounds
+        loading.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        loading.onCancel = { [weak self] in self?.onExit() }
+        loading.setStage("Starting Windows…")
+        view.addSubview(loading)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -188,7 +176,18 @@ final class WindowsLaunchController: UIViewController {
 
     private func fail(_ message: String) {
         AppLog.log("windows: \(game.name): \(message)")
-        label.text = "\(game.name)\n\n\(message)"
+        let lines = AppLog.shared.text.split(separator: "\n").filter { $0.contains("windows") || $0.contains("jit:") }.suffix(40)
+        loading.setLog(lines.map(String.init))
+        loading.showError(what: message, why: nil, actions: [
+            LoadingAction("Try Again", symbol: "arrow.clockwise", primary: true) { [weak self] in
+                guard let self else { return }
+                self.loading.resetToLoading("Starting Windows…")
+                self.start()
+            },
+            LoadingAction("Copy Log for Claude", symbol: "doc.on.doc") {
+                UIPasteboard.general.string = DeviceInfo.report() + "\n\n" + lines.joined(separator: "\n")
+            },
+        ])
     }
 
     private func start() {
@@ -201,7 +200,10 @@ final class WindowsLaunchController: UIViewController {
             try BCDRuntimeInfo.load()
             guard WindowsLibraryLink.driveReady else {
                 // BCD sets up its Windows drive on its first start; the game can be added after that.
-                try BCDBridge.show(onClose: { [weak self] in self?.label.text = "Windows Games is set up. Tap Back to Library, then Play again." })
+                try BCDBridge.show(onClose: { [weak self] in
+                    self?.loading.resetToLoading("Windows Games is set up. Starting the game…")
+                    self?.start()
+                })
                 fail("Windows Games sets up its Windows drive first. When it's done, close it and press Play again.")
                 return
             }
@@ -217,6 +219,7 @@ final class WindowsLaunchController: UIViewController {
             link.queryItems = [URLQueryItem(name: "exe", value: paths.windows)]
             guard let url = link.url else { fail("The game's path can't be made into a link."); return }
             AppLog.log("windows: starting \(paths.windows)")
+            loading.setStage("Loading game…")
             if game.windowsInfo == nil, let info = WindowsPE.inspect(program: program, in: Paths.folder(for: game)) {
                 store.mutate(game.id) { $0.windowsInfo = info }
             }

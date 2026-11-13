@@ -47,6 +47,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private let keyboardBar = KeyboardSwitchBar()
     /// 7.3.0: covers the game in Trackpad mouse mode.
     private var trackpad: TrackpadView?
+    /// 7.10.0: the shared loading screen / error card.
+    private var loading: LoadingScreenView?
     private let banner = UILabel()
     private let statsLabel = UILabel()
     private let prefs = ControlPrefs.current()
@@ -375,15 +377,71 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     }
 
     /// Shows or hides the centered status card ("Preparing…").
+    /// 7.10.0: stage text on the shared loading screen; nil hides it (unless it shows an error).
     private func showStatus(_ text: String?) {
         guard let text else {
-            statusOverlay.isHidden = true
+            hideLoading()
             return
         }
-        statusOverlay.text = text
-        statusOverlay.isHidden = false
-        layoutStatus()
-        view.bringSubviewToFront(statusOverlay)
+        showLoading(text)
+    }
+
+    private func showLoading(_ stage: String) {
+        if loading == nil {
+            let screen = LoadingScreenView(gameName: game.name, art: CoverCache.cached(for: game))
+            screen.frame = view.bounds
+            screen.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            screen.onCancel = { [weak self] in self?.exitGame() }
+            screen.setLog(gameLog.lines)
+            view.addSubview(screen)
+            loading = screen
+        }
+        if let loading {
+            view.bringSubviewToFront(loading)
+            loading.setStage(stage)
+        }
+    }
+
+    private func hideLoading() {
+        guard let screen = loading, !screen.isShowingError else { return }
+        loading = nil
+        UIView.animate(withDuration: 0.3, animations: { screen.alpha = 0 }, completion: { _ in screen.removeFromSuperview() })
+    }
+
+    /// The game couldn't start: an error card with what to try.
+    private func showFailure(_ line: String) {
+        showLoading("")
+        guard let loading else { return }
+        var actions: [LoadingAction] = []
+        if game.engine.hasRuntimeChoice {
+            let engine = game.engine == .renpy ? "Ren'Py" : "Godot"
+            for version in runtimeChoices().filter({ $0 != activeRuntime }).prefix(2) {
+                actions.append(LoadingAction("Use \(engine) \(version)", symbol: "arrow.triangle.2.circlepath", primary: actions.isEmpty) { [weak self] in
+                    self?.loading?.resetToLoading("Restarting with \(engine) \(version)…")
+                    self?.switchRuntime(to: version)
+                })
+            }
+        }
+        if GameRuntimes.canRunOnWindows(game) && game.runtime != .windows {
+            actions.append(LoadingAction("Try Windows", symbol: "pc", primary: actions.isEmpty) { [weak self] in
+                guard let self else { return }
+                self.update { $0.runtime = .windows }
+                self.gameLog.add("runtime set to Windows after a failed start")
+                self.exitGame()
+            })
+        }
+        actions.append(LoadingAction("Restart Game", symbol: "arrow.clockwise") { [weak self] in
+            self?.loading?.resetToLoading("Restarting…")
+            self?.prepareAndLoad()
+        })
+        actions.append(LoadingAction("View Log", symbol: "list.bullet.rectangle") { [weak self] in self?.showLog() })
+        actions.append(LoadingAction("Copy Log for Claude", symbol: "doc.on.doc") { [weak self] in
+            guard let self else { return }
+            UIPasteboard.general.string = "NexPlay \(PlayerViewController.appVersion) · \(self.game.name) (\(self.game.engine.badge))\n" + self.gameLog.text
+            self.context.toast("Game log copied")
+        })
+        offeredRuntimeSwitch = true
+        loading.showError(what: "\(game.name) couldn't start.", why: line, actions: actions)
     }
 
     private func layoutStatus() {
@@ -585,6 +643,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                 }
             }
             if let url = gameURL {
+                if loading == nil { showLoading("Loading \(game.engine.title)…") }
                 gameLog.add("--- loading \(url.absoluteString)")
                 loadStart = Date()
                 banner.isHidden = true
@@ -642,11 +701,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         gameLog.add(line)
         let failure = line.contains("Godot could not start") || line.contains("The game aborted unexpectedly")
             || line.contains("The game exited unexpectedly") || line.contains("Could not load game.zip")
+        loading?.appendLog(line)
         if failure {
-            showStatus(nil)
-            if game.engine.hasRuntimeChoice {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.offerOtherRuntime(line) }
-            }
+            showFailure(line)
         }
         guard let start = loadStart, Date().timeIntervalSince(start) < 30 else { return }
         let lower = line.lowercased()
@@ -1363,7 +1420,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         gameLog.add("load failed: \(error.localizedDescription)")
-        showAlert("Couldn't load the game", error.localizedDescription)
+        showFailure("The start page didn't load: \(error.localizedDescription)")
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

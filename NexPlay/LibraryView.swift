@@ -550,6 +550,11 @@ struct LibraryView: View {
             appState.pendingPlay = nil
             // Hidden games only start from a link while hidden games are shown.
             guard let game = store.game(id: id), isVisible(game), playing == nil else { return }
+            // 7.10.0: a game that crashed at start opens its page instead of starting again.
+            if LaunchGuard.crashedRuntime(for: game.id) != nil {
+                detail = game
+                return
+            }
             detail = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { playing = game }
         }

@@ -49,6 +49,8 @@ struct NexPlayApp: App {
         NexFont.setUp()
         AppDelegate.orientationMask = OrientationManager.outsideMode.mask
         AppLog.noteLaunch()
+        // 7.10.0: a game that was still starting when NexPlay last closed is marked "crashed at start".
+        LaunchGuard.checkAtLaunch()
         // 6.4.0: Settings > Setup Center > Windows Games > Load at Launch.
         BCDRuntimeInfo.loadAtLaunchIfWanted()
     }

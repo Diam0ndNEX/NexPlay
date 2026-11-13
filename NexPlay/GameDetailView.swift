@@ -64,6 +64,8 @@ struct GameDetailView: View {
     @State private var notice: String?
     @State private var showSetupCenter = false
     @State private var pageTab: GamePageTab = .overview
+    /// 7.10.0: NexPlay closed while starting this game on this runtime last time.
+    @State private var crashedOn: RuntimeKind?
 
     private var game: Game? { store.game(id: gameID) }
 
@@ -82,6 +84,7 @@ struct GameDetailView: View {
                                 titleBlock(game)
                                 infoChips(game)
                                 if let notice { noticeCard(notice) }
+                                if let crashedOn { crashCard(game, crashedOn) }
                                 howItRunsCard(game)
                                 if game.usesNWMode { profileRow(game) }
                                 detailsCard(game)
@@ -330,6 +333,43 @@ struct GameDetailView: View {
         .overlay { if busy { ProgressView().tint(.white) } }
     }
 
+    private func crashCard(_ game: Game, _ kind: RuntimeKind) -> some View {
+        let others = GameRuntimes.choices(for: game).filter { $0 != kind }
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "bolt.trianglebadge.exclamationmark.fill").foregroundStyle(.red)
+                Text("NexPlay closed while starting this game on \(kind.title) last time. Try another runtime, or play again if it was a one-off.")
+                    .font(.pixel(13))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 10) {
+                ForEach(others) { other in
+                    Button {
+                        store.mutate(game.id) { $0.runtime = other }
+                        LaunchGuard.clearCrash(for: game.id)
+                        crashedOn = nil
+                    } label: {
+                        Label("Use \(other.title)", systemImage: other.symbol).font(.pixel(13))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(NexStyle.accentDeep)
+                }
+                Button("Dismiss") {
+                    LaunchGuard.clearCrash(for: game.id)
+                    crashedOn = nil
+                }
+                .font(.pixel(13))
+                .buttonStyle(.bordered)
+                .tint(.white)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.14), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.red.opacity(0.35)))
+    }
+
     private var tabStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -486,6 +526,7 @@ struct GameDetailView: View {
     private func refresh() async {
         guard let game else { return }
         let target = game
+        crashedOn = LaunchGuard.crashedRuntime(for: target.id)
         hero = await Task.detached(priority: .userInitiated) { GameArt.hero(for: target) }.value
         switch target.engine {
         case .rpgXP, .rpgVX, .rpgVXAce:

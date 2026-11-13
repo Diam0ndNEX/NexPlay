@@ -9,7 +9,14 @@ struct GameScreen: UIViewControllerRepresentable {
     let onExit: () -> Void
 
     func makeUIViewController(context: Context) -> UIViewController {
-        GameRuntimes.runtime(for: game).makeViewController(game: game, store: store, onExit: onExit)
+        // 7.10.0: crash-safe launch. Cleared after 20 seconds or when the game closes.
+        LaunchGuard.begin(game, runtime: GameRuntimes.kind(for: game))
+        let id = game.id
+        let exit = onExit
+        return GameRuntimes.runtime(for: game).makeViewController(game: game, store: store, onExit: {
+            LaunchGuard.end(id)
+            exit()
+        })
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
