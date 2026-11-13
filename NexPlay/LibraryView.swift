@@ -189,10 +189,94 @@ struct GameRow: View {
 }
 
 /// A filter chip at the top of the library: everything, an engine, favorites, or a collection.
+/// 7.4.0: `ready` hides games that need setup first.
 enum LibraryFilter: Hashable {
-    case all, favorites, engine(GameEngine), collection(UUID)
+    case all, favorites, ready, engine(GameEngine), collection(UUID)
 }
 
+/// 7.4.0: the app's tabs (a floating glass bar at the bottom).
+enum RootTab: String, CaseIterable, Identifiable {
+    case home, library, settings
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .home: return "Home"
+        case .library: return "Library"
+        case .settings: return "Settings"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .home: return "house.fill"
+        case .library: return "square.grid.2x2.fill"
+        case .settings: return "gearshape.fill"
+        }
+    }
+}
+
+/// 7.4.0: why a game can't start right now, or nil when it is ready to play.
+enum GameReadiness {
+    @MainActor
+    static func setupReason(for game: Game) -> String? {
+        let runtime = GameRuntimes.runtime(for: game)
+        if !runtime.isAvailable { return "\(runtime.kind.title) runtime missing" }
+        if runtime.capabilities(for: game).needsJIT && !JITManager.shared.pairingPresent {
+            return "Needs JIT: import a pairing file"
+        }
+        return nil
+    }
+}
+
+/// The floating tab bar.
+struct NexTabBar: View {
+    @Binding var tab: RootTab
+    var badge: Int = 0
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(RootTab.allCases) { item in
+                Button {
+                    if tab != item {
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        tab = item
+                    }
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: item.symbol)
+                            .font(.system(size: 18, weight: .semibold))
+                            .overlay(alignment: .topTrailing) {
+                                if item == .settings && badge > 0 {
+                                    Circle().fill(Color.orange).frame(width: 8, height: 8).offset(x: 6, y: -3)
+                                }
+                            }
+                        Text(item.title).font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(tab == item ? Color.white : Color.white.opacity(0.55))
+                    .frame(width: 84, height: 50)
+                    .background {
+                        if tab == item {
+                            Capsule().fill(NexStyle.accentGradient).opacity(0.9)
+                        }
+                    }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.title)
+                .accessibilityAddTraits(tab == item ? .isSelected : [])
+            }
+        }
+        .padding(5)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().stroke(NexStyle.cardStroke))
+        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: tab)
+    }
+}
+
+@MainActor
 struct LibraryView: View {
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var collections: CollectionStore
@@ -207,7 +291,6 @@ struct LibraryView: View {
     @State private var filter: LibraryFilter = .all
     @State private var playing: Game?
     @State private var detail: Game?
-    @State private var showSettings = false
     @State private var showCollections = false
     @State private var selecting = false
     @State private var selection: Set<UUID> = []
@@ -219,6 +302,9 @@ struct LibraryView: View {
     @State private var linkText = ""
     @State private var showWhatsNew = false
     @AppStorage(SettingsKey.whatsNewSeen) private var whatsNewSeen = ""
+    @State private var tab: RootTab = .home
+    @State private var showSetupCenter = false
+    @ObservedObject private var jit = JITManager.shared
 
     private var sort: LibrarySortOrder { LibrarySortOrder(rawValue: sortRaw) ?? .playedRecent }
 
@@ -240,6 +326,7 @@ struct LibraryView: View {
         switch filter {
         case .all: break
         case .favorites: list = list.filter { $0.isFavorite }
+        case .ready: list = list.filter { GameReadiness.setupReason(for: $0) == nil }
         case .engine(let engine): list = list.filter { $0.engine == engine }
         case .collection(let id):
             let ids = collections.collections.first { $0.id == id }?.gameIDs ?? []
@@ -254,16 +341,30 @@ struct LibraryView: View {
     }
 
     private var continueGame: Game? {
-        guard showContinue, filter == .all, search.isEmpty, !selecting else { return nil }
+        guard showContinue, search.isEmpty, !selecting else { return nil }
         return store.games.filter(isVisible).filter { $0.lastPlayed != nil }.max { ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast) }
     }
 
     /// The newest games, for the Recently Added shelf (only on the plain library view with enough games).
     private var recentlyAdded: [Game] {
-        guard filter == .all, search.isEmpty, !selecting else { return [] }
         let list = store.games.filter(isVisible)
-        guard list.count >= 6 else { return [] }
         return Array(list.sorted { $0.addedAt > $1.addedAt }.prefix(10))
+    }
+
+    /// Home shelves (7.4.0).
+    private var recentlyPlayed: [Game] {
+        let skip = continueGame?.id
+        let list = store.games.filter { isVisible($0) && $0.lastPlayed != nil && $0.id != skip }
+        return Array(list.sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }.prefix(12))
+    }
+
+    private var favorites: [Game] {
+        store.games.filter { isVisible($0) && $0.isFavorite }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private var needsSetup: [Game] {
+        _ = jit.pairingPresent
+        return store.games.filter { isVisible($0) && GameReadiness.setupReason(for: $0) != nil }
     }
 
     private var summary: String {
@@ -287,24 +388,18 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack(alignment: .bottom) {
-                if store.games.isEmpty && !store.isImporting {
-                    emptyState
-                } else {
-                    content
-                }
-                if selecting { selectionBar }
-                if store.isImporting {
-                    ImportProgressCard(progress: store.importProgress) { store.cancelImport() }
-                        .padding(.bottom, selecting ? 76 : 12)
-                }
+        ZStack(alignment: .bottom) {
+            if tab == .settings {
+                SettingsView(embedded: true)
+                    .environmentObject(store)
+                    .environmentObject(privacy)
+            } else {
+                libraryStack
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: store.isImporting)
-            .background(AppBackground().ignoresSafeArea())
-            .navigationTitle("NexPlay")
-            .searchable(text: $search, prompt: "Search games")
-            .toolbar { toolbar }
+            if !selecting {
+                NexTabBar(tab: $tab)
+                    .padding(.bottom, 4)
+            }
         }
         .fullScreenCover(item: $playing) { game in
             GameScreen(game: game, store: store, onExit: {
@@ -325,11 +420,6 @@ struct LibraryView: View {
             .environmentObject(store)
             .environmentObject(collections)
             .environmentObject(privacy)
-        }
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-                .environmentObject(store)
-                .environmentObject(privacy)
         }
         .sheet(isPresented: $showCollections) {
             CollectionsManagerView().environmentObject(collections)
@@ -440,6 +530,150 @@ struct LibraryView: View {
         }
     }
 
+    private var libraryStack: some View {
+        NavigationStack {
+            ZStack(alignment: .bottom) {
+                if store.games.isEmpty && !store.isImporting {
+                    emptyState
+                } else if tab == .home {
+                    homeContent
+                } else {
+                    content
+                }
+                if selecting { selectionBar }
+                if !selecting {
+                    HStack {
+                        Spacer()
+                        addMenu
+                    }
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 74)
+                }
+                if store.isImporting {
+                    ImportProgressCard(progress: store.importProgress) { store.cancelImport() }
+                        .padding(.bottom, selecting ? 76 : 136)
+                }
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: store.isImporting)
+            .background(AppBackground().ignoresSafeArea())
+            .navigationTitle(tab == .home ? "NexPlay" : "Library")
+            .searchable(text: $search, prompt: "Search games")
+            .toolbar { toolbar }
+            .onChange(of: search) { text in
+                if !text.isEmpty && tab == .home { tab = .library }
+            }
+            .sheet(isPresented: $showSetupCenter) {
+                NavigationStack {
+                    SetupCenterView()
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { showSetupCenter = false } }
+                        }
+                }
+            }
+        }
+    }
+
+    // MARK: - Home (7.4.0)
+
+    private var homeContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Text(summary).font(.caption).foregroundStyle(.secondary)
+                if let game = continueGame { continueCard(game) }
+                if !needsSetup.isEmpty { setupCard }
+                if !recentlyPlayed.isEmpty { shelf("Recently Played", symbol: "clock.fill", games: recentlyPlayed) }
+                if !favorites.isEmpty { shelf("Favorites", symbol: "heart.fill", games: favorites) }
+                if !recentlyAdded.isEmpty { shelf("Recently Added", symbol: "sparkles", games: recentlyAdded) }
+                if !needsSetup.isEmpty { shelf("Needs Setup", symbol: "exclamationmark.triangle.fill", games: needsSetup) }
+                Button { tab = .library } label: {
+                    Label("All \(store.games.filter(isVisible).count) Games", systemImage: "square.grid.2x2.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PlayButtonStyle())
+            }
+            .padding()
+            .padding(.bottom, 90)
+        }
+    }
+
+    private var setupCard: some View {
+        Button { showSetupCenter = true } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "checklist")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 46, height: 46)
+                    .background(Color.orange.gradient, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("\(needsSetup.count) game\(needsSetup.count == 1 ? " needs" : "s need") setup")
+                        .font(.headline).foregroundStyle(.white)
+                    Text("Open Setup Center for the pairing file, JIT and runtimes.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.orange.opacity(0.5)))
+        }
+        .buttonStyle(PressScaleStyle())
+    }
+
+    private func shelf(_ title: String, symbol: String, games: [Game]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: symbol).font(.headline)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 12) {
+                    ForEach(games) { game in
+                        VStack(alignment: .leading, spacing: 6) {
+                            CoverView(game: game)
+                                .frame(width: 112)
+                                .overlay(alignment: .topTrailing) {
+                                    if GameReadiness.setupReason(for: game) != nil {
+                                        Circle().fill(Color.orange).frame(width: 10, height: 10)
+                                            .overlay(Circle().stroke(Color.black.opacity(0.4)))
+                                            .padding(7)
+                                    }
+                                }
+                            Text(game.name)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(2)
+                                .frame(width: 112, alignment: .leading)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { tap(game) }
+                        .contextMenu { contextMenu(for: game) }
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    /// The floating + (Files, Folder, Folder of Games, Link).
+    private var addMenu: some View {
+        Menu {
+            Button { importFiles() } label: { Label("ZIP, 7z, RAR, HTML or SWF File…", systemImage: "doc.zipper") }
+            Button { importFolders() } label: { Label("Game Folder…", systemImage: "folder") }
+            Button { importBulk() } label: { Label("Folder of Many Games…", systemImage: "folder.badge.gearshape") }
+            Button {
+                let pasted = UIPasteboard.general.string ?? ""
+                linkText = pasted.lowercased().hasPrefix("http") ? pasted : ""
+                askingLink = true
+            } label: { Label("Download from Link…", systemImage: "link.badge.plus") }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 58, height: 58)
+                .background(NexStyle.accentGradient, in: Circle())
+                .shadow(color: NexStyle.accent.opacity(0.55), radius: 12, y: 5)
+        }
+        .accessibilityLabel("Add games")
+    }
+
     private var deleteTitle: String {
         if pendingDelete.count == 1, let game = pendingDelete.first { return "Delete \(game.name)?" }
         return "Delete \(pendingDelete.count) games?"
@@ -454,8 +688,6 @@ struct LibraryView: View {
                     Text(summary).font(.caption).foregroundStyle(.secondary)
                 }
                 chips
-                if let game = continueGame { continueCard(game) }
-                if !recentlyAdded.isEmpty { recentShelf }
                 if visible.isEmpty {
                     Text(search.isEmpty ? "Nothing here yet." : "No games match \u{201C}\(search)\u{201D}.")
                         .foregroundStyle(.secondary)
@@ -481,7 +713,7 @@ struct LibraryView: View {
                 }
             }
             .padding()
-            .padding(.bottom, selecting ? 70 : 0)
+            .padding(.bottom, selecting ? 70 : 90)
         }
     }
 
@@ -490,6 +722,7 @@ struct LibraryView: View {
             HStack(spacing: 8) {
                 chip("All", color: .gray, active: filter == .all) { filter = .all }
                 chip("Favorites", color: .pink, active: filter == .favorites) { filter = .favorites }
+                chip("Ready to Play", color: .green, active: filter == .ready, symbol: "checkmark.seal.fill") { filter = .ready }
                 ForEach(engines, id: \.self) { engine in
                     chip("\(engine.badge) \(engineCount(engine))", color: .indigo, active: filter == .engine(engine),
                          symbol: engine.symbol) { filter = .engine(engine) }
@@ -589,27 +822,6 @@ struct LibraryView: View {
         return parts.joined(separator: " · ")
     }
 
-    private var recentShelf: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Recently Added").font(.headline)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(recentlyAdded) { game in
-                        VStack(alignment: .leading, spacing: 6) {
-                            CoverView(game: game).frame(width: 104)
-                            Text(game.name).font(.caption.weight(.semibold)).lineLimit(1).frame(width: 104, alignment: .leading)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture { tap(game) }
-                        .contextMenu { contextMenu(for: game) }
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-            Text("All Games").font(.headline).padding(.top, 4)
-        }
-    }
-
     private var selectionBar: some View {
         HStack {
             Button("Cancel") { selecting = false; selection = [] }
@@ -633,8 +845,6 @@ struct LibraryView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .navigationBarLeading) {
-            Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                .accessibilityLabel("Settings")
             if hasHiddenContent {
                 Button {
                     if privacy.isUnlocked { privacy.lock() } else { Task { await privacy.unlock() } }
@@ -658,16 +868,6 @@ struct LibraryView: View {
                     .disabled(store.games.isEmpty)
             } label: { Image(systemName: "arrow.up.arrow.down") }
                 .accessibilityLabel("Sort and view")
-            Menu {
-                Button { importFiles() } label: { Label("ZIP, 7z, RAR, HTML or SWF File…", systemImage: "doc.zipper") }
-                Button { importFolders() } label: { Label("Game Folder…", systemImage: "folder") }
-                Button {
-                    let pasted = UIPasteboard.general.string ?? ""
-                    linkText = pasted.lowercased().hasPrefix("http") ? pasted : ""
-                    askingLink = true
-                } label: { Label("Download from Link…", systemImage: "link.badge.plus") }
-            } label: { Image(systemName: "plus") }
-                .accessibilityLabel("Add games")
         }
     }
 
@@ -767,6 +967,13 @@ struct LibraryView: View {
                 await store.importItems(urls)
                 urls.forEach { try? FileManager.default.removeItem(at: $0) }
             }
+        }
+    }
+
+    private func importBulk() {
+        ImportPicker.pickFolders { urls in
+            guard let parent = urls.first else { return }
+            Task { await store.importFolderOfGames(parent) }
         }
     }
 

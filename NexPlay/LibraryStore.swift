@@ -127,6 +127,27 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    /// 7.4.0 bulk import: every game folder and archive one level inside a picked folder, in one queue.
+    func importFolderOfGames(_ parent: URL) async {
+        let scoped = parent.startAccessingSecurityScopedResource()
+        defer { if scoped { parent.stopAccessingSecurityScopedResource() } }
+        let archives: Set<String> = ["zip", "7z", "rar", "tar", "gz", "tgz", "xz", "bz2", "html", "htm", "swf", "exe", "iso"]
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isHiddenKey]
+        let children = (try? FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: keys,
+                                                                       options: [.skipsHiddenFiles])) ?? []
+        let items = children.filter { url in
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            if values?.isDirectory == true { return true }
+            return archives.contains(url.pathExtension.lowercased())
+        }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        guard !items.isEmpty else {
+            importMessage = "No game folders or archives were found inside \(parent.lastPathComponent)."
+            return
+        }
+        AppLog.log("bulk import: \(items.count) item(s) from \(parent.lastPathComponent)")
+        await importItems(items)
+    }
+
     func importItems(_ urls: [URL]) async {
         guard !urls.isEmpty, !isImporting else { return }
         isImporting = true

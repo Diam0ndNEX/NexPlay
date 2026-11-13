@@ -108,6 +108,8 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
 struct SettingsView: View {
     @EnvironmentObject private var store: LibraryStore
     @Environment(\.dismiss) private var dismiss
+    /// 7.4.0: true when shown as the Settings tab (no Done button).
+    var embedded = false
 
     @State private var search = ""
     @State private var confirmReset = false
@@ -151,8 +153,11 @@ struct SettingsView: View {
                 SettingsPageView(page: page)
             }
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if !embedded { Button("Done") { dismiss() } }
+                }
             }
+            .safeAreaInset(edge: .bottom) { Color.clear.frame(height: embedded ? 70 : 0) }
             .confirmationDialog("Reset all settings?", isPresented: $confirmReset, titleVisibility: .visible) {
                 Button("Reset Settings", role: .destructive) { resetDefaults() }
             } message: {
