@@ -7,6 +7,33 @@ enum GameRoute: String, Identifiable {
     var id: String { rawValue }
 }
 
+/// 7.9.0: the game page's tabs.
+enum GamePageTab: String, CaseIterable, Identifiable {
+    case overview, saves, settings, media, mods
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .overview: return "Overview"
+        case .saves: return "Saves"
+        case .settings: return "Settings"
+        case .media: return "Media"
+        case .mods: return "Mods"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .overview: return "info.circle.fill"
+        case .saves: return "square.and.arrow.down.on.square.fill"
+        case .settings: return "gearshape.fill"
+        case .media: return "photo.on.rectangle.angled"
+        case .mods: return "puzzlepiece.extension.fill"
+        }
+    }
+}
+
 /// The game page: cover in a glass frame, title, engine, save profiles, Play, and Manage Saves / Gallery / Mods.
 /// Layout follows RPGPlayer's pre-launch screen; NexPlay's own code.
 /// 7.5.0: "How it runs" card with the compatibility vote, and a Play button that says when setup is needed.
@@ -36,6 +63,7 @@ struct GameDetailView: View {
     @State private var runtimeLabel: String?
     @State private var notice: String?
     @State private var showSetupCenter = false
+    @State private var pageTab: GamePageTab = .overview
 
     private var game: Game? { store.game(id: gameID) }
 
@@ -44,21 +72,35 @@ struct GameDetailView: View {
             AppBackground().ignoresSafeArea()
             if let game {
                 VStack(spacing: 0) {
-                    ScrollView {
-                        VStack(spacing: 18) {
-                            coverFrame(game)
-                            titleBlock(game)
-                            infoChips(game)
-                            if let notice { noticeCard(notice) }
-                            howItRunsCard(game)
-                            if game.usesNWMode { profileRow(game) }
+                    tabStrip
+                        .padding(.top, 62)
+                    switch pageTab {
+                    case .overview:
+                        ScrollView {
+                            VStack(spacing: 18) {
+                                coverFrame(game)
+                                titleBlock(game)
+                                infoChips(game)
+                                if let notice { noticeCard(notice) }
+                                howItRunsCard(game)
+                                if game.usesNWMode { profileRow(game) }
+                                detailsCard(game)
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 8)
+                            .padding(.bottom, 24)
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 70)
-                        .padding(.bottom, 24)
+                        .scrollIndicators(.hidden)
+                        bottomBar(game)
+                    case .saves:
+                        GameSavesView(gameID: game.id, embedded: true)
+                    case .settings:
+                        GameSettingsView(gameID: game.id, onDeleted: { dismiss() }, embedded: true)
+                    case .media:
+                        MediaBrowserView(game: game, embedded: true)
+                    case .mods:
+                        ModsView(game: game, embedded: true)
                     }
-                    .scrollIndicators(.hidden)
-                    bottomBar(game)
                 }
                 topBar
             }
@@ -148,7 +190,9 @@ struct GameDetailView: View {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
                 }
-                GlassCircleButton(symbol: "gearshape.fill", label: "Game settings") { route = .settings }
+                if pageTab != .overview, let game {
+                    GlassCircleButton(symbol: "play.fill", label: "Play") { onPlay(game) }
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -286,6 +330,77 @@ struct GameDetailView: View {
         .overlay { if busy { ProgressView().tint(.white) } }
     }
 
+    private var tabStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(GamePageTab.allCases) { item in
+                    Button {
+                        if pageTab != item {
+                            UISelectionFeedbackGenerator().selectionChanged()
+                            pageTab = item
+                        }
+                    } label: {
+                        Label(item.title, systemImage: item.symbol)
+                            .font(.pixel(13))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background {
+                                if pageTab == item {
+                                    Capsule().fill(NexStyle.accentGradient)
+                                } else {
+                                    Capsule().fill(Color.white.opacity(0.08))
+                                }
+                            }
+                            .overlay(Capsule().stroke(Color.white.opacity(pageTab == item ? 0 : 0.12)))
+                    }
+                    .buttonStyle(PressScaleStyle())
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 6)
+        }
+    }
+
+    /// Overview: status, developer, version and notes (edited in the Settings tab).
+    private func detailsCard(_ game: Game) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Details", systemImage: "list.bullet.rectangle.fill")
+                .font(.pixel(14))
+                .foregroundStyle(NexStyle.accent)
+            detailRow("Status", game.playStatus.title)
+            if let developer = game.developer, !developer.isEmpty { detailRow("Developer", developer) }
+            if let version = game.version, !version.isEmpty { detailRow("Version", version) }
+            detailRow("Engine", game.engine.title)
+            if let notes = game.notes, !notes.isEmpty {
+                Text(notes)
+                    .font(.pixel(13))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
+            }
+            Button {
+                pageTab = .settings
+            } label: {
+                Label("Edit in Settings", systemImage: "pencil")
+                    .font(.pixel(13))
+            }
+            .tint(NexStyle.accent)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NexStyle.cardStroke))
+    }
+
+    private func detailRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title).font(.pixel(13)).foregroundStyle(.secondary)
+            Spacer()
+            Text(value).font(.pixel(13)).foregroundStyle(.white).multilineTextAlignment(.trailing)
+        }
+    }
+
     private func howItRunsCard(_ game: Game) -> some View {
         let kind = GameRuntimes.kind(for: game)
         let current = game.compatibility ?? .untested
@@ -361,13 +476,7 @@ struct GameDetailView: View {
                 .buttonStyle(PlayButtonStyle())
                 .padding(.horizontal, 20)
             }
-            HStack(spacing: 12) {
-                BottomTile(title: "Manage\nSaves", symbol: "square.and.arrow.down.on.square") { route = .saves }
-                BottomTile(title: "Gallery", symbol: "photo.on.rectangle.angled") { route = .media }
-                BottomTile(title: "Mods", symbol: "puzzlepiece.extension.fill") { route = .mods }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 6)
+            Color.clear.frame(height: 4)
         }
         .background(LinearGradient(colors: [.clear, .black.opacity(0.45)], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
     }

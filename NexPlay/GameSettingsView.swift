@@ -16,6 +16,8 @@ struct GameSettingsView: View {
     let gameID: UUID
     /// Called after the game was deleted, so the game page closes too.
     let onDeleted: () -> Void
+    /// 7.9.0: shown as a tab of the game page (no Done button).
+    var embedded = false
 
     @State private var cover: UIImage?
     @State private var pickingFile = false
@@ -53,7 +55,9 @@ struct GameSettingsView: View {
             .navigationTitle("Game Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    if !embedded { Button("Done") { dismiss() } }
+                }
             }
         }
         .task { await loadCover() }

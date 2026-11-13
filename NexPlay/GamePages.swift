@@ -70,6 +70,8 @@ struct GameSavesView: View {
     @EnvironmentObject private var store: LibraryStore
     @Environment(\.dismiss) private var dismiss
     let gameID: UUID
+    /// 7.9.0: shown as a tab of the game page (no Close button).
+    var embedded = false
 
     enum Tab: String, CaseIterable { case local = "Local Saves", backups = "Backups" }
 
@@ -94,7 +96,7 @@ struct GameSavesView: View {
             VStack(spacing: 0) {
                 VStack(spacing: 12) {
                     PageHeader(title: "Manage Saves") {
-                        CapsuleButton(title: "Close") { dismiss() }
+                        if !embedded { CapsuleButton(title: "Close") { dismiss() } }
                     } trailing: {
                         CapsuleButton(title: selecting ? "Done" : "Select") {
                             selecting.toggle()
@@ -446,6 +448,8 @@ struct SaveActionTile: View {
 struct MediaBrowserView: View {
     @Environment(\.dismiss) private var dismiss
     let game: Game
+    /// 7.9.0: shown as a tab of the game page (no Close button).
+    var embedded = false
 
     @State private var index: [MediaKind: [MediaItem]] = [:]
     @State private var tab: MediaKind = .pictures
@@ -473,7 +477,7 @@ struct MediaBrowserView: View {
             Color.black.ignoresSafeArea()
             VStack(spacing: 0) {
                 PageHeader(title: "Media Browser") {
-                    GlassCircleButton(symbol: "xmark", label: "Close") { dismiss() }
+                    if !embedded { GlassCircleButton(symbol: "xmark", label: "Close") { dismiss() } }
                 } trailing: {
                     CapsuleButton(title: selecting ? "Done" : "Select", tint: .white) {
                         selecting.toggle()
@@ -789,6 +793,8 @@ struct ModsView: View {
     @Environment(\.dismiss) private var dismiss
     /// nil shows the global mods.
     let game: Game?
+    /// 7.9.0: shown as a tab of the game page (no Close button).
+    var embedded = false
 
     @State private var mods: [ModEntry] = []
     @State private var useGlobal = true
@@ -805,7 +811,9 @@ struct ModsView: View {
             AppBackground().ignoresSafeArea()
             VStack(spacing: 0) {
                 PageHeader(title: title) {
-                    GlassCircleButton(symbol: game == nil ? "chevron.left" : "xmark", label: "Close") { dismiss() }
+                    if !embedded {
+                        GlassCircleButton(symbol: game == nil ? "chevron.left" : "xmark", label: "Close") { dismiss() }
+                    }
                 } trailing: {
                     Menu {
                         Button { pickingFolder = true } label: { Label("Add Mod Folder…", systemImage: "folder") }
