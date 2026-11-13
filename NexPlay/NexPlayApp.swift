@@ -98,6 +98,9 @@ struct NexPlayApp: App {
         SettingsKey.jitAutoForGames: true,
         SettingsKey.jitAtLaunch: false,
         SettingsKey.windowsLoadAtLaunch: true,
+        SettingsKey.powerProfile: "balanced",
+        SettingsKey.idlePauseMinutes: 10,
+        SettingsKey.thermalGuard: true,
     ]
 
     private var colorScheme: ColorScheme? {

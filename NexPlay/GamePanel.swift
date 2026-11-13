@@ -9,18 +9,28 @@ import WebKit
 final class GamePanelFeature: PlayerFeature {
     let assist: PlayAssistFeature
     let tools: WebToolsFeature
+    let power: PowerFeature
 
-    init(context: PlayerContext, assist: PlayAssistFeature, tools: WebToolsFeature) {
+    init(context: PlayerContext, assist: PlayAssistFeature, tools: WebToolsFeature, power: PowerFeature) {
         self.assist = assist
         self.tools = tools
+        self.power = power
         super.init(context: context)
     }
 
     override func userScripts(for game: Game) -> [WKUserScript] {
-        tools.userScripts(for: game) + assist.userScripts(for: game)
+        // The power script goes first: its frame limiter must wrap the browser's own requestAnimationFrame.
+        power.userScripts(for: game) + tools.userScripts(for: game) + assist.userScripts(for: game)
+    }
+
+    override var messageNames: [String] { power.messageNames }
+
+    override func receive(name: String, body: Any) {
+        power.receive(name: name, body: body)
     }
 
     override func didFinishLoad() {
+        power.didFinishLoad()
         tools.didFinishLoad()
         assist.didFinishLoad()
     }
@@ -28,6 +38,7 @@ final class GamePanelFeature: PlayerFeature {
     override func shutdown() {
         assist.shutdown()
         tools.shutdown()
+        power.shutdown()
     }
 
     override func menuItems(for game: Game) -> [UIMenuElement] {
@@ -76,6 +87,8 @@ final class GamePanelModel: ObservableObject {
     @Published var working = false
     @Published var status: String?
     @Published var shouldClose = false
+    /// nil = the app default.
+    @Published var powerChoice: PowerProfile?
     private weak var panel: GamePanelFeature?
     private var lastVolume: Double = 1
 
@@ -86,6 +99,16 @@ final class GamePanelModel: ObservableObject {
         self.speed = panel.tools.speed
         self.paused = panel.tools.paused
         self.hasQuick = SaveStateStore.list(for: game.id).contains { $0.kind == .quick }
+        self.powerChoice = panel.power.gameChoice
+    }
+
+    var powerProfile: PowerProfile { powerChoice ?? PowerProfile.appDefault }
+
+    func setPower(_ choice: PowerProfile?) {
+        powerChoice = choice
+        panel?.power.choose(choice)
+        let profile = choice ?? PowerProfile.appDefault
+        say(choice == nil ? "App default: \(profile.title)" : profile.title)
     }
 
     var supportsStates: Bool { PlayAssist.supports(game) }
@@ -277,6 +300,7 @@ struct GamePanelView: View {
                     if model.isRPG && !model.rewind.isEmpty { rewindCard }
                     if model.isWeb { playbackCard }
                     soundCard
+                    powerCard
                     if model.isRPG { textCard }
                     if model.supportsStates { safetyCard }
                     if model.game.engine == .twine { storyCard }
@@ -402,6 +426,19 @@ struct GamePanelView: View {
             }
             .pickerStyle(.segmented)
             Text("Works for games that time themselves with the browser clock. Sound keeps its normal speed.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var powerCard: some View {
+        PanelCard("Power", symbol: model.powerProfile.symbol) {
+            Picker("Power", selection: Binding(get: { model.powerChoice?.rawValue ?? "" },
+                                               set: { model.setPower(PowerProfile(rawValue: $0)) })) {
+                Text("Default").tag("")
+                ForEach(PowerProfile.allCases) { item in Text(item.shortTitle).tag(item.rawValue) }
+            }
+            .pickerStyle(.segmented)
+            Text(model.powerChoice == nil ? "Default is \(PowerProfile.appDefault.title) (Settings > Gameplay & Performance). \(model.powerProfile.detail)" : model.powerProfile.detail)
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

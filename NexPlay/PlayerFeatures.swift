@@ -48,7 +48,7 @@ enum PlayerFeatures {
     @MainActor
     static func make(context: PlayerContext) -> [PlayerFeature] {
         let panel = GamePanelFeature(context: context, assist: PlayAssistFeature(context: context),
-                                     tools: WebToolsFeature(context: context))
+                                     tools: WebToolsFeature(context: context), power: PowerFeature(context: context))
         return [panel, PluginsFeature(context: context), CheatsFeature(context: context),
                 TranslationFeature(context: context), RenPySavesFeature(context: context)]
     }

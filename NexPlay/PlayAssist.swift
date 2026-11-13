@@ -273,6 +273,8 @@ struct AssistOptions: Codable, Equatable {
     var rewind = true
     /// Game Tools volume, 0...1.
     var volume: Double = 1
+    /// 7.2.0: PowerProfile raw value; "" follows the app default.
+    var power: String = ""
 
     init() {}
 
@@ -283,6 +285,7 @@ struct AssistOptions: Codable, Equatable {
         autoStateMinutes = try container.decodeIfPresent(Int.self, forKey: .autoStateMinutes) ?? 10
         rewind = try container.decodeIfPresent(Bool.self, forKey: .rewind) ?? true
         volume = try container.decodeIfPresent(Double.self, forKey: .volume) ?? 1
+        power = try container.decodeIfPresent(String.self, forKey: .power) ?? ""
     }
 
     private static func url(_ gameID: UUID) -> URL {

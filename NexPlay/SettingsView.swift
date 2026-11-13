@@ -28,7 +28,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .setupCenter: return "A checklist of what Windows games need, with a fix for each"
         case .appearance: return "Theme, background, library layout"
         case .controls: return "Virtual gamepad, control bar, haptics and physical controllers"
-        case .gameplay: return "Orientation, portrait position, sound and RPG Maker modes"
+        case .gameplay: return "Power profiles, idle pause, orientation, sound and RPG Maker modes"
         case .jit: return "Built-in JIT: pairing file, LocalDevVPN, status and test"
         case .translation: return "In-game text translation"
         case .privacy: return "Hide games and collections behind Face ID, Touch ID or a passcode"
@@ -85,7 +85,8 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
                     "Controller Mode", "Controller Mapping", "Button Mapping"]
         case .gameplay:
             return ["Auto-rotate In Games", "Game Orientation", "Auto-rotate Outside Games", "Portrait Game Position",
-                    "Play Sound in Silent Mode", "Keep Screen Awake", "Desktop Mode", "Sharp Pixels", "NW.js Mode"]
+                    "Play Sound in Silent Mode", "Keep Screen Awake", "Desktop Mode", "Sharp Pixels", "NW.js Mode",
+                    "Power Profile", "Battery Saver", "Idle Pause", "Thermal Guard"]
         case .jit:
             return ["JIT", "Enable JIT Now", "Pairing File", "Import Pairing File", "LocalDevVPN", "Check Connection",
                     "Developer Disk Image", "StikDebug", "TXM", "Enable JIT at App Launch", "Enable JIT When a Game Needs It"]
@@ -215,7 +216,7 @@ struct SettingsView: View {
 
     private func resetDefaults() {
         let defaults = UserDefaults.standard
-        let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys
+        let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys + SettingsKey.powerKeys
             + [SettingsKey.translationEnabled]
         for key in keys { defaults.removeObject(forKey: key) }
         OrientationManager.unlock()
@@ -559,6 +560,7 @@ struct GameplaySettings: View {
 
     var body: some View {
         Form {
+            PowerSettingsSection()
             Section {
                 Toggle(isOn: $autoRotateGames) {
                     SettingLabel("Auto-rotate In Games", "Let games rotate freely with your device. Turn this off to lock games to one orientation.")
