@@ -184,10 +184,12 @@ final class PhysicalControllerManager {
         switch binding.action {
         case .none, .dpad, .joystick:
             return
-        case .fastForward:
-            onAction?(.fastForward, pressed)
         default:
-            if let key = binding.padKey { onKey?(key, pressed) }
+            if let key = binding.padKey {
+                onKey?(key, pressed)
+            } else if binding.action.isAppAction {
+                onAction?(binding.action, pressed)
+            }
         }
     }
 
@@ -239,7 +241,8 @@ struct ControllerMapView: View {
 
     private var scopeID: UUID? { scopeIsGame ? gameID : nil }
 
-    private static let actions: [ControlAction] = [.none, .confirm, .cancel, .menu, .dash, .pageUp, .pageDown, .fastForward]
+    private static let actions: [ControlAction] = [.none, .confirm, .cancel, .menu, .dash, .pageUp, .pageDown, .fastForward,
+                                                   .quickSave, .quickLoad, .gamePanel, .showKeyboard, .mouseLeft, .mouseRight]
 
     var body: some View {
         NavigationStack {

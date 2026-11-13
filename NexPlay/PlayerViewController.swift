@@ -42,6 +42,11 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private let gamepad = GamepadOverlayView()
     private let controlBar = ControlBarView()
     private let keySender = KeySenderField(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+    /// 7.3.0: PC keys (input view of keySender) and the PC Keys / ABC bar above the keyboard.
+    private let softKeyboard = SoftKeyboardView()
+    private let keyboardBar = KeyboardSwitchBar()
+    /// 7.3.0: covers the game in Trackpad mouse mode.
+    private var trackpad: TrackpadView?
     private let banner = UILabel()
     private let statsLabel = UILabel()
     private let prefs = ControlPrefs.current()
@@ -124,6 +129,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         content.addUserScript(WKUserScript(source: PageScripts.identity(version: PlayerViewController.appVersion),
                                            injectionTime: .atDocumentStart, forMainFrameOnly: true))
         content.addUserScript(WKUserScript(source: PageScripts.keyBridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        content.addUserScript(WKUserScript(source: MouseScripts.bridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         if game.engine == .renpy {
             content.addUserScript(WKUserScript(source: PageScripts.noServiceWorker, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
@@ -151,6 +157,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         context.present = { [weak self] controller in self?.presentOnTop(controller) }
         context.reload = { [weak self] in self?.prepareAndLoad() }
         context.update = { [weak self] change in self?.update(change) }
+        context.mouseMode = { [weak self] in self.map { MouseMode.resolved(for: $0.game) } ?? .direct }
+        context.setMouseMode = { [weak self] mode in self?.setMouseMode(mode) }
+        context.applyPreset = { [weak self] preset in self?.applyPreset(preset) }
+        context.showPCKeyboard = { [weak self] in self?.showKeyboard(pcKeys: true) }
         features = PlayerFeatures.make(context: context)
         for feature in features {
             for script in feature.userScripts(for: game) { content.addUserScript(script) }
@@ -197,6 +207,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             webView.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
         ])
 
+        applyMouseMode()
         configureGamepad()
         configureControllers()
         configureControlBar()
@@ -294,6 +305,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             host.modalPresentationStyle = .formSheet
             self.presentOnTop(host)
         }
+        gamepad.onPreset = { preset in prefs.display(preset.profile) }
         gamepad.onConfirmReset = { [weak self] reset in
             let alert = UIAlertController(title: "Reset Controls?", message: "This game's buttons go back to the default layout.", preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -384,6 +396,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private func configureKeySender() {
         keySender.onKey = { [weak self] key in self?.typeKey(key) }
+        softKeyboard.onKey = { [weak self] key, down in self?.keyRouter.press(key, down) }
+        keyboardBar.onSwitch = { [weak self] pcKeys in self?.showKeyboard(pcKeys: pcKeys) }
+        keyboardBar.onDone = { [weak self] in self?.hideKeyboard() }
+        keySender.inputAccessoryView = keyboardBar
         view.addSubview(keySender)
     }
 
@@ -697,8 +713,91 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         case .fastForward:
             guard down, game.engine.isRPGMaker else { return }
             setSpeed(fastForwardOn ? 1 : max(2, game.fastForwardSpeed ?? 2))
+        case .mouseLeft, .mouseRight:
+            let point = mousePoint
+            if down { sendMouse("move", at: point, 0) }
+            sendMouse(down ? "down" : "up", at: point, action == .mouseLeft ? 0 : 2)
+        case .quickSave, .quickLoad:
+            guard down, let panel = gamePanel else { return }
+            guard PlayAssist.supports(game) else {
+                context.toast("Save states aren't available for this game")
+                return
+            }
+            if action == .quickSave { panel.assist.quickSave() } else { panel.assist.quickLoad() }
+        case .gamePanel:
+            guard down else { return }
+            gamePanel?.openPanel()
+        case .showKeyboard:
+            guard down else { return }
+            toggleKeyboard()
         default:
             break
+        }
+    }
+
+    private var gamePanel: GamePanelFeature? {
+        features.compactMap { $0 as? GamePanelFeature }.first
+    }
+
+    // MARK: - Mouse (7.3.0)
+
+    /// Where mouse buttons click: the trackpad cursor, else the middle of the game.
+    private var mousePoint: CGPoint {
+        if let trackpad { return view.convert(trackpad.cursor, from: trackpad) }
+        let frame = webView.frame
+        return CGPoint(x: frame.midX, y: frame.midY)
+    }
+
+    /// Sends a mouse event at a point in the player's view (CSS pixels for the page).
+    private func sendMouse(_ type: String, at point: CGPoint, _ arg: Int) {
+        guard let webView = self.webView else { return }
+        let local = view.convert(point, to: webView)
+        let zoom = max(webView.scrollView.zoomScale, 0.01)
+        let x = Double(local.x / zoom)
+        let y = Double(local.y / zoom)
+        webView.evaluateJavaScript("window.__nexMouse && window.__nexMouse('\(type)',\(x),\(y),\(arg))", completionHandler: nil)
+    }
+
+    /// Adds or removes the trackpad layer for the game's mouse mode.
+    private func applyMouseMode() {
+        let mode = MouseMode.resolved(for: game)
+        if mode == .trackpad {
+            guard trackpad == nil else { return }
+            let pad = TrackpadView(frame: view.bounds)
+            pad.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            pad.limits = { [weak self, weak pad] in
+                guard let self, let pad, let webView = self.webView else { return .zero }
+                return pad.convert(webView.bounds, from: webView)
+            }
+            pad.onMouse = { [weak self, weak pad] type, point, arg in
+                guard let self, let pad else { return }
+                self.controlBar.wake()
+                self.sendMouse(type, at: self.view.convert(point, from: pad), arg)
+            }
+            view.insertSubview(pad, aboveSubview: webView)
+            trackpad = pad
+        } else {
+            trackpad?.removeFromSuperview()
+            trackpad = nil
+        }
+    }
+
+    private func setMouseMode(_ mode: MouseMode) {
+        update { $0.mouseMode = mode == .direct ? nil : mode }
+        applyMouseMode()
+        gameLog.add("mouse mode: \(mode.title)")
+    }
+
+    private func applyPreset(_ preset: LayoutPreset) {
+        if gamepad.isEditing { gamepad.endEditing(save: false) }
+        if !game.gamepad { update { $0.gamepad = true } }
+        gamepad.applyPreset(preset)
+        updateOverlays()
+        if preset.suggestsTrackpad && MouseMode.resolved(for: game) == .direct {
+            setMouseMode(.trackpad)
+            context.toast("\(preset.title): Trackpad mouse on")
+        } else {
+            context.toast(preset.title)
         }
     }
 
@@ -729,12 +828,29 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         }
     }
 
+    /// The control bar's keyboard button and the Show Keyboard action: PC keys first, ABC from the bar above them.
     private func toggleKeyboard() {
         if keySender.isFirstResponder {
-            keySender.resignFirstResponder()
+            hideKeyboard()
+        } else {
+            showKeyboard(pcKeys: true)
+        }
+    }
+
+    private func showKeyboard(pcKeys: Bool) {
+        if !pcKeys { softKeyboard.releaseModifiers() }
+        keySender.inputView = pcKeys ? softKeyboard : nil
+        keyboardBar.show(pcKeys: pcKeys)
+        if keySender.isFirstResponder {
+            keySender.reloadInputViews()
         } else {
             keySender.becomeFirstResponder()
         }
+    }
+
+    private func hideKeyboard() {
+        softKeyboard.releaseModifiers()
+        keySender.resignFirstResponder()
     }
 
     /// A typed key goes down, then up a moment later, so the game sees it in at least one frame.
@@ -1179,6 +1295,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         bannerTimer?.invalidate()
         bannerTimer = nil
         controlBar.stop()
+        softKeyboard.releaseModifiers()
         keySender.resignFirstResponder()
         loadTask?.cancel()
         gamepad.releaseAll()

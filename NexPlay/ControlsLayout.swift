@@ -135,6 +135,8 @@ struct PadKey: Codable, Hashable {
 /// What an on-screen control or a controller button does.
 enum ControlAction: String, Codable, CaseIterable, Identifiable {
     case dpad, joystick, confirm, cancel, menu, dash, pageUp, pageDown, fastForward, key, none, scrollUp, scrollDown
+    // 7.3.0
+    case mouseLeft, mouseRight, quickSave, quickLoad, gamePanel, showKeyboard
 
     var id: String { rawValue }
 
@@ -153,6 +155,12 @@ enum ControlAction: String, Codable, CaseIterable, Identifiable {
         case .none: return "Nothing"
         case .scrollUp: return "Scroll Up"
         case .scrollDown: return "Scroll Down"
+        case .mouseLeft: return "Left Click"
+        case .mouseRight: return "Right Click"
+        case .quickSave: return "Quick Save"
+        case .quickLoad: return "Quick Load"
+        case .gamePanel: return "Game Panel"
+        case .showKeyboard: return "Show Keyboard"
         }
     }
 
@@ -169,6 +177,12 @@ enum ControlAction: String, Codable, CaseIterable, Identifiable {
         case .key: return "Key"
         case .scrollUp: return "▲"
         case .scrollDown: return "▼"
+        case .mouseLeft: return "L-Click"
+        case .mouseRight: return "R-Click"
+        case .quickSave: return "Save"
+        case .quickLoad: return "Load"
+        case .gamePanel: return "Panel"
+        case .showKeyboard: return "⌨︎"
         }
     }
 
@@ -181,11 +195,15 @@ enum ControlAction: String, Codable, CaseIterable, Identifiable {
         case .dash: return .dash
         case .pageUp: return .pageUp
         case .pageDown: return .pageDown
-        case .dpad, .joystick, .fastForward, .key, .none, .scrollUp, .scrollDown: return nil
+        case .dpad, .joystick, .fastForward, .key, .none, .scrollUp, .scrollDown,
+             .mouseLeft, .mouseRight, .quickSave, .quickLoad, .gamePanel, .showKeyboard: return nil
         }
     }
 
     var isDirectional: Bool { self == .dpad || self == .joystick }
+
+    /// Actions the player handles itself (no key): fast forward, wheel, mouse buttons, save states, panel, keyboard.
+    var isAppAction: Bool { padKey == nil && self != .key && self != .none && !isDirectional }
 }
 
 /// One on-screen control. The center is normalized to the safe area (0...1); size is in points.
@@ -204,6 +222,8 @@ struct ControlItem: Codable, Identifiable, Equatable {
     var eightWay: Bool?
     /// Tint (ControlColor raw value); nil is the default dark glass.
     var color: String?
+    /// 7.3.0, D-pad and joystick: press W/A/S/D instead of the arrow keys.
+    var wasd: Bool?
 
     init(action: ControlAction, keyCode: Int? = nil, x: Double, y: Double, size: Double,
          opacity: Double = 0.75, label: String? = nil) {
@@ -222,6 +242,14 @@ struct ControlItem: Codable, Identifiable, Equatable {
         if let label, !label.isEmpty { return label }
         if action == .key, let keyCode { return PadKey.fromKeyCode(keyCode).title }
         return action.defaultLabel
+    }
+
+    /// The keys a D-pad or joystick presses for left, up, right, down.
+    var directionKeys: [Int: PadKey] {
+        if wasd == true {
+            return [37: PadKey.fromKeyCode(65), 38: PadKey.fromKeyCode(87), 39: PadKey.fromKeyCode(68), 40: PadKey.fromKeyCode(83)]
+        }
+        return [37: .left, 38: .up, 39: .right, 40: .down]
     }
 
     /// The key this control presses, for button controls.
@@ -332,6 +360,124 @@ struct LayoutProfile: Codable, Equatable {
             ControlItem(action: .menu, x: 0.92, y: 0.52, size: 54),
         ]
     )
+}
+
+/// 7.3.0: ready-made layouts, picked in the controls' edit mode (+ > Presets) or in the Game Panel's Input card.
+enum LayoutPreset: String, CaseIterable, Identifiable {
+    case controller, pointAndClick, wasdMouse, visualNovel, rpgMaker2000, twinStick
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .controller: return "Controller (Xbox)"
+        case .pointAndClick: return "Point & Click"
+        case .wasdMouse: return "WASD + Mouse"
+        case .visualNovel: return "Visual Novel"
+        case .rpgMaker2000: return "RPG Maker (Arrows/Z/X/Esc)"
+        case .twinStick: return "Twin-Stick"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .controller: return "gamecontroller.fill"
+        case .pointAndClick: return "cursorarrow.click"
+        case .wasdMouse: return "keyboard"
+        case .visualNovel: return "text.bubble.fill"
+        case .rpgMaker2000: return "dpad.fill"
+        case .twinStick: return "circle.grid.cross.fill"
+        }
+    }
+
+    /// Point & Click and WASD + Mouse work best with the Trackpad mouse mode.
+    var suggestsTrackpad: Bool { self == .pointAndClick || self == .wasdMouse }
+
+    private static func button(_ action: ControlAction, _ keyCode: Int?, _ x: Double, _ y: Double, _ size: Double,
+                               _ label: String? = nil, _ color: ControlColor? = nil) -> ControlItem {
+        var item = ControlItem(action: action, keyCode: keyCode, x: x, y: y, size: size, label: label)
+        item.color = color?.rawValue
+        return item
+    }
+
+    private static func stick(_ action: ControlAction, wasd: Bool, _ x: Double, _ y: Double) -> ControlItem {
+        var item = ControlItem(action: action, x: x, y: y, size: 150)
+        item.wasd = wasd ? true : nil
+        return item
+    }
+
+    var profile: LayoutProfile {
+        switch self {
+        case .controller:
+            return LayoutProfile(
+                name: title,
+                portrait: [
+                    LayoutPreset.stick(.joystick, wasd: false, 0.25, 0.80),
+                    LayoutPreset.button(.key, 13, 0.86, 0.84, 58, "A", .green), LayoutPreset.button(.key, 27, 0.94, 0.76, 58, "B", .red),
+                    LayoutPreset.button(.key, 32, 0.78, 0.76, 58, "X", .blue), LayoutPreset.button(.key, 16, 0.86, 0.68, 58, "Y", .yellow),
+                    LayoutPreset.button(.pageUp, nil, 0.10, 0.60, 50, "LB"), LayoutPreset.button(.pageDown, nil, 0.90, 0.60, 50, "RB"),
+                    LayoutPreset.button(.menu, nil, 0.5, 0.92, 46, "☰"),
+                ],
+                landscape: [
+                    LayoutPreset.stick(.joystick, wasd: false, 0.12, 0.72),
+                    LayoutPreset.button(.key, 13, 0.90, 0.84, 60, "A", .green), LayoutPreset.button(.key, 27, 0.96, 0.70, 60, "B", .red),
+                    LayoutPreset.button(.key, 32, 0.84, 0.70, 60, "X", .blue), LayoutPreset.button(.key, 16, 0.90, 0.56, 60, "Y", .yellow),
+                    LayoutPreset.button(.pageUp, nil, 0.06, 0.30, 52, "LB"), LayoutPreset.button(.pageDown, nil, 0.94, 0.30, 52, "RB"),
+                    LayoutPreset.button(.menu, nil, 0.5, 0.92, 46, "☰"),
+                ])
+        case .pointAndClick:
+            return LayoutProfile(
+                name: title,
+                portrait: [
+                    LayoutPreset.button(.mouseLeft, nil, 0.80, 0.86, 62, nil, .blue), LayoutPreset.button(.mouseRight, nil, 0.92, 0.76, 54),
+                    LayoutPreset.button(.scrollUp, nil, 0.08, 0.70, 46), LayoutPreset.button(.scrollDown, nil, 0.08, 0.80, 46),
+                    LayoutPreset.button(.key, 27, 0.08, 0.92, 46, "Esc"), LayoutPreset.button(.showKeyboard, nil, 0.92, 0.92, 46),
+                ],
+                landscape: [
+                    LayoutPreset.button(.mouseLeft, nil, 0.92, 0.82, 64, nil, .blue), LayoutPreset.button(.mouseRight, nil, 0.84, 0.92, 54),
+                    LayoutPreset.button(.scrollUp, nil, 0.04, 0.50, 46), LayoutPreset.button(.scrollDown, nil, 0.04, 0.64, 46),
+                    LayoutPreset.button(.key, 27, 0.04, 0.88, 46, "Esc"), LayoutPreset.button(.showKeyboard, nil, 0.96, 0.62, 46),
+                ])
+        case .wasdMouse:
+            return LayoutProfile(
+                name: title,
+                portrait: [
+                    LayoutPreset.stick(.joystick, wasd: true, 0.25, 0.80),
+                    LayoutPreset.button(.mouseLeft, nil, 0.86, 0.84, 62, nil, .blue), LayoutPreset.button(.mouseRight, nil, 0.70, 0.90, 52),
+                    LayoutPreset.button(.key, 32, 0.70, 0.74, 52, "Jump"), LayoutPreset.button(.key, 69, 0.86, 0.68, 50, "E"),
+                    LayoutPreset.button(.key, 16, 0.10, 0.62, 46, "Shift"), LayoutPreset.button(.key, 27, 0.92, 0.56, 44, "Esc"),
+                    LayoutPreset.button(.showKeyboard, nil, 0.5, 0.94, 44),
+                ],
+                landscape: [
+                    LayoutPreset.stick(.joystick, wasd: true, 0.12, 0.72),
+                    LayoutPreset.button(.mouseLeft, nil, 0.92, 0.80, 64, nil, .blue), LayoutPreset.button(.mouseRight, nil, 0.84, 0.92, 52),
+                    LayoutPreset.button(.key, 32, 0.84, 0.68, 54, "Jump"), LayoutPreset.button(.key, 69, 0.92, 0.60, 50, "E"),
+                    LayoutPreset.button(.key, 16, 0.04, 0.40, 46, "Shift"), LayoutPreset.button(.key, 27, 0.96, 0.10, 44, "Esc"),
+                    LayoutPreset.button(.showKeyboard, nil, 0.5, 0.94, 44),
+                ])
+        case .visualNovel:
+            var vn = LayoutProfile.visualNovel
+            vn.name = title
+            return vn
+        case .rpgMaker2000:
+            var rpg = LayoutProfile.builtIn
+            rpg.name = title
+            return rpg
+        case .twinStick:
+            return LayoutProfile(
+                name: title,
+                portrait: [
+                    LayoutPreset.stick(.joystick, wasd: true, 0.25, 0.82),
+                    LayoutPreset.stick(.joystick, wasd: false, 0.75, 0.82),
+                    LayoutPreset.button(.key, 32, 0.5, 0.92, 50, "Space"), LayoutPreset.button(.key, 27, 0.92, 0.62, 44, "Esc"),
+                ],
+                landscape: [
+                    LayoutPreset.stick(.joystick, wasd: true, 0.12, 0.72),
+                    LayoutPreset.stick(.joystick, wasd: false, 0.88, 0.72),
+                    LayoutPreset.button(.key, 32, 0.5, 0.90, 50, "Space"), LayoutPreset.button(.key, 27, 0.96, 0.10, 44, "Esc"),
+                ])
+        }
+    }
 }
 
 /// Stores layouts as JSON in Application Support/NexPlay/Layouts: default.json and <game-uuid>.json.

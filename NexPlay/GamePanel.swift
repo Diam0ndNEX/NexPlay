@@ -89,6 +89,7 @@ final class GamePanelModel: ObservableObject {
     @Published var shouldClose = false
     /// nil = the app default.
     @Published var powerChoice: PowerProfile?
+    @Published var mouseMode: MouseMode = .direct
     private weak var panel: GamePanelFeature?
     private var lastVolume: Double = 1
 
@@ -100,6 +101,31 @@ final class GamePanelModel: ObservableObject {
         self.paused = panel.tools.paused
         self.hasQuick = SaveStateStore.list(for: game.id).contains { $0.kind == .quick }
         self.powerChoice = panel.power.gameChoice
+        self.mouseMode = panel.context.mouseMode()
+    }
+
+    // MARK: Input (7.3.0)
+
+    func setMouseMode(_ mode: MouseMode) {
+        mouseMode = mode
+        panel?.context.setMouseMode(mode)
+        say("Mouse: \(mode.title)")
+    }
+
+    func applyPreset(_ preset: LayoutPreset) {
+        guard let context = panel?.context else { return }
+        context.applyPreset(preset)
+        mouseMode = context.mouseMode()
+        say("Layout: \(preset.title)")
+    }
+
+    /// Closes the panel, then opens the PC keyboard (it can't come up under a sheet).
+    func showKeyboard() {
+        let context = panel?.context
+        shouldClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            context?.showPCKeyboard()
+        }
     }
 
     var powerProfile: PowerProfile { powerChoice ?? PowerProfile.appDefault }
@@ -301,6 +327,7 @@ struct GamePanelView: View {
                     if model.isWeb { playbackCard }
                     soundCard
                     powerCard
+                    inputCard
                     if model.isRPG { textCard }
                     if model.supportsStates { safetyCard }
                     if model.game.engine == .twine { storyCard }
@@ -439,6 +466,42 @@ struct GamePanelView: View {
             }
             .pickerStyle(.segmented)
             Text(model.powerChoice == nil ? "Default is \(PowerProfile.appDefault.title) (Settings > Gameplay & Performance). \(model.powerProfile.detail)" : model.powerProfile.detail)
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var inputCard: some View {
+        PanelCard("Input", symbol: "hand.point.up.left.fill") {
+            Picker("Mouse", selection: Binding(get: { model.mouseMode }, set: { model.setMouseMode($0) })) {
+                ForEach(MouseMode.allCases) { mode in Text(mode.shortTitle).tag(mode) }
+            }
+            .pickerStyle(.segmented)
+            Text(model.mouseMode.detail)
+                .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Menu {
+                    ForEach(LayoutPreset.allCases) { preset in
+                        Button {
+                            model.applyPreset(preset)
+                        } label: {
+                            Label(preset.title, systemImage: preset.symbol)
+                        }
+                    }
+                } label: {
+                    Label("Layout Preset", systemImage: "square.on.square")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                Button {
+                    model.showKeyboard()
+                } label: {
+                    Label("PC Keyboard", systemImage: "keyboard")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+            .tint(.white)
+            Text("A preset replaces this game's touch layout. Edit it with the pencil on the control bar.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

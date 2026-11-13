@@ -215,11 +215,10 @@ final class ControlView: UIView {
             self.transform = value ? CGAffineTransform(scaleX: 0.93, y: 0.93) : .identity
         }
         if value { onPress?() }
-        switch item.action {
-        case .fastForward, .scrollUp, .scrollDown:
+        if let key = item.padKey {
+            onKey?(key, value)
+        } else if item.action.isAppAction {
             onAction?(item.action, value)
-        default:
-            if let key = item.padKey { onKey?(key, value) }
         }
     }
 
@@ -256,7 +255,7 @@ final class ControlView: UIView {
                 }
             }
         }
-        let keys: [Int: PadKey] = [37: .left, 38: .up, 39: .right, 40: .down]
+        let keys = item.directionKeys
         if !want.isEmpty && activeDirections.isEmpty { onPress?() }
         for code in activeDirections.subtracting(want) { if let k = keys[code] { onKey?(k, false) } }
         for code in want.subtracting(activeDirections) { if let k = keys[code] { onKey?(k, true) } }
@@ -296,6 +295,8 @@ final class GamepadOverlayView: UIView {
     var onEditItem: ((ControlItem, @escaping (ControlItem?) -> Void) -> Void)?
     /// Asks the player to confirm the reset (shows an alert); the closure resets.
     var onConfirmReset: ((@escaping () -> Void) -> Void)?
+    /// 7.3.0: the layout for a preset, ready to show (global pad size applied).
+    var onPreset: ((LayoutPreset) -> LayoutProfile)?
 
     private(set) var profile: LayoutProfile = .builtIn
     private var views: [UUID: ControlView] = [:]
@@ -643,8 +644,47 @@ final class GamepadOverlayView: UIView {
             entry("Scroll Up", "arrow.up.to.line", .scrollUp),
             entry("Scroll Down", "arrow.down.to.line", .scrollDown),
         ]
+        let mouse: [UIMenuElement] = [
+            entry("Left Click", "cursorarrow.click", .mouseLeft),
+            entry("Right Click", "cursorarrow.click.2", .mouseRight),
+        ]
+        let app: [UIMenuElement] = [
+            entry("Quick Save", "bolt.circle", .quickSave),
+            entry("Quick Load", "bolt.horizontal.circle", .quickLoad),
+            entry("Game Panel", "square.grid.2x2", .gamePanel),
+            entry("Show Keyboard", "keyboard", .showKeyboard),
+        ]
+        let presets: [UIMenuElement] = LayoutPreset.allCases.map { preset in
+            UIAction(title: preset.title, image: UIImage(systemName: preset.symbol)) { [weak self] _ in
+                self?.usePreset(preset)
+            }
+        }
         return UIMenu(title: full ? "Up to \(LayoutProfile.maxControls) controls" : "Add",
-                      children: [UIMenu(options: .displayInline, children: main), UIMenu(title: "Game Action", children: actions)])
+                      children: [UIMenu(options: .displayInline, children: main),
+                                 UIMenu(title: "Game Action", image: UIImage(systemName: "gamecontroller"), children: actions),
+                                 UIMenu(title: "Mouse", image: UIImage(systemName: "computermouse"), children: mouse),
+                                 UIMenu(title: "NexPlay", image: UIImage(systemName: "square.grid.2x2"), children: app),
+                                 UIMenu(title: "Presets", image: UIImage(systemName: "square.on.square"), children: presets)])
+    }
+
+    /// Edit mode: replaces both orientations with a preset (Done saves it, the reset arrow undoes it).
+    private func usePreset(_ preset: LayoutPreset) {
+        guard let fresh = onPreset?(preset) else { return }
+        profile = fresh
+        selectedID = nil
+        rebuild()
+        setNeedsLayout()
+        addButton.menu = addMenu()
+        haptic?.impactOccurred()
+    }
+
+    /// Outside edit mode (Game Panel): shows a preset and saves it as the game's layout.
+    func applyPreset(_ preset: LayoutPreset) {
+        guard !isEditing, let fresh = onPreset?(preset) else { return }
+        profile = fresh
+        shownLandscape = nil
+        setNeedsLayout()
+        onSave?(fresh)
     }
 
     private func add(_ action: ControlAction, keyCode: Int?, label: String?) {

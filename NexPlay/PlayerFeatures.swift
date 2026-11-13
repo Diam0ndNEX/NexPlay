@@ -10,6 +10,11 @@ final class PlayerContext {
     var present: (UIViewController) -> Void = { _ in }
     var reload: () -> Void = {}
     var update: (@escaping (inout Game) -> Void) -> Void = { _ in }
+    // 7.3.0 input (set by the player): mouse mode, layout presets, the PC keyboard.
+    var mouseMode: () -> MouseMode = { .direct }
+    var setMouseMode: (MouseMode) -> Void = { _ in }
+    var applyPreset: (LayoutPreset) -> Void = { _ in }
+    var showPCKeyboard: () -> Void = {}
 
     init(gameLog: GameLog) {
         self.gameLog = gameLog

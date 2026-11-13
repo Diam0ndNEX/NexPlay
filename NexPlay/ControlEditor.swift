@@ -175,10 +175,18 @@ struct ControlEditorView: View {
                 get: { item.eightWay ?? true },
                 set: { item.eightWay = $0 }
             ))
+            Picker("Keys", selection: Binding(
+                get: { item.wasd == true },
+                set: { item.wasd = $0 ? true : nil }
+            )) {
+                Text("Arrows").tag(false)
+                Text("W A S D").tag(true)
+            }
+            .pickerStyle(.segmented)
         } header: {
             Text("Directions")
         } footer: {
-            Text("Presses the arrow keys. Turn off Eight Directions for games that only move in four.")
+            Text("Presses the arrow keys, or W/A/S/D for PC games. Turn off Eight Directions for games that only move in four.")
         }
     }
 }
@@ -208,6 +216,20 @@ struct KeySelectView: View {
                     VStack(spacing: 0) {
                         actionRow(.scrollUp, "arrow.up.to.line")
                         actionRow(.scrollDown, "arrow.down.to.line")
+                    }
+                }
+                group("Mouse", footer: "Clicks where the cursor is (Trackpad mode) or in the middle of the game. Choose the mouse mode in the Game Panel.") {
+                    VStack(spacing: 0) {
+                        actionRow(.mouseLeft, "cursorarrow.click")
+                        actionRow(.mouseRight, "cursorarrow.click.2")
+                    }
+                }
+                group("NexPlay") {
+                    VStack(spacing: 0) {
+                        actionRow(.quickSave, "bolt.circle.fill")
+                        actionRow(.quickLoad, "bolt.horizontal.circle.fill")
+                        actionRow(.gamePanel, "square.grid.2x2.fill")
+                        actionRow(.showKeyboard, "keyboard")
                     }
                 }
                 keyGroup("Letters", PadKey.letters)

@@ -239,10 +239,22 @@ struct GameSettingsView: View {
         .accessibilityLabel(tag?.rawValue.capitalized ?? "No color")
     }
 
+    /// 7.3.0: Direct Touch is stored as nil.
+    private var mouseBinding: Binding<MouseMode> {
+        let stored = binding(\.mouseMode, default: nil)
+        return Binding(
+            get: { stored.wrappedValue ?? .direct },
+            set: { stored.wrappedValue = $0 == .direct ? nil : $0 }
+        )
+    }
+
     private func controlsSection(_ game: Game) -> some View {
         Section {
             Toggle(isOn: binding(\.gamepad, default: true)) { Label("On-Screen Controls", systemImage: "gamecontroller.fill") }
             Button { showControllerMap = true } label: { Label("Controller Mapping", systemImage: "gamecontroller") }
+            Picker(selection: mouseBinding) {
+                ForEach(MouseMode.allCases) { mode in Text(mode.title).tag(mode) }
+            } label: { Label("Mouse", systemImage: "computermouse.fill") }
             Button {
                 LayoutStore.reset(gameID)
                 message = "This game uses the default touch layout again."
