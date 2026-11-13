@@ -70,6 +70,8 @@ jobs:
         run: brew install ldid || true
 
       - name: Build BCD as a library
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash nexplay/tools/windows/build_runtime.sh
 
       - name: Save the build cache

@@ -13,6 +13,33 @@ BCD="$WS/bcd"
 NX="$WS/nexplay/tools/windows"
 cd "$BCD"
 
+# BCD's public repo does not ship Apple's iOS libmetalirconverter.dylib (BCD's deps.sh stops without it, after an hour
+# of building). BCD's own fetch-converter.sh makes it from Apple's installer, which Apple's agreement keeps out of
+# public places: put "Metal Shader Converter 4.0 beta 2.pkg" as an asset of a DRAFT release with the tag
+# "msc-installer" in this repo (the token below can see drafts). Never commit or publish it.
+MSC_DYLIB="$BCD/app/Madeira/d3d12/libmetalirconverter.dylib"
+if [ ! -f "$MSC_DYLIB" ]; then
+  echo "::group::Metal Shader Converter (from the draft release msc-installer)"
+  PKG_DIR="$BCD/research/GPTK"
+  PKG="$PKG_DIR/Metal Shader Converter 4.0 beta 2.pkg"
+  mkdir -p "$PKG_DIR"
+  if [ -z "${GH_TOKEN:-}" ]; then
+    echo "::error::GH_TOKEN is not set for this step: paste the newest docs/workflow-windows-runtime.yml as build-windows-runtime.yml"
+    exit 1
+  fi
+  ASSET_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+    --jq '[.[] | select(.tag_name == "msc-installer" or .name == "msc-installer") | .assets[] | select(.name | test("\\.pkg$"))][0].id // empty')
+  if [ -z "$ASSET_ID" ]; then
+    echo "::error::No .pkg asset found on a release tagged msc-installer. Create a DRAFT release with that tag and attach Apple's 'Metal Shader Converter 4.0 beta 2.pkg' (see docs/WINDOWS-PORT.md)."
+    exit 1
+  fi
+  gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" > "$PKG"
+  ls -l "$PKG"
+  echo "pkg sha256: $(shasum -a 256 "$PKG" | cut -d' ' -f1) (BCD pins 1acc33c87ea663933df89721a998d066106685473020bcbe007cee7a16155734)"
+  bash build/madeira-d3d12/fetch-converter.sh
+  echo "::endgroup::"
+fi
+
 echo "::group::BCD's build steps"
 python3 "$NX/run_bcd_ci.py" --root "$BCD" --until "Archive (unsigned)"
 echo "::endgroup::"

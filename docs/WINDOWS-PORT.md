@@ -58,3 +58,6 @@ dynamic library and loads it.
 
 Known risks to check on the first runtime build: BCD's code using `Bundle.main` paths (covered by merging its app folder
 into NexPlay.app), Assets.car (NexPlay's kept), Info.plist keys BCD reads, BCD plug-in ids, release asset size (2 GB).
+
+## Metal Shader Converter (7.1.3)
+BCD's public repo (tag v0.1.653) does not contain `app/Madeira/d3d12/libmetalirconverter.dylib`, so its `deps.sh` stops the runtime build ("does not match its pinned hashes", after ~70 minutes). `tools/windows/build_runtime.sh` now makes the file with BCD's own `build/madeira-d3d12/fetch-converter.sh` from Apple's installer. Apple's agreement keeps the installer out of public places and this repo is public: attach `Metal Shader Converter 4.0 beta 2.pkg` (sha256 1acc33c8...5734, from developer.apple.com) to a **draft** release with the tag `msc-installer`. The workflow's token (contents: write) can read drafts. A different converter version needs new pinned hashes in BCD's scripts.
