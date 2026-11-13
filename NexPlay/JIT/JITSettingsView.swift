@@ -145,7 +145,7 @@ struct SetupCenterView: View {
             Section {
                 SetupRow(title: "Pairing File", ok: jit.pairingPresent,
                          why: "Lets NexPlay ask iOS for JIT without a computer.",
-                         actionTitle: "Import", action: { importing = true })
+                         actionTitle: "Import", action: { rtpImport = nil; importing = true })
                 SetupRow(title: "LocalDevVPN Connected", ok: jit.vpnReachable,
                          why: "The JIT helper reaches this iPhone through it.",
                          actionTitle: LocalDevVPN.actionTitle, action: { LocalDevVPN.open() })
@@ -199,34 +199,38 @@ struct SetupCenterView: View {
                             : "Runs RPG Maker 2000/2003 games natively. Comes with builds made by the 7.1.1 workflow.")
                 SetupRow(title: "RTP 2000", ok: EasyRPGCore.hasRTP("2000"),
                          why: "Only games shipped without the standard graphics and sounds need it.",
-                         actionTitle: "Import Folder", action: { rtpImport = "2000" })
+                         actionTitle: "Import Folder", action: { rtpImport = "2000"; importing = true })
                 SetupRow(title: "RTP 2003", ok: EasyRPGCore.hasRTP("2003"),
                          why: "The same for RPG Maker 2003 games.",
-                         actionTitle: "Import Folder", action: { rtpImport = "2003" })
+                         actionTitle: "Import Folder", action: { rtpImport = "2003"; importing = true })
             } header: {
                 SettingsHeader(title: "RPG Maker 2000/2003", symbol: "map", color: .orange)
             } footer: {
                 Text(rtpMessage ?? "Pick the installed RTP folder (it holds Backdrop, CharSet, Music and the other folders).")
             }
-            .fileImporter(isPresented: Binding(get: { rtpImport != nil }, set: { if !$0 { rtpImport = nil } }),
-                          allowedContentTypes: [.folder]) { result in
-                let version = rtpImport ?? "2000"
-                rtpImport = nil
-                switch result {
-                case .success(let url):
+        }
+        // 7.13.3: one importer for the pairing file and the RTP folders. Two fileImporter modifiers in one view
+        // don't work together (the RTP one sat inside the form and the pairing one outside: one of them never opened).
+        // rtpImport stays set until the result arrives (the binding can be cleared before the completion runs).
+        .fileImporter(isPresented: $importing, allowedContentTypes: rtpImport != nil ? [.folder] : [.item]) { result in
+            let version = rtpImport
+            importing = false
+            rtpImport = nil
+            switch result {
+            case .success(let url):
+                if let version {
                     do {
                         try EasyRPGCore.importRTP(from: url, version: version)
                         rtpMessage = "RTP \(version) imported."
                     } catch {
                         rtpMessage = "The RTP couldn't be copied: \(error.localizedDescription)"
                     }
-                case .failure(let error):
-                    rtpMessage = error.localizedDescription
+                } else {
+                    jit.importPairing(url)
                 }
+            case .failure(let error):
+                if version != nil { rtpMessage = error.localizedDescription }
             }
-        }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
-            if case .success(let url) = result { jit.importPairing(url) }
         }
         .onAppear { jit.refresh() }
     }

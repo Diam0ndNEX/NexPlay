@@ -83,6 +83,10 @@ struct GameSavesView: View {
     @State private var shareURLs: [URL] = []
     @State private var sharing = false
     @State private var pickingSaves = false
+    /// 7.13.3: a picker that allows folders and files at once makes "Open" open the folder, so a picked ZIP did
+    /// nothing. Import asks which first.
+    @State private var savesFolder = false
+    @State private var askImportKind = false
     @State private var pendingBackup: BackupEntry?
     @State private var confirmDelete = false
     @State private var message: String?
@@ -135,7 +139,14 @@ struct GameSavesView: View {
         .sheet(isPresented: $sharing) { ActivityView(items: shareURLs) }
         // ZIPs, loose .rpgsave/.rmmzsave files (from a PC's www/save folder) or a whole save folder. No confirmation
         // dialog: one shown while the picker is still closing never appears. The import backs up first anyway.
-        .fileImporter(isPresented: $pickingSaves, allowedContentTypes: [.zip, .folder, .item],
+        .confirmationDialog("Import Saves", isPresented: $askImportKind, titleVisibility: .visible) {
+            Button("Save Files or ZIP") { savesFolder = false; pickingSaves = true }
+            Button("A Save Folder") { savesFolder = true; pickingSaves = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves from another device: .rpgsave/.rmmzsave files, a ZIP of them, or a whole save folder.")
+        }
+        .fileImporter(isPresented: $pickingSaves, allowedContentTypes: savesFolder ? [.folder] : [.zip, .item],
                       allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls):
@@ -171,7 +182,7 @@ struct GameSavesView: View {
     private var actionTiles: some View {
         HStack(spacing: 10) {
             SaveActionTile(title: "Backup", symbol: "square.and.arrow.down", enabled: !files.isEmpty) { backUpNow() }
-            SaveActionTile(title: "Import", symbol: "square.and.arrow.up", enabled: game?.usesNWMode == true) { pickingSaves = true }
+            SaveActionTile(title: "Import", symbol: "square.and.arrow.up", enabled: game?.usesNWMode == true) { askImportKind = true }
             SaveActionTile(title: "Share", symbol: "square.and.arrow.up.on.square", enabled: !files.isEmpty) { share() }
             SaveActionTile(title: "Delete", symbol: "trash", enabled: selecting && !selected.isEmpty, destructive: true) {
                 confirmDelete = true

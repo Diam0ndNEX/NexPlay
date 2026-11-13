@@ -225,6 +225,7 @@ final class CheatsFeature: PlayerFeature {
                 case 'god': window.__nexGod = !!a; break;
                 case 'onehit': window.__nexOneHit = !!a; break;
                 case 'speed': $gamePlayer.setMoveSpeed(Math.max(1, Math.min(6, a))); break;
+                case 'hp': var hurt = $gameActors.actor(a); if (hurt) hurt.setHp(Math.max(0, b)); break;
                 case 'switch': $gameSwitches.setValue(a, !!b); break;
                 case 'variable': $gameVariables.setValue(a, b); break;
                 case 'save': if (typeof Scene_Save !== 'undefined') SceneManager.push(Scene_Save); break;
@@ -235,40 +236,64 @@ final class CheatsFeature: PlayerFeature {
             } catch (e) { return String(e); }
         };
         // Everything the cheat engine shows, as JSON.
+        // 7.13.3: reads the saved values directly (_data, _items...). value()/numItems() can run plugin code (for
+        // example variables computed by a script), which threw outside its scene and broke the game after the
+        // engine closed. Each section is guarded, so one bad entry doesn't empty the whole engine.
+        function rawCount(kind, id) {
+            var bag = kind === 1 ? $gameParty._weapons : kind === 2 ? $gameParty._armors : $gameParty._items;
+            var n = bag ? Number(bag[id]) : 0;
+            return isFinite(n) ? Math.round(n) : 0;
+        }
         window.__nexCheatSnapshot = function () {
             if (!ready()) return '';
-            var out = { gold: Number($gameParty.gold()) || 0, speed: Number($gamePlayer.moveSpeed ? $gamePlayer.moveSpeed() : 4) || 4,
+            var out = { gold: Number($gameParty._gold) || 0, speed: Number($gamePlayer._moveSpeed) || 4,
                 god: !!window.__nexGod, through: !!window.__nexThrough, noEncounters: !!window.__nexNoEncounters,
                 oneHit: !!window.__nexOneHit, party: [], items: [], switches: [], variables: [] };
-            $gameParty.members().forEach(function (m) {
-                function n(x) { x = Number(x); return isFinite(x) ? x : 0; }
-                out.party.push({ id: m.actorId(), name: String(m.name()), level: Math.round(n(m.level)),
-                    maxLevel: Math.round(Math.min(n(m.maxLevel()) || 99, 9999)),
-                    hp: n(m.hp), mhp: n(m.mhp), mp: n(m.mp), mmp: n(m.mmp),
-                    job: m.currentClass() ? String(m.currentClass().name) : '' });
+            function n(x) { x = Number(x); return isFinite(x) ? x : 0; }
+            ($gameParty._actors || []).forEach(function (actorId) {
+                try {
+                    var m = $gameActors.actor(actorId);
+                    if (!m) return;
+                    var data = $dataActors && $dataActors[actorId];
+                    var cls = $dataClasses && $dataClasses[m._classId];
+                    out.party.push({ id: actorId, name: String(m._name || (data && data.name) || ''), level: Math.round(n(m._level)),
+                        maxLevel: Math.round(Math.min(n(data && data.maxLevel) || 99, 9999)),
+                        hp: n(m._hp), mhp: n(m.mhp), mp: n(m._mp), mmp: n(m.mmp),
+                        job: cls ? String(cls.name || '') : '' });
+                } catch (e) {}
             });
             [0, 1, 2].forEach(function (kind) {
-                var list = table(kind) || [];
-                for (var i = 1; i < list.length && i < 4000; i++) {
-                    var d = list[i];
-                    if (!d || !d.name) continue;
-                    out.items.push({ kind: kind, id: i, name: String(d.name), count: Math.round(Number($gameParty.numItems(d)) || 0),
-                        note: String(d.description || '').slice(0, 120) });
-                }
+                try {
+                    var list = table(kind) || [];
+                    for (var i = 1; i < list.length && i < 4000; i++) {
+                        var d = list[i];
+                        if (!d || !d.name) continue;
+                        out.items.push({ kind: kind, id: i, name: String(d.name), count: rawCount(kind, i),
+                            note: String(d.description || '').slice(0, 120) });
+                    }
+                } catch (e) {}
             });
-            var sw = ($dataSystem && $dataSystem.switches) || [];
-            for (var s = 1; s < sw.length && s < 5000; s++) {
-                var on = !!$gameSwitches.value(s);
-                if (sw[s] || on) out.switches.push({ id: s, name: String(sw[s] || ''), on: on });
-            }
-            var vars = ($dataSystem && $dataSystem.variables) || [];
-            for (var v = 1; v < vars.length && v < 5000; v++) {
-                var value = $gameVariables.value(v);
-                if (vars[v] || value) {
-                    out.variables.push({ id: v, name: String(vars[v] || ''), value: typeof value === 'number' && isFinite(value) ? value : 0,
-                        text: String(value) });
+            try {
+                var sw = ($dataSystem && $dataSystem.switches) || [];
+                var swData = ($gameSwitches && $gameSwitches._data) || [];
+                for (var s = 1; s < sw.length && s < 5000; s++) {
+                    var on = !!swData[s];
+                    if (sw[s] || on) out.switches.push({ id: s, name: String(sw[s] || ''), on: on });
                 }
-            }
+            } catch (e) {}
+            try {
+                var vars = ($dataSystem && $dataSystem.variables) || [];
+                var varData = ($gameVariables && $gameVariables._data) || [];
+                for (var v = 1; v < vars.length && v < 5000; v++) {
+                    var value = varData[v];
+                    if (vars[v] || value) {
+                        var text = '';
+                        try { text = typeof value === 'object' ? JSON.stringify(value) : String(value); } catch (e) { text = '?'; }
+                        out.variables.push({ id: v, name: String(vars[v] || ''), value: typeof value === 'number' && isFinite(value) ? value : 0,
+                            text: String(text).slice(0, 80) });
+                    }
+                }
+            } catch (e) {}
             return JSON.stringify(out);
         };
         (function hook() {
@@ -344,9 +369,20 @@ final class CheatsFeature: PlayerFeature {
     }
 
     func snapshot() async -> CheatSnapshot? {
-        let result = await evaluateString("window.__nexCheatSnapshot ? window.__nexCheatSnapshot() : ''")
-        guard let text = result, !text.isEmpty, let data = text.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(CheatSnapshot.self, from: data)
+        let script = "(function () { try { return window.__nexCheatSnapshot ? window.__nexCheatSnapshot() : ''; } catch (e) { return 'error:' + e; } })()"
+        let result = await evaluateString(script)
+        guard let text = result, !text.isEmpty else { return nil }
+        if text.hasPrefix("error:") {
+            context.gameLog.add("cheat engine: " + text)
+            return nil
+        }
+        guard let data = text.data(using: .utf8) else { return nil }
+        do {
+            return try JSONDecoder().decode(CheatSnapshot.self, from: data)
+        } catch {
+            context.gameLog.add("cheat engine: couldn't read the game's values (\(error.localizedDescription))")
+            return nil
+        }
     }
 
     /// Runs a script that returns a string. The completion-handler API is used because the async one traps when
