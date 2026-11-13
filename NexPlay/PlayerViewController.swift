@@ -51,6 +51,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var loading: LoadingScreenView?
     private let banner = UILabel()
     private let statsLabel = UILabel()
+    /// 7.11.0: replaces statsLabel.
+    private let hud = PerformanceHUDView()
     private let prefs = ControlPrefs.current()
 
     private var speed = 1
@@ -254,6 +256,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         super.viewDidLayoutSubviews()
         let insets = view.safeAreaInsets
         statsLabel.frame = CGRect(x: insets.left + 10, y: insets.top + 8, width: 210, height: 22)
+        hud.place(in: view.bounds, insets: insets)
         layoutBanner()
         layoutStatus()
 
@@ -351,6 +354,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         statsLabel.textAlignment = .center
         statsLabel.isHidden = true
         view.addSubview(statsLabel)
+        hud.isHidden = true
+        view.addSubview(hud)
 
         banner.font = .systemFont(ofSize: 12, weight: .medium)
         banner.textColor = .white
@@ -1115,7 +1120,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private func applyStats() {
         let on = game.statsOverlay ?? false
-        statsLabel.isHidden = !on
+        statsLabel.isHidden = true
+        hud.isHidden = !on
+        hud.place(in: view.bounds, insets: view.safeAreaInsets)
         webView.evaluateJavaScript("window.__nexStats && window.__nexStats(\(on))")
         statsTimer?.invalidate()
         statsTimer = nil
@@ -1135,9 +1142,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     }()
 
     private func refreshStats() {
-        let level = UIDevice.current.batteryLevel
-        let battery = level < 0 ? "--" : "\(Int(level * 100))%"
-        statsLabel.text = "\(currentFPS) FPS · \(battery) · \(PlayerViewController.clockFormatter.string(from: Date()))"
+        hud.update(fps: currentFPS)
+        hud.place(in: view.bounds, insets: view.safeAreaInsets)
+        view.bringSubviewToFront(hud)
     }
 
     private func toggleBlockNetwork() {

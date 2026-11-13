@@ -103,6 +103,8 @@ struct NexPlayApp: App {
         SettingsKey.powerProfile: "balanced",
         SettingsKey.idlePauseMinutes: 10,
         SettingsKey.thermalGuard: true,
+        SettingsKey.hudCorner: "topLeft",
+        SettingsKey.hudDetail: "full",
     ]
 
     private var colorScheme: ColorScheme? {

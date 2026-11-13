@@ -221,7 +221,7 @@ struct SettingsView: View {
 
     private func resetDefaults() {
         let defaults = UserDefaults.standard
-        let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys + SettingsKey.powerKeys
+        let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys + SettingsKey.powerKeys + SettingsKey.hudKeys
             + [SettingsKey.translationEnabled]
         for key in keys { defaults.removeObject(forKey: key) }
         OrientationManager.unlock()
@@ -566,6 +566,7 @@ struct GameplaySettings: View {
     var body: some View {
         Form {
             PowerSettingsSection()
+            HUDSettingsSection()
             Section {
                 Toggle(isOn: $autoRotateGames) {
                     SettingLabel("Auto-rotate In Games", "Let games rotate freely with your device. Turn this off to lock games to one orientation.")
