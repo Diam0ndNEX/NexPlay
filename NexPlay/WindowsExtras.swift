@@ -7,7 +7,7 @@ import UIKit
 // - the Windows panel (Performance, Input, Windows) behind a button on BCD's screen.
 
 /// Per-game Run Options. Stored in `Game.runOptions`.
-struct RunOptions: Codable, Equatable {
+struct RunOptions: Codable, Hashable {
     /// Extra command-line arguments, separated by spaces ("quoted parts" stay together).
     var arguments: String?
     /// KEY=VALUE, one per line.

@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -302,13 +303,36 @@ class Runner:
             return bool(glob.glob(full, recursive=True))
         return os.path.exists(full)
 
+    # The outer workflow caches toolchains/llvm-ios-build but not the 1+ GB llvm-project checkout. BCD's airconv and
+    # madeira_ags only need llvm-project/llvm/include from it, so a copy rides along inside llvm-ios-build.
+    LLVM_SRC_INCLUDE = "toolchains/llvm-project/llvm/include"
+    LLVM_SNAPSHOT = "toolchains/llvm-ios-build/.nexplay-llvm-src-include"
+
+    def snapshot_llvm_headers(self):
+        src = os.path.join(self.root, self.LLVM_SRC_INCLUDE)
+        dst = os.path.join(self.root, self.LLVM_SNAPSHOT)
+        if os.path.isdir(src) and os.path.isdir(os.path.dirname(dst)) and not os.path.isdir(dst):
+            shutil.copytree(src, dst, symlinks=True)
+            print("llvm headers saved into llvm-ios-build for the next run")
+
+    def restore_llvm_headers(self):
+        src = os.path.join(self.root, self.LLVM_SNAPSHOT)
+        dst = os.path.join(self.root, self.LLVM_SRC_INCLUDE)
+        if os.path.isdir(src) and not os.path.isdir(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copytree(src, dst, symlinks=True)
+            print("llvm headers restored from llvm-ios-build")
+
     def uses(self, step, sid, env):
         action = step["uses"]
         inputs = step.get("with") or {}
         if action.startswith("actions/cache/restore"):
             key = self.render(to_str(inputs.get("key", "")), env)
             paths = self.cache_paths(inputs.get("path", ""), env)
-            hit = key in self.keys and any(self.path_exists(p) for p in paths)
+            self.restore_llvm_headers()
+            # Every path must be back: a partial restore (llvm-ios-build without llvm-project's headers) made BCD
+            # skip its LLVM build, and airconv/madeira_ags then failed with 'llvm/ADT/APFloat.h' file not found.
+            hit = key in self.keys and all(self.path_exists(p) for p in paths)
             print("cache %s: %s" % ("hit" if hit else "miss", key))
             self.state["outputs"][sid] = {"cache-hit": "true" if hit else "false", "cache-primary-key": key,
                                           "cache-matched-key": key if hit else ""}
@@ -316,6 +340,7 @@ class Runner:
             key = self.render(to_str(inputs.get("key", "")), env)
             self.keys[key] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             self.save_keys()
+            self.snapshot_llvm_headers()
             print("cache recorded: %s" % key)
         else:
             print("skipped (%s)" % action)
