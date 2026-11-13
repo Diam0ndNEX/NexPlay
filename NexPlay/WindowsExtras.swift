@@ -156,6 +156,9 @@ struct JITSheetView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { finish(false) } }
+                ToolbarItem(placement: .confirmationAction) {
+                    SheetHelpButton(title: "Why JIT?", text: "Windows games are x86 programs. NexPlay translates them to ARM while they run (FEX), and iOS only allows that with JIT. You need a pairing file (made once on a computer or with an app like SideStore/StikDebug's tools) and LocalDevVPN connected.")
+                }
             }
             .onAppear { jit.refresh() }
             .onChange(of: jit.isActive) { active in if active { finish(true) } }
@@ -250,7 +253,7 @@ struct WindowsPanelView: View {
             .navigationTitle(gameName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { SheetCloseButton { dismiss() } }
             }
         }
         .environment(\.colorScheme, .dark)

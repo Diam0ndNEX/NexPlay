@@ -357,8 +357,11 @@ struct GamePanelView: View {
             .navigationTitle("Game Panel")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    SheetHelpButton(title: "Game Panel", text: "Every in-game tool in one place. The top row saves, loads, switches the power profile and leaves the game. The game keeps running while the panel is open; Save States pauses it. Touch and hold the gear on the control bar for the full game menu.")
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    SheetCloseButton { dismiss() }
                 }
             }
             .overlay(alignment: .bottom) {

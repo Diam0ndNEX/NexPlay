@@ -56,7 +56,7 @@ struct OnboardingView: View {
             .navigationDestination(isPresented: $showSetup) {
                 SetupCenterView()
                     .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { finish() } }
+                        ToolbarItem(placement: .navigationBarTrailing) { SheetCloseButton { finish() } }
                     }
             }
         }

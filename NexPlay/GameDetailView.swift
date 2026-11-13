@@ -153,7 +153,7 @@ struct GameDetailView: View {
             NavigationStack {
                 SetupCenterView()
                     .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { showSetupCenter = false } }
+                        ToolbarItem(placement: .navigationBarTrailing) { SheetCloseButton { showSetupCenter = false } }
                     }
             }
         }

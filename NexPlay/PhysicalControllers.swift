@@ -284,7 +284,7 @@ struct ControllerMapView: View {
             .navigationTitle("Controller Buttons")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) { SheetCloseButton { dismiss() } }
             }
             .onAppear { load() }
             .onChange(of: scopeIsGame) { _ in load() }

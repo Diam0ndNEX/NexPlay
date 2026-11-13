@@ -463,7 +463,7 @@ struct LibraryView: View {
             NavigationStack {
                 StatsView()
                     .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { showStats = false } }
+                        ToolbarItem(placement: .navigationBarTrailing) { SheetCloseButton { showStats = false } }
                     }
             }
             .environmentObject(store)
@@ -605,7 +605,7 @@ struct LibraryView: View {
                 NavigationStack {
                     SetupCenterView()
                         .toolbar {
-                            ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { showSetupCenter = false } }
+                            ToolbarItem(placement: .navigationBarTrailing) { SheetCloseButton { showSetupCenter = false } }
                         }
                 }
             }
@@ -1184,7 +1184,7 @@ struct CollectionsManagerView: View {
             .navigationTitle("Collections")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) { SheetCloseButton { dismiss() } }
             }
             .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Name", text: $renameText)

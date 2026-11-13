@@ -152,7 +152,7 @@ struct PluginListView: View {
             .navigationTitle("Plugins")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) { SheetCloseButton { dismiss() } }
             }
             .onAppear {
                 plugins = PluginManager.plugins(for: game)

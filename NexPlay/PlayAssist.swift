@@ -1000,7 +1000,7 @@ struct MessageLogView: View {
             .navigationTitle("Message Log")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { SheetCloseButton { dismiss() } }
             }
         }
         .environment(\.colorScheme, .dark)

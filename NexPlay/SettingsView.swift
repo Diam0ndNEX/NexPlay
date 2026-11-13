@@ -154,7 +154,7 @@ struct SettingsView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if !embedded { Button("Done") { dismiss() } }
+                    if !embedded { SheetCloseButton { dismiss() } }
                 }
             }
             .safeAreaInset(edge: .bottom) { Color.clear.frame(height: embedded ? 70 : 0) }

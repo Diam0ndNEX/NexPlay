@@ -259,7 +259,7 @@ struct TranslationSettingsView: View {
             .navigationTitle("Translation")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) { SheetCloseButton { dismiss() } }
             }
             .onAppear { refresh() }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .plainText]) { result in

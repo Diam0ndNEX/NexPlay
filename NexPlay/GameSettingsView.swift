@@ -56,7 +56,7 @@ struct GameSettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    if !embedded { Button("Done") { dismiss() } }
+                    if !embedded { SheetCloseButton { dismiss() } }
                 }
             }
         }
