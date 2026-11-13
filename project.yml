@@ -1,14 +1,18 @@
 name: NexPlay
+# 8.0.0: the Windows engine switch (BCD compiled into NexPlay). Off as committed; CI turns it on when the engine
+# release exists (tools/windows/fetch_engine.sh). The bridging header and OTHER_LDFLAGS live there, not here.
+include:
+  - path: NexPlayWindows.yml
 options:
   bundleIdPrefix: com.nexplay
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "18.0"
   createIntermediateGroups: true
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "7.13.6"
-    CURRENT_PROJECT_VERSION: "63"
+    MARKETING_VERSION: "8.0.0"
+    CURRENT_PROJECT_VERSION: "64"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
     # The XP/VX/Ace core is off by default. The workflow turns it on with
@@ -23,10 +27,14 @@ targets:
     platform: iOS
     sources:
       - path: NexPlay
+        # 8.0.0: BCD's code compiles only in builds with the Windows engine (NexPlayWindows.yml adds it).
+        excludes:
+          - "Windows/BCD"
+          - "Windows/BCD/**"
     dependencies:
       - package: ZIPFoundation
       # 6.3.0: built-in JIT. The helper extension runs StikJIT; the app only embeds the framework for it
-      # (StikJIT needs iOS 17.4, NexPlay runs on 16). tools/fetch_stikjit.sh puts it in vendor/ in CI.
+      # (StikJIT stays out of the app binary). tools/fetch_stikjit.sh puts it in vendor/ in CI.
       - target: NexPlayJITHelper
       - framework: vendor/StikJIT/StikJIT.xcframework
         embed: true
@@ -70,8 +78,7 @@ targets:
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
         # libarchive ships with iOS (7z, RAR, TAR...). NexPlay-Bridging-Header.h declares the functions
         # ArchiveExtractor.swift uses, because the iOS SDK has no libarchive headers. It also includes JIT/NexJIT.h.
-        SWIFT_OBJC_BRIDGING_HEADER: NexPlay/NexPlay-Bridging-Header.h
-        OTHER_LDFLAGS: "$(inherited) -larchive"
+        # 8.0.0: SWIFT_OBJC_BRIDGING_HEADER and OTHER_LDFLAGS (-larchive) are set in NexPlayWindows.yml.
 
   # 6.3.0: the JIT helper (a classic app extension started by bundle ID, as BCD's MadeiraJITHelper). A process
   # can't debug itself, so StikJIT runs here and attaches to NexPlay. Sources: its folder + the shared messages.

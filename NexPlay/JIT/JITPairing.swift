@@ -71,7 +71,6 @@ enum JITPairingStore {
             throw JITError(message: "The pairing file couldn't be saved to the Keychain (error \(status)). Unlock the iPhone and try again.")
         }
         UserDefaults.standard.set(kind, forKey: kindKey)
-        BCDPairingMirror.update(data, kind: kind)
         return kind
     }
 
@@ -82,33 +81,5 @@ enum JITPairingStore {
             kSecAttrAccount as String: account,
         ] as CFDictionary)
         UserDefaults.standard.removeObject(forKey: kindKey)
-        BCDPairingMirror.update(nil, kind: nil)
-    }
-}
-
-/// 6.4.0: the Windows runtime (BCD) runs inside NexPlay and reads its own Keychain item for JIT, so a remote pairing
-/// file is copied there too (same device-only protection). Lockdown pairing files are NexPlay-only.
-enum BCDPairingMirror {
-    private static let service = "MadeiraJITPairing"
-    private static let account = "rppairing"
-    private static let sourceKey = "madeiraJITPairingSource"
-
-    static func update(_ data: Data?, kind: String?) {
-        let item: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(item as CFDictionary)
-        guard let data, kind == "remote pairing" else {
-            UserDefaults.standard.removeObject(forKey: sourceKey)
-            return
-        }
-        var add = item
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        if SecItemAdd(add as CFDictionary, nil) == errSecSuccess {
-            UserDefaults.standard.set("imported", forKey: sourceKey)
-        }
     }
 }

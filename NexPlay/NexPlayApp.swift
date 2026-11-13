@@ -6,7 +6,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication,
                      supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        AppDelegate.orientationMask
+        #if NEXPLAY_WINDOWS
+        // 8.0.0: a Windows game's orientation lock (BCD's session, BCDOrientation.swift) wins while it is on.
+        if let mask = NexWindowsHost.orientationOverride { return mask }
+        #endif
+        return AppDelegate.orientationMask
     }
 }
 
@@ -51,8 +55,6 @@ struct NexPlayApp: App {
         AppLog.noteLaunch()
         // 7.10.0: a game that was still starting when NexPlay last closed is marked "crashed at start".
         LaunchGuard.checkAtLaunch()
-        // 6.4.0: Settings > Setup Center > Windows Games > Load at Launch.
-        BCDRuntimeInfo.loadAtLaunchIfWanted()
     }
 
     static let defaultSettings: [String: Any] = [
@@ -99,7 +101,6 @@ struct NexPlayApp: App {
         SettingsKey.whatsNewSeen: "",
         SettingsKey.jitAutoForGames: true,
         SettingsKey.jitAtLaunch: false,
-        SettingsKey.windowsLoadAtLaunch: true,
         SettingsKey.powerProfile: "balanced",
         SettingsKey.idlePauseMinutes: 10,
         SettingsKey.thermalGuard: true,

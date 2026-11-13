@@ -2,8 +2,9 @@ import SwiftUI
 import UIKit
 
 // 7.0.0: Windows games in NexPlay's library. A game's files stay in NexPlay's Games/<id> folder; a link to that folder
-// sits on BCD's Windows drive as C:\NexPlay\<id>, the game is added to BCD's library (nexplay_bcd_add_game) and started
-// with BCD's own play link (madeira://play?exe=C:\NexPlay\<id>\...). BCD runs it with its JIT, Wine, FEX and DXMT.
+// sits on the Windows drive as C:\NexPlay\<id>. 8.0.0: BCD's engine is compiled into NexPlay (WindowsEngine.swift):
+// the game becomes an entry of the engine's library (NexWindowsHost.addGame) and starts in-process with NexPlay's JIT,
+// NexPlay's loading screen and BCD's session code (Wine, FEX, DXMT).
 // BCD: https://github.com/thebcd69/bcd-games. Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games).
 
 enum WindowsGameFiles {
@@ -121,8 +122,9 @@ enum WindowsLibraryLink {
     }
 }
 
-/// What the player sees while a Windows game runs in BCD's screen: a black page that starts it, and returns to the
-/// library when BCD's screen is closed.
+/// The screen of a Windows game: NexPlay's loading screen over BCD's session screen (a child view controller). The
+/// loading screen stays until the session runs, shows errors, and the controller returns to the library when the
+/// session ends.
 @MainActor
 final class WindowsLaunchController: UIViewController {
     private let game: Game
@@ -130,43 +132,65 @@ final class WindowsLaunchController: UIViewController {
     private let onExit: () -> Void
     private var loading: LoadingScreenView!
     private var started = false
+    private var finished = false
     private var playStart: Date?
+    private let hud = PerformanceHUDView()
+    private var hudTimer: Timer?
+    private var panelButton: UIButton?
+    #if NEXPLAY_WINDOWS
+    private var session: NexWindowsSession?
+    #endif
 
     init(game: Game, store: LibraryStore, onExit: @escaping () -> Void) {
         self.game = game
         self.store = store
         self.onExit = onExit
         super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .fullScreen
     }
 
     required init?(coder: NSCoder) { nil }
 
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .allButUpsideDown }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
+    override var prefersStatusBarHidden: Bool { true }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        // 7.10.0: the shared loading screen; it stays behind BCD's screen and shows errors.
+        // 7.10.0: the shared loading screen; 8.0.0: it covers BCD's session screen until the game runs.
         loading = LoadingScreenView(gameName: game.name, art: CoverCache.cached(for: game))
         loading.frame = view.bounds
         loading.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        loading.onCancel = { [weak self] in self?.onExit() }
+        loading.onCancel = { [weak self] in self?.leave() }
         loading.setStage("Starting Windows…")
         view.addSubview(loading)
+        hud.isHidden = true
+        view.addSubview(hud)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        hud.place(in: view.bounds, insets: view.safeAreaInsets)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         guard !started else { return }
         started = true
-        // 7.12.0: the JIT sheet first when JIT is off (Settings > JIT & Performance > JIT for Games).
+        OrientationManager.lock(.auto)
+        // 7.12.0: the JIT sheet first when JIT is off (Settings > JIT & Performance > JIT for Games). Without it the
+        // engine asks NexPlay's JIT itself when the game starts.
         let wantsJIT = UserDefaults.standard.object(forKey: SettingsKey.jitAutoForGames) as? Bool ?? true
-        if wantsJIT && !JITManager.shared.isActive && JITHelperHost.unavailableReason == nil {
+        if WindowsEngine.unavailableReason == nil && wantsJIT && !JITManager.shared.isActive
+            && JITHelperHost.unavailableReason == nil {
             loading.setStage("Waiting for JIT…")
             let sheet = JITSheetView(gameName: game.name) { [weak self] ok in
                 guard let self else { return }
                 if ok {
                     self.start()
                 } else {
-                    self.onExit()
+                    self.leave()
                 }
             }
             let host = UIHostingController(rootView: sheet)
@@ -177,19 +201,160 @@ final class WindowsLaunchController: UIViewController {
         }
     }
 
-    /// Restart Game in the Windows panel: count the time played so far, then start again.
-    private func restart() {
-        if let start = playStart {
-            let seconds = Date().timeIntervalSince(start)
-            playStart = nil
-            store.mutate(game.id) { $0.playSeconds += seconds }
+    // MARK: - Start and end
+
+    private func start() {
+        AppLog.noteGame(game.name)
+        if let reason = WindowsEngine.unavailableReason {
+            fail(reason, retry: false)
+            return
         }
-        loading.resetToLoading("Restarting…")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.start() }
+        guard let program = WindowsGameFiles.program(for: game) else {
+            fail("No Windows program (.exe) was found in this game's folder.", retry: false)
+            return
+        }
+        #if NEXPLAY_WINDOWS
+        do {
+            try WindowsLibraryLink.make(for: game)
+        } catch {
+            fail("NexPlay couldn't link the game onto the Windows drive: \(error.localizedDescription)", retry: true)
+            return
+        }
+        let paths = WindowsLibraryLink.paths(for: game, program: program)
+        let arguments = game.runOptions.map { $0.argumentList.joined(separator: " ") }
+        guard NexWindowsHost.addGame(relativePath: paths.relative, title: game.name, arguments: arguments) else {
+            fail("The Windows engine couldn't add this game to its library.", retry: true)
+            return
+        }
+        if game.windowsInfo == nil, let info = WindowsPE.inspect(program: program, in: Paths.folder(for: game)) {
+            store.mutate(game.id) { $0.windowsInfo = info }
+        }
+        let current = session ?? makeSession()
+        loading.setStage("Loading game…")
+        current.play(windowsPath: paths.windows)
+        #else
+        fail(WindowsEngine.unavailableReason ?? "This build has no Windows engine.", retry: false)
+        #endif
     }
 
-    /// BCD's screen was closed: count the time and go back to the library.
+    #if NEXPLAY_WINDOWS
+    private func makeSession() -> NexWindowsSession {
+        let made = NexWindowsSession { [weak self] event in
+            self?.handle(event)
+        }
+        session = made
+        let child = made.controller
+        addChild(child)
+        child.view.frame = view.bounds
+        child.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.insertSubview(child.view, at: 0)
+        child.didMove(toParent: self)
+        return made
+    }
+
+    private func handle(_ event: NexWindowsSession.Event) {
+        switch event {
+        case .stage(let text):
+            loading.setStage(text)
+        case .started:
+            playStart = Date()
+            AppLog.log("windows: \(game.name): session running")
+            UIView.animate(withDuration: 0.35, animations: { self.loading.alpha = 0 }, completion: { _ in
+                self.loading.isHidden = true
+            })
+            addPanelButton()
+        case .ended:
+            AppLog.log("windows: \(game.name): session ended")
+            finish()
+        case .failed(let message):
+            fail(message, retry: true)
+        }
+    }
+    #endif
+
+    /// The ⋯ button over the game: NexPlay's Windows panel (HUD, log, quit). BCD's own in-game menu stays as it is.
+    private func addPanelButton() {
+        guard panelButton == nil else { return }
+        var more = UIButton.Configuration.filled()
+        more.image = UIImage(systemName: "ellipsis", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .bold))
+        more.baseBackgroundColor = UIColor.black.withAlphaComponent(0.45)
+        more.baseForegroundColor = .white
+        more.cornerStyle = .capsule
+        let button = UIButton(configuration: more, primaryAction: UIAction { [weak self] _ in self?.openPanel() })
+        button.accessibilityLabel = "Windows panel"
+        button.alpha = 0.6
+        button.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            button.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
+            button.widthAnchor.constraint(equalToConstant: 30),
+            button.heightAnchor.constraint(equalToConstant: 30),
+        ])
+        panelButton = button
+    }
+
+    private func openPanel() {
+        let panel = WindowsPanelView(
+            gameName: game.name,
+            hudOn: !hud.isHidden,
+            onToggleHUD: { [weak self] in self?.toggleHUD() },
+            onRestart: nil,
+            onExit: { [weak self] in self?.quitGame() }
+        )
+        let host = UIHostingController(rootView: panel)
+        host.modalPresentationStyle = .pageSheet
+        if let sheet = host.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(host, animated: true)
+    }
+
+    private func toggleHUD() {
+        hud.isHidden.toggle()
+        hudTimer?.invalidate()
+        hudTimer = nil
+        guard !hud.isHidden else { return }
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        hud.update(fps: nil)
+        view.bringSubviewToFront(hud)
+        hudTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.hud.update(fps: nil) }
+        }
+    }
+
+    /// Quit Game in the Windows panel: the engine ends the session, then `.ended` returns to the library.
+    private func quitGame() {
+        #if NEXPLAY_WINDOWS
+        if let session, session.isRunning {
+            session.quit()
+            return
+        }
+        #endif
+        leave()
+    }
+
+    /// Back to the library before a session runs (Cancel, an error card, the JIT sheet's Not Now).
+    private func leave() {
+        #if NEXPLAY_WINDOWS
+        if let session, session.isRunning {
+            session.quit()
+            return
+        }
+        #endif
+        finish()
+    }
+
+    /// The session ended (or never started): count the time and go back to the library.
     private func finish() {
+        guard !finished else { return }
+        finished = true
+        hudTimer?.invalidate()
+        hudTimer = nil
+        #if NEXPLAY_WINDOWS
+        session?.stopWatching()
+        #endif
         if let start = playStart {
             let seconds = Date().timeIntervalSince(start)
             playStart = nil
@@ -200,75 +365,32 @@ final class WindowsLaunchController: UIViewController {
                 if seconds >= 120 { $0.lastGoodRuntime = .windows }
             }
         }
+        AppLog.noteGame(nil)
+        OrientationManager.unlock()
         onExit()
     }
 
-    private func fail(_ message: String) {
+    private func fail(_ message: String, retry: Bool) {
         AppLog.log("windows: \(game.name): \(message)")
+        loading.isHidden = false
+        loading.alpha = 1
+        view.bringSubviewToFront(loading)
         let lines = AppLog.shared.text.split(separator: "\n").filter { $0.contains("windows") || $0.contains("jit:") }.suffix(40)
         loading.setLog(lines.map(String.init))
-        loading.showError(what: message, why: nil, actions: [
-            LoadingAction("Try Again", symbol: "arrow.clockwise", primary: true) { [weak self] in
+        var actions: [LoadingAction] = []
+        if retry {
+            actions.append(LoadingAction("Try Again", symbol: "arrow.clockwise", primary: true) { [weak self] in
                 guard let self else { return }
                 self.loading.resetToLoading("Starting Windows…")
                 self.start()
-            },
-            LoadingAction("Copy Log for Claude", symbol: "doc.on.doc") {
-                UIPasteboard.general.string = DeviceInfo.report() + "\n\n" + lines.joined(separator: "\n")
-            },
-        ])
-    }
-
-    private func start() {
-        AppLog.noteGame(game.name)
-        guard let program = WindowsGameFiles.program(for: game) else {
-            fail("No Windows program (.exe) was found in this game's folder.")
-            return
+            })
         }
-        do {
-            try BCDRuntimeInfo.load()
-            guard WindowsLibraryLink.driveReady else {
-                // BCD sets up its Windows drive on its first start; the game can be added after that.
-                try BCDBridge.show(onClose: { [weak self] in
-                    self?.loading.resetToLoading("Windows Games is set up. Starting the game…")
-                    self?.start()
-                })
-                fail("Windows Games sets up its Windows drive first. When it's done, close it and press Play again.")
-                return
-            }
-            try WindowsLibraryLink.make(for: game)
-            let paths = WindowsLibraryLink.paths(for: game, program: program)
-            guard try BCDBridge.addGame(relativePath: paths.relative, title: game.name) else {
-                fail("Windows Games couldn't add this game to its library.")
-                return
-            }
-            var link = URLComponents()
-            link.scheme = "madeira"
-            link.host = "play"
-            var items = [URLQueryItem(name: "exe", value: paths.windows)]
-            // 7.12.0 Run Options. BCD reads exe; args, env and lang are passed for BCD builds that support them.
-            if let options = game.runOptions {
-                let args = options.argumentList
-                if !args.isEmpty { items.append(URLQueryItem(name: "args", value: args.joined(separator: " "))) }
-                for (key, value) in options.environmentPairs {
-                    items.append(URLQueryItem(name: "env", value: "\(key)=\(value)"))
-                }
-                if let locale = options.locale, !locale.isEmpty {
-                    items.append(URLQueryItem(name: "env", value: "LANG=\(locale.replacingOccurrences(of: "-", with: "_")).UTF-8"))
-                }
-            }
-            link.queryItems = items
-            guard let url = link.url else { fail("The game's path can't be made into a link."); return }
-            AppLog.log("windows: starting \(paths.windows)")
-            loading.setStage("Loading game…")
-            if game.windowsInfo == nil, let info = WindowsPE.inspect(program: program, in: Paths.folder(for: game)) {
-                store.mutate(game.id) { $0.windowsInfo = info }
-            }
-            playStart = Date()
-            try BCDBridge.configurePanel(gameName: game.name, onRestart: { [weak self] in self?.restart() })
-            try BCDBridge.open(url, onClose: { [weak self] in self?.finish() })
-        } catch {
-            fail((error as? WindowsRuntimeError)?.message ?? error.localizedDescription)
-        }
+        actions.append(LoadingAction("Copy Log for Claude", symbol: "doc.on.doc") {
+            UIPasteboard.general.string = DeviceInfo.report() + "\n\n" + lines.joined(separator: "\n")
+        })
+        actions.append(LoadingAction("Back to Library", symbol: "chevron.backward", primary: !retry) { [weak self] in
+            self?.leave()
+        })
+        loading.showError(what: message, why: nil, actions: actions)
     }
 }

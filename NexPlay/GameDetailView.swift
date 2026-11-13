@@ -539,7 +539,7 @@ struct GameDetailView: View {
             let fine = EasyRPGCore.isPresent || target.runtime == .windows
             notice = fine ? nil : "This build has no EasyRPG core. Pick Windows in Game Settings > Runtime, or install a newer build."
         case .windows:
-            notice = BCDRuntimeInfo.unavailableReason ?? target.windowsInfo.flatMap {
+            notice = WindowsEngine.unavailableReason ?? target.windowsInfo.flatMap {
                 $0.outlook == .likely ? nil : "Windows runtime outlook: \($0.summary)."
             }
         default:

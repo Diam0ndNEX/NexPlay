@@ -10,7 +10,7 @@ enum RuntimeKind: String, Codable, CaseIterable, Identifiable {
     case web
     /// The mkxp core (RPG Maker XP/VX/Ace).
     case ruby
-    /// Wine + FEX + DXMT (from BCD's runtime, BCDCore.framework).
+    /// Wine + FEX + DXMT (BCD's engine, compiled into NexPlay since 8.0.0: Windows/BCD).
     case windows
     /// 7.1.1: EasyRPG Player's libretro core (RPG Maker 2000/2003).
     case easyrpg
@@ -202,14 +202,15 @@ struct RubyGameRuntime: GameRuntime {
     }
 }
 
-/// Windows games (Wine + FEX + DXMT): BCD's runtime (BCDBridge.swift), started from the library (WindowsGames.swift).
+/// Windows games (Wine + FEX + DXMT): BCD's engine, compiled into NexPlay (WindowsEngine.swift, Windows/BCD), started from
+/// the library (WindowsGames.swift).
 struct WindowsGameRuntime: GameRuntime {
     var kind: RuntimeKind { .windows }
-    var isAvailable: Bool { BCDRuntimeInfo.unavailableReason == nil }
+    var isAvailable: Bool { WindowsEngine.unavailableReason == nil }
 
     var unavailableReason: String {
-        BCDRuntimeInfo.unavailableReason
-            ?? "This build has no Windows runtime, so Windows games can't start yet. They stay in your library and will run once a build with the runtime is installed."
+        WindowsEngine.unavailableReason
+            ?? "This build has no Windows engine, so Windows games can't start yet. They stay in your library and will run once a build with the engine is installed."
     }
 
     func capabilities(for game: Game) -> RuntimeCapabilities {

@@ -1,0 +1,52 @@
+# NexPlay 8.0.0: Windows engine ON (copied over NexPlayWindows.yml by tools/windows/fetch_engine.sh in CI).
+# BCD's app code (NexPlay/Windows/BCD) compiles into NexPlay and links the engine's prebuilt libraries from
+# vendor/bcd-engine (the newest windows-engine-* release, built by the "Build Windows runtime" workflow).
+# Settings follow BCD's Madeira target (app/Madeira.xcodeproj, Debug: "Release builds have crashed the guest").
+# BCD: https://github.com/thebcd69/bcd-games. Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games).
+targets:
+  NexPlay:
+    sources:
+      - path: NexPlay/Windows/BCD
+        excludes:
+          - "madeira-exports.txt"
+          - "*.md"
+    settings:
+      base:
+        SWIFT_OBJC_BRIDGING_HEADER: NexPlay/Windows/NexPlayWindows-Bridging-Header.h
+        # BCD's target links these (its Frameworks phase); the .a files come from vendor/bcd-engine/lib.
+        OTHER_LDFLAGS: >-
+          $(inherited) -larchive
+          -lFEXCore -lFEXCore_Base -lfmt -lcephes_128bit -lxxhash -lsoftfloat_3e -lJemallocLibs
+          -lwineserver -lntdll_unix -lwin32u_unix -ldxmt_combined
+          -lgnutls -lhogweed -lnettle -lgmp -lmadeira_rppairing
+          -lavformat -lavcodec -lswresample -lavutil
+          -lc++ -lz -lsqlite3 -llzma
+          -framework IOKit -framework Metal -framework QuartzCore -framework MetalFX -framework OpenGLES
+          -framework IOSurface -framework VideoToolbox -framework CoreMedia -framework CoreVideo
+          -framework AudioToolbox -framework CoreFoundation -weak_framework ExtensionFoundation
+        LIBRARY_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/vendor/bcd-engine/lib"
+        # FEXBridge.mm includes FEXCore's headers (BCD's HEADER_SEARCH_PATHS, under vendor/bcd-engine/fex).
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/vendor/bcd-engine/fex/FEXCore/include"
+          - "$(SRCROOT)/vendor/bcd-engine/fex/FEXHeaderUtils"
+          - "$(SRCROOT)/vendor/bcd-engine/fex/CodeEmitter"
+          - "$(SRCROOT)/vendor/bcd-engine/fex/External/fmt/include"
+          - "$(SRCROOT)/vendor/bcd-engine/fex/External/range-v3/include"
+          - "$(SRCROOT)/vendor/bcd-engine/fex/External/unordered_dense/include"
+          - "$(SRCROOT)/vendor/bcd-engine/fex/build-ios"
+          - "$(SRCROOT)/vendor/bcd-engine/fex/build-ios/include"
+          - "$(SRCROOT)/vendor/bcd-engine/fex/build-ios/FEXCore/Source"
+          - "$(SRCROOT)/vendor/bcd-engine/fex"
+        # DXMT finds the macdrv_* entry points with dlsym(RTLD_DEFAULT): NexPlay's binary exports them.
+        EXPORTED_SYMBOLS_FILE: NexPlay/Windows/BCD/madeira-exports.txt
+        CLANG_CXX_LANGUAGE_STANDARD: gnu++20
+        GCC_C_LANGUAGE_STANDARD: gnu17
+        # As BCD's Debug configuration, the one its games run with: no optimisation, DEBUG defined.
+        SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        GCC_OPTIMIZATION_LEVEL: "0"
+        GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) DEBUG=1 NEXPLAY_WINDOWS=1"
+        OTHER_SWIFT_FLAGS: "$(inherited) -DNEXPLAY_WINDOWS -DDEBUG"
+        "OTHER_SWIFT_FLAGS[sdk=iphoneos27.*]": "$(inherited) -DNEXPLAY_WINDOWS -DDEBUG -DBCD_SDK_IOS27_1"

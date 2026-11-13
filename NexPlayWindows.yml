@@ -1,0 +1,11 @@
+# NexPlay 8.0.0: Windows engine switch for XcodeGen (included by project.yml).
+# This committed copy is the OFF state: no Windows engine, NexPlay/Windows/BCD is not compiled.
+# In CI, tools/windows/fetch_engine.sh replaces this file with tools/windows/NexPlayWindows-on.yml when a
+# windows-engine-* release exists (vendor/bcd-engine). Keys set here must not be set in project.yml: for a key set in
+# both, project.yml wins over an included file.
+targets:
+  NexPlay:
+    settings:
+      base:
+        SWIFT_OBJC_BRIDGING_HEADER: NexPlay/NexPlay-Bridging-Header.h
+        OTHER_LDFLAGS: "$(inherited) -larchive"

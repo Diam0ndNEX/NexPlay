@@ -1,4 +1,47 @@
-# Windows runtime port (6.4.0 → 7.0.0): what BCD is made of and how NexPlay takes it
+# Windows engine: what BCD is made of and how NexPlay takes it
+
+## 8.0.0: BCD merged into NexPlay (current)
+BCD's app code is NexPlay source; only the engine is prebuilt. Supersedes the 6.4.0 "BCD as a library" plan below.
+
+**Source.** `NexPlay/Windows/BCD/` = BCD v0.1.653 `app/Madeira`: the 340 files of its Madeira target's Sources phase
+(313 Swift, the C/ObjC/C++ glue: WineProcessBridge.m, WineServerBridge.m, FEXBridge.mm, JITAllocator.c,
+IOSDisplayShim.m, Winios/, PadOutput.m, MemoryPool.m, ...) + headers + `Madeira-Bridging-Header.h`,
+`madeira-exports.txt`, `BCDThemes.json`, `recommendations.json`, `build-headers/` (BCD's build/*.h the glue includes).
+Not copied: MadeiraApp.swift (@main), Info.plist, entitlements, Assets (BCD icon/logo), the extensions
+(MadeiraJITHelper: NexPlay's JIT replaces it; MadeiraMemoryHost: opt-in helper memory, not built). Every change is
+listed in `NexPlay/Windows/BCD/NEXPLAY-CHANGES.md`; BCD's licence files are in `third_party/bcd/`.
+
+**Build switch.** `project.yml` includes `NexPlayWindows.yml`. Committed = OFF (BCD folder excluded, NexPlay's
+bridging header). In CI `tools/windows/fetch_engine.sh` (build.yml, before xcodegen) downloads the newest
+`windows-engine-*` release into `vendor/bcd-engine` and copies `tools/windows/NexPlayWindows-on.yml` over it: the BCD
+folder becomes a source, `NexPlay/Windows/NexPlayWindows-Bridging-Header.h` (NexPlay's + BCD's), BCD's libraries and
+frameworks, FEX header paths, `EXPORTED_SYMBOLS_FILE`, gnu++20, and BCD's Debug flavour (-Onone/-O0, DEBUG=1;
+"Release builds have crashed the guest", BCD's docs/BUILDING.md). Swift sees `NEXPLAY_WINDOWS`
+(`OTHER_SWIFT_FLAGS`). After the build `tools/ci/package_extras.sh` → `tools/windows/merge_engine.sh` copies the
+engine resources into NexPlay.app, signs the loose dylibs (d3d12/, gl/) with ldid and fails the build when NexPlay's
+binary doesn't export the six macdrv symbols DXMT looks up.
+
+**Engine build** (`docs/workflow-windows-runtime.yml` → build-windows-runtime.yml, manual, same jobs/caches as
+7.13.2): `tools/windows/build_engine.sh` (Metal Shader Converter from third_party, ccache, `run_bcd_ci.py --until
+"Archive (unsigned)"` = all of BCD's build steps before its app archive) → `package_engine.sh` → BCDEngine.zip:
+`lib/` (libntdll_unix, libwin32u_unix, libwineserver, libdxmt_combined, libmadeira_rppairing, GnuTLS stack, FFmpeg,
+FEX's seven archives), `fex/` (FEX header tree), `resources/` (nls, aarch64-/arm64ec-/i386-windows, x86_64-vcruntime,
+compat, gl, vulkan, d3d12, legal, licenses, soundfont, prefix-template.tar.gz, cacert.pem, wine-mono), `ENGINE.txt`
+→ `publish_engine.sh` (release `windows-engine-<tag>-<run>`, split above 1.9 GB).
+
+**Run time.** WindowsGameRuntime → `WindowsLaunchController` (NexPlay's loading screen over a child
+`NexWindowsSession.controller` = BCD's ContentView session path). Start: C:\NexPlay\<id> symlink → BCD library entry
+(`NexWindowsHost.addGame`) → `ShortcutRouter` with C:\NexPlay\<id>\<program> → ContentView.launchLibraryEntry (BCD's
+checks, JIT pool, Wine). JIT: NexPlay's JITManager only; with the engine built in it keeps the debugger attached
+(BCD's pool requests need it). Session events (LibraryModel current/error/startingJIT) drive the loading screen, the
+error card and the return to the library. One Wine session per app run (BCD's restart alert). BCD's engine services
+(controllers, keyboard/mouse, background run, external drives) start at the first Windows game
+(`NexWindowsHost.startOnce`).
+
+**Still BCD's (until later 8.x steps):** in-game menu/HUD/touch controls (8.2/8.3), the game's settings (8.4), store,
+Dock and BCD front-end code compiled but unreachable (removed in 8.5/8.7).
+
+# History: Windows runtime port (6.4.0 → 7.0.0)
 
 Owner decision (2026-11-12): **full port into NexPlay** (not a hand-off to BCD, not skipped). Expect many build-fix rounds.
 The owner tests on the device only after the whole update; build errors still come first (fix the first error first).

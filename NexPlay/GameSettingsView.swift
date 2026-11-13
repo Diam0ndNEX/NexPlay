@@ -391,7 +391,7 @@ struct GameSettingsView: View {
         } header: {
             SettingsHeader(title: "Windows", symbol: "pc", color: .blue)
         } footer: {
-            Text("The .exe the game starts with. Runs on the Windows runtime with JIT on; Windows Games' own settings for this game (resolution, controls, FPS) are on its game page there.")
+            Text("The .exe the game starts with. Runs on the Windows engine with JIT on. Its engine settings (resolution, controls, FPS) are in the in-game menu while it runs.")
         }
     }
 

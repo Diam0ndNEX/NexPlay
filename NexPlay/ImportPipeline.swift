@@ -558,11 +558,11 @@ enum ImportPipeline {
                 notes.append("Windows runtime outlook: \(info.summary).")
             }
             if UnsupportedEngine.isRPG2000(root) {
-                notes.append("RPG Maker 2000/2003 game: it runs through Windows (RPG_RT.exe), which draws with DirectDraw and may fail. Games that need the RTP need it installed in Windows Games.")
+                notes.append("RPG Maker 2000/2003 game: it runs through Windows (RPG_RT.exe), which draws with DirectDraw and may fail. Games that need the RTP need it installed on the Windows drive.")
             }
-            notes.append(BCDRuntimeInfo.isPresent
-                ? "Windows game: it runs on the Windows runtime (Wine, FEX, DXMT) with JIT on. It starts \(found.entry); pick another program in Game Settings if that's wrong."
-                : "Windows game: this build has no Windows runtime, so it stays in your library until a build with the runtime is installed.")
+            notes.append(WindowsEngine.isBuiltIn
+                ? "Windows game: it runs on the Windows engine (Wine, FEX, DXMT) with JIT on. It starts \(found.entry); pick another program in Game Settings if that's wrong."
+                : "Windows game: this build has no Windows engine, so it stays in your library until a build with the engine is installed.")
         case .flash:
             if FlashRuntime.folder == nil {
                 notes.append(FlashRuntime.FlashError.missing.errorDescription ?? "")

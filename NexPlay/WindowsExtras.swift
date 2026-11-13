@@ -4,7 +4,7 @@ import UIKit
 // 7.12.0: what SPEC-7.0 8.4/8.5 and SPEC-7.0-review C5 add around Windows games:
 // - per-game Run Options (arguments, environment, locale) for every runtime that can use them,
 // - the JIT sheet shown before a Windows game when JIT is off,
-// - the Windows panel (Performance, Input, Windows) behind a button on BCD's screen.
+// - the Windows panel (Performance, Input, Windows) behind the ⋯ button over a running Windows game.
 
 /// Per-game Run Options. Stored in `Game.runOptions`.
 struct RunOptions: Codable, Hashable {
@@ -115,7 +115,7 @@ struct JITSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var finished = false
     let gameName: String
-    /// true = JIT is on (or the player chose to let Windows Games handle it), false = cancelled.
+    /// true = JIT is on (or the player chose to start anyway), false = cancelled.
     let onDone: (Bool) -> Void
 
     var body: some View {
@@ -146,9 +146,9 @@ struct JITSheetView: View {
                 }
                 Section {
                     Button("Use StikDebug Instead") { jit.enableWithStikDebug() }
-                    Button("Let Windows Games Handle It") { finish(true) }
+                    Button("Start Anyway") { finish(true) }
                 } footer: {
-                    Text("Windows Games can also turn JIT on itself when the game starts.")
+                    Text("The game asks for JIT again when it starts, with the same pairing file.")
                 }
             }
             .navigationTitle("Turn On JIT")
@@ -188,13 +188,14 @@ struct JITSheetView: View {
     }
 }
 
-/// The panel behind the ⋯ button on BCD's screen (SPEC-7.0 8.4 Windows cards).
+/// The panel behind the ⋯ button over a running Windows game (SPEC-7.0 8.4 Windows cards; 8.0.0: in-process engine).
 struct WindowsPanelView: View {
     @Environment(\.dismiss) private var dismiss
     let gameName: String
     let hudOn: Bool
     let onToggleHUD: () -> Void
-    let onRestart: () -> Void
+    /// nil: no Restart Game (8.0.0: the engine runs one Windows game per app run).
+    let onRestart: (() -> Void)?
     let onExit: () -> Void
     @State private var copied = false
 
@@ -208,21 +209,23 @@ struct WindowsPanelView: View {
                 VStack(spacing: 16) {
                     PanelCard("Performance", symbol: "speedometer") {
                         Toggle("Performance HUD", isOn: Binding(get: { hudOn }, set: { _ in onToggleHUD(); dismiss() }))
-                        Text("CPU, memory, temperature and battery. FPS limit and render scale are in Windows Games' own settings for this game.")
+                        Text("CPU, memory, temperature and battery. FPS limit, render scale and BCD's own HUD are in the game's in-game menu.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     PanelCard("Input", symbol: "gamecontroller.fill") {
-                        Text("Windows Games maps controllers to XInput and has its own touch controls and mouse modes (its game settings).")
+                        Text("Controllers reach the game as XInput pads. Touch controls and mouse modes are in the game's in-game menu.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     PanelCard("Windows", symbol: "pc") {
-                        Button {
-                            dismiss()
-                            onRestart()
-                        } label: {
-                            Label("Restart Game", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
+                        if let onRestart {
+                            Button {
+                                dismiss()
+                                onRestart()
+                            } label: {
+                                Label("Restart Game", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(PlayButtonStyle())
                         }
-                        .buttonStyle(PlayButtonStyle())
                         Button {
                             UIPasteboard.general.string = DeviceInfo.report() + "\n\n" + windowsLog.joined(separator: "\n")
                             copied = true
@@ -233,7 +236,7 @@ struct WindowsPanelView: View {
                             dismiss()
                             onExit()
                         } label: {
-                            Label("Back to Library", systemImage: "xmark.circle")
+                            Label("Quit Game", systemImage: "xmark.circle")
                         }
                     }
                     PanelCard("Log", symbol: "list.bullet.rectangle") {

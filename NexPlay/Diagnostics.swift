@@ -161,7 +161,7 @@ enum DeviceInfo {
             ComponentStatus(name: "mkxp core (XP/VX/Ace)", present: framework("MkxpCore.framework")),
             ComponentStatus(name: "JIT helper (StikJIT)",
                             present: JITHelperHost.helperIdentifier != nil && framework("StikJIT.framework")),
-            ComponentStatus(name: "Windows runtime (BCD)", present: BCDRuntimeInfo.isPresent),
+            ComponentStatus(name: "Windows engine (BCD)", present: WindowsEngine.unavailableReason == nil),
             ComponentStatus(name: "EasyRPG (RPG Maker 2000/2003)", present: EasyRPGCore.isPresent),
         ]
     }
@@ -229,7 +229,7 @@ enum DeviceInfo {
         lines.append("JIT: cs-debugged=\(isDebugged ? 1 : 0) traced=\(isTraced ? 1 : 0)")
         lines.append("JIT pairing file: \(JITPairingStore.kind ?? "none"), helper: \(JITHelperHost.unavailableReason ?? "ready")")
         lines.append("JIT last test: \(JITRecord.lastTest)")
-        lines.append("Windows runtime: \(BCDRuntimeInfo.version ?? "none"), loaded: \(BCDRuntimeInfo.isLoaded ? "yes" : "no")\(BCDRuntimeInfo.lastError.map { ", error: \($0)" } ?? "")")
+        lines.append("Windows engine: \(WindowsEngine.summary), JIT keeps the debugger: \(JITManager.keepsDebuggerAttached ? "yes" : "no")")
         lines.append("Build flags: \(buildFlags.isEmpty ? "none" : buildFlags.joined(separator: ", "))")
         for item in components {
             lines.append("\(item.name): \(item.present ? "present" : "missing")")

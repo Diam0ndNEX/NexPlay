@@ -1,4 +1,7 @@
-# Paste as .github/workflows/build.yml (NexPlay 7.13.2; replaces docs/workflow-7.1.1.yml).
+# Paste as .github/workflows/build.yml (NexPlay 8.0.0; replaces the 7.13.2 file).
+# 8.0.0: the "Windows engine" step downloads the newest windows-engine release (made by build-windows-runtime.yml)
+# and turns the Windows engine on, so BCD's code (NexPlay/Windows/BCD) is compiled into NexPlay. Without a release
+# the app is built as before, without Windows games.
 # Same build as 7.1.1, faster:
 #  - a newer push cancels a build of an older one that is still running,
 #  - StikJIT, the app icon and the Godot / Ren'Py / Ruffle downloads are cached between runs,
@@ -83,6 +86,12 @@ jobs:
         if: env.NEXPLAY_MKXP == '1'
         run: bash tools/fetch_mkxp_core.sh
 
+      # 8.0.0: BCD's engine (libraries, FEX headers, app resources) into vendor/bcd-engine; NexPlayWindows.yml on.
+      - name: Windows engine (newest windows-engine release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/windows/fetch_engine.sh
+
       - name: Generate Xcode project
         run: xcodegen generate
 
@@ -124,7 +133,7 @@ jobs:
           HELPER=Payload/NexPlay.app/PlugIns/NexPlayJITHelper.appex
           test -f "$HELPER/NexPlayJITHelper" || { echo "::error::The JIT helper is missing from the app"; exit 1; }
           test -d Payload/NexPlay.app/Frameworks/StikJIT.framework || { echo "::error::StikJIT.framework is missing from the app"; exit 1; }
-          # 7.1.1: Windows runtime (newest windows-runtime release) and EasyRPG core; each missing part is a warning.
+          # 8.0.0: the Windows engine's resources (when it is in) and the EasyRPG core; each missing part is a warning.
           bash tools/ci/package_extras.sh Payload/NexPlay.app
           # The Xcode build is unsigned, so write the entitlements into the binaries here (ad-hoc signature), helper first.
           # Signing apps that keep binary entitlements pass them on; Settings > Diagnostics shows what survived.

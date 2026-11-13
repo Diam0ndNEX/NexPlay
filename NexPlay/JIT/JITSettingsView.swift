@@ -122,11 +122,9 @@ struct JITStatusCard: View {
 struct SetupCenterView: View {
     @ObservedObject private var jit = JITManager.shared
 
-    @AppStorage(SettingsKey.windowsLoadAtLaunch) private var windowsLoadAtLaunch = true
-    @State private var windowsError: String?
     @State private var rtpMessage: String?
 
-    private var windowsRuntime: Bool { BCDRuntimeInfo.isPresent }
+    private var windowsReady: Bool { WindowsEngine.unavailableReason == nil }
 
     private var entitlementsOK: Bool? {
         guard let task = DeviceInfo.signedDebuggable,
@@ -155,33 +153,17 @@ struct SetupCenterView: View {
             }
 
             Section {
-                SetupRow(title: "Windows Runtime in This Build", ok: windowsRuntime,
-                         why: windowsRuntime
-                            ? "BCD \(BCDRuntimeInfo.version ?? "runtime") (Wine, FEX, DXMT)."
-                            : "Runs .exe games. Run the \"Build Windows runtime\" workflow once, then build NexPlay again.")
+                SetupRow(title: "Windows Engine in This Build", ok: windowsReady,
+                         why: WindowsEngine.unavailableReason
+                            ?? "\(WindowsEngine.summary): Wine, FEX and DXMT, built into NexPlay.")
                 SetupRow(title: "Free Storage", ok: (DeviceInfo.freeDiskGB ?? 0) >= 10,
                          why: String(format: "%.1f GB free. Windows games and their C: drives need room (10 GB or more).",
                                      DeviceInfo.freeDiskGB ?? 0))
-                if windowsRuntime {
-                    Button {
-                        do {
-                            try BCDBridge.show()
-                            windowsError = nil
-                        } catch {
-                            windowsError = (error as? WindowsRuntimeError)?.message ?? error.localizedDescription
-                        }
-                    } label: {
-                        Label("Open Windows Games", systemImage: "play.rectangle.fill")
-                    }
-                    Toggle("Load at Launch", isOn: $windowsLoadAtLaunch)
-                }
             } header: {
                 SettingsHeader(title: "Windows Games", symbol: "pc", color: .blue)
             } footer: {
-                if let message = windowsError ?? BCDRuntimeInfo.lastError {
-                    Text(message).foregroundStyle(.red)
-                } else if windowsRuntime {
-                    Text("Windows Games opens BCD's own screen: add .exe games and play them there. Turn JIT on first. Load at Launch prepares the runtime when NexPlay starts, so it opens faster.")
+                if windowsReady {
+                    Text("Add .exe games to the library like any other game and press Play. Turn JIT on first (above). NexPlay runs one Windows game per app launch.")
                 }
             }
 

@@ -5,8 +5,8 @@ import UIKit
 
 // 6.3.0: built-in JIT. NexPlay starts its helper extension (StikJIT inside), which attaches to NexPlay over
 // LocalDevVPN and runs NexPlay's JIT script (JITScript.swift). NexPlay then asks the debugger for an executable page
-// with BRK #0xf00d (NexJIT.c), runs a test function there and tells the debugger to detach. JIT lasts until NexPlay
-// closes. The flow, the LocalDevVPN check and the error explanations are adapted from BCD's JITSetup.swift and
+// with BRK #0xf00d (NexJIT.c), runs a test function there and tells the debugger to detach (8.0.0: builds with the
+// Windows engine keep it attached; BCD's pool requests need it). JIT lasts until NexPlay closes. The flow, the LocalDevVPN check and the error explanations are adapted from BCD's JITSetup.swift and
 // JITNetwork.swift (GPL-3.0-or-later, Madeira Converter Exception). Includes work from BCD by thebcd69
 // (https://github.com/thebcd69/bcd-games). The StikDebug link follows StikJIT's INTEGRATION.md
 // (https://github.com/StikDebug/StikJIT, MPL-2.0). Every step goes to the app log with a `jit:` prefix.
@@ -15,7 +15,7 @@ extension SettingsKey {
     static let jitAutoForGames = "jitAutoForGames"
     static let jitAtLaunch = "jitAtLaunch"
     /// Cleared by Reset to Defaults.
-    static let jitKeys: [String] = [jitAutoForGames, jitAtLaunch, windowsLoadAtLaunch]
+    static let jitKeys: [String] = [jitAutoForGames, jitAtLaunch]
 }
 
 struct JITError: LocalizedError {
@@ -96,15 +96,17 @@ enum LoopbackProbe {
     }
 }
 
-/// Runs the C self-test and detaches the debugger. Off the main thread: BRK waits for the debugger.
-private func runJITSelfTest() -> (Int64, String) {
+/// Runs the C self-test and, unless `detach` is false, detaches the debugger. Off the main thread: BRK waits for the
+/// debugger. 8.0.0: with the Windows engine built in, the debugger stays attached (BCD's JIT pool and Wine's code pages
+/// are prepared through it while a game runs), as in BCD.
+private func runJITSelfTest(detach: Bool) -> (Int64, String) {
     var buffer = [CChar](repeating: 0, count: 512)
     let size = buffer.count
     let result = buffer.withUnsafeMutableBufferPointer { pointer -> Int64 in
         guard let base = pointer.baseAddress else { return -1 }
         return nexjit_selftest(base, size)
     }
-    nexjit_detach()
+    if detach { nexjit_detach() }
     let detail = buffer.withUnsafeBufferPointer { pointer -> String in
         guard let base = pointer.baseAddress else { return "" }
         return String(cString: base)
@@ -134,7 +136,12 @@ final class JITManager: ObservableObject {
     private init() {}
 
     /// JIT works in this process: the test page ran.
-    var isActive: Bool { testPassed == true && DeviceInfo.isDebugged }
+    var isActive: Bool {
+        testPassed == true && DeviceInfo.isDebugged && (!JITManager.keepsDebuggerAttached || DeviceInfo.isTraced)
+    }
+
+    /// 8.0.0: the Windows engine needs the debugger for as long as a game runs, so it is never told to leave.
+    nonisolated static var keepsDebuggerAttached: Bool { WindowsEngine.isBuiltIn }
 
     var usesTXM: Bool { txmPresent ?? DeviceInfo.likelyTXM }
 
@@ -313,7 +320,8 @@ final class JITManager: ObservableObject {
             AppLog.noteGame("JIT self-test")
             _ = AppLog.shared.text   // waits for the log lines above to reach the file, in case the test crashes
             self.status = "Testing JIT…"
-            let outcome = await Task.detached(priority: .userInitiated) { runJITSelfTest() }.value
+            let detach = !JITManager.keepsDebuggerAttached
+            let outcome = await Task.detached(priority: .userInitiated) { runJITSelfTest(detach: detach) }.value
             AppLog.noteGame(nil)
             let passed = outcome.0 == 42
             self.testPassed = passed
