@@ -1,7 +1,9 @@
-# Paste as .github/workflows/build-windows-runtime.yml (NexPlay 7.13.2).
-# Builds BCD's Windows runtime (Wine + FEX + DXMT) as BCDCore.framework and publishes it as a
-# windows-runtime-* release. Run it by hand (Actions > Build Windows runtime > Run workflow) once, and again only
-# to move to a newer BCD. NexPlay's normal build (build.yml) then puts the newest runtime release into the app.
+# Paste as .github/workflows/build-windows-runtime.yml (NexPlay 8.0.0; replaces the 7.13.2 file).
+# Builds BCD's Windows engine (Wine + FEX + DXMT, the Windows DLLs and the static libraries BCD's app code links) and
+# publishes it as a windows-engine-* release. 8.0.0: BCD's app is no longer built here (no BCDCore.framework, no patch
+# script): NexPlay compiles BCD's app code itself (NexPlay/Windows/BCD) and links this engine. Run it by hand
+# (Actions > Build Windows runtime > Run workflow) once, and again only to move to a newer BCD. NexPlay's normal build
+# (build.yml) then downloads the newest engine release and compiles the Windows engine in.
 #
 # Speed (7.13.2):
 #  - `part` jobs build the slow toolchains (LLVM, FEX, native Wine tools, GnuTLS, FFmpeg, MoltenVK/Mesa) on
@@ -263,9 +265,9 @@ jobs:
           for name in clang clang++ cc c++ gcc g++; do ln -sf "$(command -v ccache)" "$GITHUB_WORKSPACE/ccache-bin/$name"; done
           echo "$GITHUB_WORKSPACE/ccache-bin" >> "$GITHUB_PATH"
 
-      - name: Build BCD as a library
+      - name: Build the Windows engine
         id: build
-        run: bash nexplay/tools/windows/build_runtime.sh
+        run: bash nexplay/tools/windows/build_engine.sh
 
       - name: Compiler cache statistics
         if: always()
@@ -304,10 +306,10 @@ jobs:
             bcd/build/gnutls-ios/src
             bcd/.nexplay-cache
 
-      - name: Publish the runtime
+      - name: Publish the engine
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash nexplay/tools/windows/publish_runtime.sh
+        run: bash nexplay/tools/windows/publish_engine.sh
 
       # Keep only this run's caches (GitHub keeps 10 GB per repository and drops the oldest when it's full).
       - name: Delete old caches
@@ -332,5 +334,5 @@ jobs:
           name: runtime-logs
           if-no-files-found: ignore
           path: |
-            bcd/archive.log
+            bcd/engine.log
             bcd/.nexplay-ci-state.json
