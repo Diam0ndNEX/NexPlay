@@ -1,8 +1,14 @@
-# Paste as .github/workflows/build-windows-runtime.yml (NexPlay 6.4.0).
+# Paste as .github/workflows/build-windows-runtime.yml (NexPlay 7.13.2).
 # Builds BCD's Windows runtime (Wine + FEX + DXMT) as BCDCore.framework and publishes it as a
 # windows-runtime-* release. Run it by hand (Actions > Build Windows runtime > Run workflow) once, and again only
-# to move to a newer BCD. The first run takes hours (Wine, FEX and LLVM are compiled); later runs reuse the cache.
-# NexPlay's normal build (build.yml) then puts the newest runtime release into the app.
+# to move to a newer BCD. NexPlay's normal build (build.yml) then puts the newest runtime release into the app.
+#
+# Speed (7.13.2):
+#  - `part` jobs build the slow toolchains (LLVM, FEX, native Wine tools, GnuTLS, FFmpeg, MoltenVK/Mesa) on
+#    separate runners at the same time. They only run when no finished build of this BCD version exists, and they
+#    are only a head start: if one fails, the main job builds that piece itself.
+#  - ccache keeps compiled files between runs, so a rerun only recompiles what changed.
+#  - After a successful run the old caches are deleted, so GitHub's 10 GB cache space isn't filled with copies.
 # BCD: https://github.com/thebcd69/bcd-games. Includes work from BCD by thebcd69.
 name: Build Windows runtime
 
@@ -16,22 +22,143 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/windows
+      - name: Choose the BCD version
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.bcd_tag }}"
+          if [ -z "$TAG" ]; then TAG=$(tr -d '[:space:]' < tools/windows/runtime.version); fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Building BCD $TAG"
+
+  part:
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 300
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: llvm
+            paths: |
+              bcd/toolchains/llvm-ios-build
+              bcd/.nexplay-cache/keys-llvm.json
+          - part: fex-ios
+            paths: |
+              bcd/FEX/build-ios
+              bcd/.nexplay-cache/keys-fex-ios.json
+          - part: wine-native
+            paths: |
+              bcd/wine/build-native
+              bcd/.nexplay-cache/keys-wine-native.json
+          - part: gnutls
+            paths: |
+              bcd/toolchains/gnutls-ios
+              bcd/build/gnutls-ios/obj
+              bcd/build/gnutls-ios/src
+              bcd/.nexplay-cache/keys-gnutls.json
+          - part: ffmpeg
+            paths: |
+              bcd/toolchains/ffmpeg-ios
+              bcd/.nexplay-cache/keys-ffmpeg.json
+          - part: opengl
+            paths: |
+              bcd/app/Madeira/gl
+              bcd/app/Madeira/licenses
+              bcd/.nexplay-cache/keys-opengl.json
+    env:
+      BCD_TAG: ${{ needs.prepare.outputs.tag }}
+      NEXPLAY_PART: ${{ matrix.part }}
+    steps:
+      # A finished (successful) build of this BCD version exists: the main job needs no head start.
+      # (A cache lookup only matches with the same path list as the save, hence the full list.)
+      - name: Look for a finished build
+        id: done
+        uses: actions/cache/restore@v4
+        with:
+          lookup-only: true
+          key: nexplay-bcd-${{ needs.prepare.outputs.tag }}-ok-none
+          restore-keys: nexplay-bcd-${{ needs.prepare.outputs.tag }}-ok-
+          path: |
+            bcd/toolchains/llvm-ios-build
+            bcd/toolchains/llvm-mingw-*
+            bcd/toolchains/gnutls-ios
+            bcd/toolchains/ffmpeg-ios
+            bcd/wine/build-native
+            bcd/wine/build-arm64ec
+            bcd/FEX/build-ios
+            bcd/FEX/build-arm64ec
+            bcd/FEX/build-wow64
+            bcd/app/Madeira/i386-windows
+            bcd/app/Madeira/gl
+            bcd/app/Madeira/compat
+            bcd/app/Madeira/licenses
+            bcd/build/gnutls-ios/obj
+            bcd/build/gnutls-ios/src
+            bcd/.nexplay-cache
+
+      - name: Look for this part
+        id: have
+        uses: actions/cache/restore@v4
+        with:
+          lookup-only: true
+          key: nexplay-part-${{ matrix.part }}-${{ needs.prepare.outputs.tag }}
+          path: ${{ matrix.paths }}
+
+      - uses: actions/checkout@v4
+        if: steps.done.outputs.cache-matched-key == '' && steps.have.outputs.cache-hit != 'true'
+        with:
+          path: nexplay
+
+      - uses: actions/checkout@v4
+        if: steps.done.outputs.cache-matched-key == '' && steps.have.outputs.cache-hit != 'true'
+        with:
+          repository: thebcd69/bcd-games
+          ref: ${{ needs.prepare.outputs.tag }}
+          path: bcd
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Build ${{ matrix.part }}
+        if: steps.done.outputs.cache-matched-key == '' && steps.have.outputs.cache-hit != 'true'
+        run: python3 nexplay/tools/windows/run_bcd_ci.py --root bcd --part "$NEXPLAY_PART"
+
+      - name: Save ${{ matrix.part }}
+        if: steps.done.outputs.cache-matched-key == '' && steps.have.outputs.cache-hit != 'true' && success()
+        uses: actions/cache/save@v4
+        with:
+          key: nexplay-part-${{ matrix.part }}-${{ needs.prepare.outputs.tag }}
+          path: ${{ matrix.paths }}
+
   runtime:
+    needs: [prepare, part]
+    if: always() && needs.prepare.result == 'success'
     runs-on: macos-15
     timeout-minutes: 360
+    env:
+      BCD_TAG: ${{ needs.prepare.outputs.tag }}
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 3G
+      CCACHE_NOHASHDIR: "true"
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
       - uses: actions/checkout@v4
         with:
           path: nexplay
-
-      - name: Choose the BCD version
-        run: |
-          TAG="${{ github.event.inputs.bcd_tag }}"
-          if [ -z "$TAG" ]; then TAG=$(tr -d '[:space:]' < nexplay/tools/windows/runtime.version); fi
-          echo "BCD_TAG=$TAG" >> "$GITHUB_ENV"
-          echo "Building BCD $TAG"
 
       - uses: actions/checkout@v4
         with:
@@ -66,18 +193,99 @@ jobs:
             bcd/build/gnutls-ios/src
             bcd/.nexplay-cache
 
+      # The parts built by the part jobs (each missing one is simply built below).
+      - name: Restore part llvm
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          key: nexplay-part-llvm-${{ env.BCD_TAG }}
+          path: |
+            bcd/toolchains/llvm-ios-build
+            bcd/.nexplay-cache/keys-llvm.json
+      - name: Restore part fex-ios
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          key: nexplay-part-fex-ios-${{ env.BCD_TAG }}
+          path: |
+            bcd/FEX/build-ios
+            bcd/.nexplay-cache/keys-fex-ios.json
+      - name: Restore part wine-native
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          key: nexplay-part-wine-native-${{ env.BCD_TAG }}
+          path: |
+            bcd/wine/build-native
+            bcd/.nexplay-cache/keys-wine-native.json
+      - name: Restore part gnutls
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          key: nexplay-part-gnutls-${{ env.BCD_TAG }}
+          path: |
+            bcd/toolchains/gnutls-ios
+            bcd/build/gnutls-ios/obj
+            bcd/build/gnutls-ios/src
+            bcd/.nexplay-cache/keys-gnutls.json
+      - name: Restore part ffmpeg
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          key: nexplay-part-ffmpeg-${{ env.BCD_TAG }}
+          path: |
+            bcd/toolchains/ffmpeg-ios
+            bcd/.nexplay-cache/keys-ffmpeg.json
+      - name: Restore part opengl
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          key: nexplay-part-opengl-${{ env.BCD_TAG }}
+          path: |
+            bcd/app/Madeira/gl
+            bcd/app/Madeira/licenses
+            bcd/.nexplay-cache/keys-opengl.json
+
+      - name: Restore the compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          key: nexplay-ccache-${{ env.BCD_TAG }}-${{ github.run_id }}
+          restore-keys: |
+            nexplay-ccache-${{ env.BCD_TAG }}-
+            nexplay-ccache-
+          path: ccache
+
       - name: Install tools
-        run: brew install ldid || true
+        run: |
+          brew install ldid ccache || true
+          # Plain clang/cc/c++ calls go through ccache; builds that name a compiler by full path are not affected.
+          mkdir -p "$GITHUB_WORKSPACE/ccache-bin"
+          for name in clang clang++ cc c++ gcc g++; do ln -sf "$(command -v ccache)" "$GITHUB_WORKSPACE/ccache-bin/$name"; done
+          echo "$GITHUB_WORKSPACE/ccache-bin" >> "$GITHUB_PATH"
 
       - name: Build BCD as a library
+        id: build
         run: bash nexplay/tools/windows/build_runtime.sh
 
+      - name: Compiler cache statistics
+        if: always()
+        run: ccache -s || true
+
+      - name: Save the compiler cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          key: nexplay-ccache-${{ env.BCD_TAG }}-${{ github.run_id }}
+          path: ccache
+
+      # A successful build is saved as "-ok-" (the parts are skipped next time); a failed one is kept as a head start.
       - name: Save the build cache
         if: always()
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
-          key: nexplay-bcd-${{ env.BCD_TAG }}-${{ github.run_id }}
+          key: nexplay-bcd-${{ env.BCD_TAG }}-${{ steps.build.outcome == 'success' && 'ok-' || '' }}${{ github.run_id }}
           path: |
             bcd/toolchains/llvm-ios-build
             bcd/toolchains/llvm-mingw-*
@@ -100,6 +308,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash nexplay/tools/windows/publish_runtime.sh
+
+      # Keep only this run's caches (GitHub keeps 10 GB per repository and drops the oldest when it's full).
+      - name: Delete old caches
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          KEEP_BCD="nexplay-bcd-${BCD_TAG}-ok-${{ github.run_id }}"
+          KEEP_CC="nexplay-ccache-${BCD_TAG}-${{ github.run_id }}"
+          gh cache list -R "$GITHUB_REPOSITORY" --key nexplay- --limit 200 --json key -q '.[].key' | while read -r key; do
+            if [ "$key" != "$KEEP_BCD" ] && [ "$key" != "$KEEP_CC" ]; then
+              echo "deleting cache $key"
+              gh cache delete "$key" -R "$GITHUB_REPOSITORY" || true
+            fi
+          done
 
       - name: Upload logs
         if: always()
