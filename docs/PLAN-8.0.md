@@ -9,7 +9,8 @@ once all steps are done, then pastes build errors (first error first).
 | Core merge | 8.0.0 (64) | pushed 2026-11-13, not built yet |
 | Design system: tokens, profiles, fonts, glass, motion, placeholder covers | 8.1.0 (66) | built OK 2026-11-13 |
 | Design system applied: Home, Library, tab bar, Settings, Setup Center | 8.1.1 (67) | pushed 2026-11-13 |
-| Controls | 8.2.0 | |
+| Controls Style (NexPlay Pad / PC Controls) | 8.2.0 (68) | pushed 2026-11-13 |
+| Controls: shared extras, merged physical controllers | 8.2.1 | |
 | In-game | 8.3.0 | |
 | Game page | 8.4.0 | |
 | itch.io (other stores hidden) | 8.5.0 | |
@@ -81,6 +82,14 @@ One app. BCD's Windows code is built as NexPlay source, not loaded as a separate
 **itch.io:** BCD's `SwiftItch` and `BCDItch` (sign in, owned games, download, install). Games land in NexPlay's library. This is not limited to PC games: itch.io HTML5, Ren'Py and Twine downloads open with NexPlay's own runtimes.
 
 **Drop:** BCD's library, home, launcher and dock screens (NexPlay's replace them), Steam, GOG, Epic and EA, the BCD update check, and log/feedback upload to BCD's servers.
+
+8.2.0 notes: split in two. 8.2.0 = Controls Style only: `Game.controlsStyle` (nil = Automatic), pickers in the Game Panel,
+Game Settings and the Windows panel; PC Controls over web games = BCD's touch layer and editor (shared BCD layouts, engine
+builds only; without the engine the pad is used); NexPlay Pad over Windows games (BCD's controls hidden). BCD's files are
+unchanged (NexPlay's code is `ControlsStyle.swift` and `Windows/BCD/NexPlayPCControls.swift`). Using PC Controls in a web
+game creates BCD's LibraryModel (as a Windows game would). 8.2.1: the extras (gyro aim, aim zone, radial, turbo, extra key
+bar, magnifier, pencil, gesture map) in both editors, layout presets for PC Controls, and HardwareInput + controller hub
+merged with PhysicalControllers.
 
 ## Controls: both systems, one place to choose
 - Every game has **Controls Style**:

@@ -64,6 +64,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var didCountPlay = false
     private var isShutDown = false
     private var isEditingControls = false
+    /// 8.2.0: BCD's touch controls when the game's Controls Style is PC Controls (engine builds only).
+    private var pcControls: PCControlsLayer?
     private var controllerConnected = false
     private var loadTask: Task<Void, Never>?
     private var pickPurpose: PickPurpose = .jsonRestore
@@ -169,6 +171,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         context.applyPreset = { [weak self] preset in self?.applyPreset(preset) }
         context.showPCKeyboard = { [weak self] in self?.showKeyboard(pcKeys: true) }
         context.exitGame = { [weak self] in self?.confirmExit() }
+        context.controlsStyle = { [weak self] in self?.game.controlsStyle }
+        context.setControlsStyle = { [weak self] style in self?.setControlsStyle(style) }
+        context.editControls = { [weak self] in self?.editControls() }
         features = PlayerFeatures.make(context: context)
         for feature in features {
             for script in feature.userScripts(for: game) { content.addUserScript(script) }
@@ -221,6 +226,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         configureControlBar()
         configureLabels()
         configureKeySender()
+        applyControlsStyle()
 
         let wake = UITapGestureRecognizer(target: self, action: #selector(screenTapped))
         wake.cancelsTouchesInView = false
@@ -322,6 +328,43 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             self?.presentOnTop(alert)
         }
         view.addSubview(gamepad)
+    }
+
+    // MARK: - Controls Style (8.2.0)
+
+    private var usesPCControls: Bool { pcControls != nil }
+
+    /// Puts BCD's touch controls over the game for PC Controls, or takes them away for the NexPlay Pad.
+    private func applyControlsStyle() {
+        let style = ControlsStyle.resolved(for: game)
+        if style == .pc, pcControls == nil, let layer = PCControls.makeLayer(input: self) {
+            if gamepad.isEditing { gamepad.endEditing(save: false) }
+            gamepad.releaseAll()
+            layer.view.frame = view.bounds
+            layer.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            layer.onEditingChanged = { [weak self] editing in
+                guard let self else { return }
+                self.isEditingControls = editing
+                self.controlBar.isHidden = editing
+                if !editing { self.updateOverlays() }
+            }
+            view.insertSubview(layer.view, aboveSubview: gamepad)
+            pcControls = layer
+        } else if style == .nexPad, let layer = pcControls {
+            if layer.isEditing { layer.setEditing(false) }
+            layer.releaseAll()
+            keyRouter.releaseAll()
+            layer.view.removeFromSuperview()
+            pcControls = nil
+        }
+        gameLog.add("controls style: \(ControlsStyle.resolved(for: game).title)")
+        updateOverlays()
+    }
+
+    private func setControlsStyle(_ style: ControlsStyle?) {
+        update { $0.controlsStyle = style }
+        applyControlsStyle()
+        context.toast("Controls: \(ControlsStyle.resolved(for: game).title)")
     }
 
     private func configureControllers() {
@@ -671,9 +714,13 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private func updateOverlays() {
         guard !isEditingControls else { return }
         let hidePad = controllerConnected && prefs.hidePadWithController
-        gamepad.isHidden = !game.gamepad || hidePad
+        gamepad.isHidden = !game.gamepad || hidePad || usesPCControls
         if gamepad.isHidden {
             gamepad.releaseAll()
+        }
+        if let pcControls {
+            pcControls.view.isHidden = !game.gamepad || hidePad
+            if pcControls.view.isHidden { pcControls.releaseAll() }
         }
         controlBar.update(controllerConnected: controllerConnected)
         controlBar.setState(gamepadOn: game.gamepad, fastForwardOn: fastForwardOn)
@@ -693,6 +740,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         if touched.isDescendant(of: controlBar) || touched.isDescendant(of: banner) { return false }
         // Pressing an on-screen control is playing, not asking for the bar.
         if touched !== gamepad && touched.isDescendant(of: gamepad) { return false }
+        if let pcView = pcControls?.view, touched.isDescendant(of: pcView) { return false }
         return true
     }
 
@@ -855,6 +903,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     }
 
     private func applyPreset(_ preset: LayoutPreset) {
+        // 8.2.0: the presets are NexPlay Pad layouts (8.2.1 brings them to PC Controls).
+        if usesPCControls { setControlsStyle(.nexPad) }
         if gamepad.isEditing { gamepad.endEditing(save: false) }
         if !game.gamepad { update { $0.gamepad = true } }
         gamepad.applyPreset(preset)
@@ -880,7 +930,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         case .screenshot:
             takeScreenshot()
         case .edit:
-            if gamepad.isEditing {
+            if let pcControls {
+                pcControls.setEditing(!pcControls.isEditing)
+            } else if gamepad.isEditing {
                 gamepad.endEditing(save: true)
             } else {
                 editControls()
@@ -929,6 +981,11 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private func editControls() {
         keySender.resignFirstResponder()
+        if let pcControls {
+            pcControls.view.isHidden = false
+            pcControls.setEditing(true)
+            return
+        }
         gamepad.isHidden = false
         gamepad.beginEditing()
     }
@@ -1105,6 +1162,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         update { $0.gamepad.toggle() }
         if !game.gamepad {
             gamepad.releaseAll()
+            pcControls?.releaseAll()
             keyRouter.releaseAll()
         }
         updateOverlays()
@@ -1367,6 +1425,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         keySender.resignFirstResponder()
         loadTask?.cancel()
         gamepad.releaseAll()
+        pcControls?.releaseAll()
         controllers?.stop()
         controllers = nil
         keyRouter.releaseAll()
@@ -1509,5 +1568,22 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             completionHandler(alert?.textFields?.first?.text)
         })
         presentOnTop(alert)
+    }
+}
+
+// MARK: - PC Controls input (8.2.0)
+
+extension PlayerViewController: PCControlsInput {
+    func pcKey(_ key: PadKey, _ down: Bool) {
+        controlBar.wake()
+        keyRouter.press(key, down)
+    }
+
+    func pcMouse(right: Bool, down: Bool) {
+        handleAction(right ? .mouseRight : .mouseLeft, down)
+    }
+
+    func pcToggleKeyboard() {
+        toggleKeyboard()
     }
 }

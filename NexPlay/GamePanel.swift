@@ -78,7 +78,7 @@ final class GamePanelFeature: PlayerFeature {
 
 @MainActor
 final class GamePanelModel: ObservableObject {
-    let game: Game
+    var game: Game
     @Published var options: AssistOptions
     @Published var speed: Double = 1
     @Published var paused = false
@@ -90,6 +90,8 @@ final class GamePanelModel: ObservableObject {
     /// nil = the app default.
     @Published var powerChoice: PowerProfile?
     @Published var mouseMode: MouseMode = .direct
+    /// 8.2.0: nil = Automatic.
+    @Published var controlsStyle: ControlsStyle?
     private weak var panel: GamePanelFeature?
     private var lastVolume: Double = 1
 
@@ -102,6 +104,25 @@ final class GamePanelModel: ObservableObject {
         self.hasQuick = SaveStateStore.list(for: game.id).contains { $0.kind == .quick }
         self.powerChoice = panel.power.gameChoice
         self.mouseMode = panel.context.mouseMode()
+        self.controlsStyle = panel.context.controlsStyle()
+    }
+
+    // MARK: Controls Style (8.2.0)
+
+    func setControlsStyle(_ style: ControlsStyle?) {
+        controlsStyle = style
+        panel?.context.setControlsStyle(style)
+        game.controlsStyle = style
+        say("Controls: \(ControlsStyle.resolved(for: game).title)")
+    }
+
+    /// Closes the panel, then opens the touch-control editor of the game's style.
+    func editControls() {
+        let context = panel?.context
+        shouldClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            context?.editControls()
+        }
     }
 
     // MARK: Input (7.3.0)
@@ -512,6 +533,16 @@ struct GamePanelView: View {
 
     private var inputCard: some View {
         PanelCard("Input", symbol: "hand.point.up.left.fill") {
+            Text("Controls Style").font(NexType.label)
+            ControlsStylePicker(game: model.game, choice: model.controlsStyle) { model.setControlsStyle($0) }
+            Button {
+                model.editControls()
+            } label: {
+                Label("Edit Touch Controls", systemImage: "slider.horizontal.below.square.and.square.filled")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(.white)
             Picker("Mouse", selection: Binding(get: { model.mouseMode }, set: { model.setMouseMode($0) })) {
                 ForEach(MouseMode.allCases) { mode in Text(mode.shortTitle).tag(mode) }
             }
@@ -541,7 +572,7 @@ struct GamePanelView: View {
                 .buttonStyle(.bordered)
             }
             .tint(.white)
-            Text("A preset replaces this game's touch layout. Edit it with the pencil on the control bar.")
+            Text("A preset replaces this game's NexPlay Pad layout (it switches PC Controls back to the pad). Edit with the pencil on the control bar.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

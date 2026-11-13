@@ -137,6 +137,10 @@ final class WindowsLaunchController: UIViewController {
     private let hud = PerformanceHUDView()
     private var hudTimer: Timer?
     private var panelButton: UIButton?
+    /// 8.2.0: the NexPlay Pad over the game when its Controls Style is NexPlay Pad (BCD's touch controls are hidden then).
+    private let pad = GamepadOverlayView()
+    private var padReady = false
+    private var padDone: UIButton?
     #if NEXPLAY_WINDOWS
     private var session: NexWindowsSession?
     #endif
@@ -262,12 +266,129 @@ final class WindowsLaunchController: UIViewController {
             UIView.animate(withDuration: 0.35, animations: { self.loading.alpha = 0 }, completion: { _ in
                 self.loading.isHidden = true
             })
+            applyControlsStyle()
             addPanelButton()
+            view.bringSubviewToFront(hud)
         case .ended:
             AppLog.log("windows: \(game.name): session ended")
             finish()
         case .failed(let message):
             fail(message, retry: true)
+        }
+    }
+
+    // MARK: Controls Style (8.2.0)
+
+    private var currentGame: Game { store.game(id: game.id) ?? game }
+
+    /// NexPlay Pad: NexPlay's overlay sends keys and mouse buttons into Wine; PC Controls: BCD's own touch controls.
+    private func applyControlsStyle() {
+        let style = ControlsStyle.resolved(for: currentGame)
+        NexWindowsPadInput.applyStyle(style)
+        AppLog.log("windows: \(game.name): controls style \(style.title)")
+        if style == .nexPad {
+            if !padReady { configurePad() }
+            pad.isHidden = !currentGame.gamepad
+        } else {
+            if pad.isEditing { pad.endEditing(save: false) }
+            pad.releaseAll()
+            NexWindowsPadInput.releaseAll()
+            pad.isHidden = true
+        }
+        if let panelButton { view.bringSubviewToFront(panelButton) }
+    }
+
+    private func configurePad() {
+        padReady = true
+        let prefs = ControlPrefs.current()
+        let gameID = game.id
+        let current = game
+        pad.frame = view.bounds
+        pad.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        pad.setProfile(prefs.display(LayoutStore.load(for: game)))
+        pad.onKey = { key, down in NexWindowsPadInput.key(key, down) }
+        pad.onAction = { [weak self] action, down in self?.padAction(action, down) }
+        pad.onSave = { profile in LayoutStore.save(prefs.stored(profile), for: gameID) }
+        pad.onReset = {
+            LayoutStore.reset(gameID)
+            return prefs.display(LayoutStore.load(for: current))
+        }
+        pad.onPreset = { preset in prefs.display(preset.profile) }
+        pad.onEditItem = { [weak self] item, done in
+            let editor = ControlEditorView(item: item) { result in done(result) }
+            let host = UIHostingController(rootView: editor)
+            host.modalPresentationStyle = .formSheet
+            self?.present(host, animated: true)
+        }
+        pad.onConfirmReset = { [weak self] reset in
+            let alert = UIAlertController(title: "Reset Controls?", message: "This game's buttons go back to the default layout.", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Reset", style: .destructive) { _ in reset() })
+            self?.present(alert, animated: true)
+        }
+        pad.onEditingChanged = { [weak self] editing in
+            guard let self else { return }
+            self.panelButton?.isHidden = editing
+            self.showPadDone(editing)
+            if !editing { self.pad.isHidden = !self.currentGame.gamepad }
+        }
+        view.addSubview(pad)
+    }
+
+    /// App actions from the NexPlay Pad over a Windows game.
+    private func padAction(_ action: ControlAction, _ down: Bool) {
+        switch action {
+        case .mouseLeft, .mouseRight:
+            NexWindowsPadInput.mouse(right: action == .mouseRight, down: down)
+        case .showKeyboard:
+            if down { NexWindowsPadInput.toggleKeyboard() }
+        case .gamePanel:
+            if down { openPanel() }
+        default:
+            break
+        }
+    }
+
+    /// Done over the pad's edit mode (the web player uses its control bar's pencil for this).
+    private func showPadDone(_ on: Bool) {
+        if !on {
+            padDone?.removeFromSuperview()
+            padDone = nil
+            return
+        }
+        guard padDone == nil else { return }
+        var config = UIButton.Configuration.filled()
+        config.title = "Done"
+        config.image = UIImage(systemName: "checkmark")
+        config.imagePadding = 6
+        config.cornerStyle = .capsule
+        config.baseBackgroundColor = UIColor(NexColor.accent)
+        config.baseForegroundColor = UIColor(NexColor.onAccent)
+        let button = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in
+            NexHaptics.success()
+            self?.pad.endEditing(save: true)
+        })
+        button.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            button.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6),
+        ])
+        padDone = button
+    }
+
+    private func setControlsStyle(_ style: ControlsStyle?) {
+        store.mutate(game.id) { $0.controlsStyle = style }
+        applyControlsStyle()
+    }
+
+    private func editControls() {
+        if ControlsStyle.resolved(for: currentGame) == .nexPad {
+            if !padReady { configurePad() }
+            pad.isHidden = false
+            pad.beginEditing()
+        } else {
+            NexWindowsPadInput.editPCControls()
         }
     }
     #endif
@@ -295,13 +416,22 @@ final class WindowsLaunchController: UIViewController {
     }
 
     private func openPanel() {
-        let panel = WindowsPanelView(
+        var panel = WindowsPanelView(
             gameName: game.name,
             hudOn: !hud.isHidden,
             onToggleHUD: { [weak self] in self?.toggleHUD() },
             onRestart: nil,
             onExit: { [weak self] in self?.quitGame() }
         )
+        #if NEXPLAY_WINDOWS
+        panel.controls = WindowsPanelView.Controls(
+            game: currentGame,
+            onStyle: { [weak self] style in self?.setControlsStyle(style) },
+            onEdit: { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.editControls() }
+            }
+        )
+        #endif
         let host = UIHostingController(rootView: panel)
         host.modalPresentationStyle = .pageSheet
         if let sheet = host.sheetPresentationController {
@@ -365,6 +495,10 @@ final class WindowsLaunchController: UIViewController {
                 if seconds >= 120 { $0.lastGoodRuntime = .windows }
             }
         }
+        #if NEXPLAY_WINDOWS
+        pad.releaseAll()
+        NexWindowsPadInput.releaseAll()
+        #endif
         AppLog.noteGame(nil)
         OrientationManager.unlock()
         onExit()

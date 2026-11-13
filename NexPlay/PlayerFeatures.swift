@@ -17,6 +17,10 @@ final class PlayerContext {
     var showPCKeyboard: () -> Void = {}
     /// 7.7.0: asks before leaving the game (Game Panel's Exit button).
     var exitGame: () -> Void = {}
+    /// 8.2.0: the game's Controls Style (nil = Automatic), changing it, and opening the touch-control editor.
+    var controlsStyle: () -> ControlsStyle? = { nil }
+    var setControlsStyle: (ControlsStyle?) -> Void = { _ in }
+    var editControls: () -> Void = {}
 
     init(gameLog: GameLog) {
         self.gameLog = gameLog

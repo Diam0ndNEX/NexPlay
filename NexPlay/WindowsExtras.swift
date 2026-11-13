@@ -197,7 +197,16 @@ struct WindowsPanelView: View {
     /// nil: no Restart Game (8.0.0: the engine runs one Windows game per app run).
     let onRestart: (() -> Void)?
     let onExit: () -> Void
+    /// 8.2.0: Controls Style and the touch-control editor (engine builds).
+    var controls: Controls? = nil
     @State private var copied = false
+    @State private var styleChoice: ControlsStyle??
+
+    struct Controls {
+        let game: Game
+        let onStyle: (ControlsStyle?) -> Void
+        let onEdit: () -> Void
+    }
 
     private var windowsLog: [String] {
         AppLog.shared.text.split(separator: "\n").filter { $0.contains("windows") || $0.contains("jit:") }.suffix(80).map(String.init)
@@ -213,7 +222,23 @@ struct WindowsPanelView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     PanelCard("Input", symbol: "gamecontroller.fill") {
-                        Text("Controllers reach the game as XInput pads. Touch controls and mouse modes are in the game's in-game menu.")
+                        if let controls {
+                            Text("Controls Style").font(NexType.label)
+                            ControlsStylePicker(game: controls.game, choice: styleChoice ?? controls.game.controlsStyle) { style in
+                                styleChoice = .some(style)
+                                controls.onStyle(style)
+                            }
+                            Button {
+                                dismiss()
+                                controls.onEdit()
+                            } label: {
+                                Label("Edit Touch Controls", systemImage: "slider.horizontal.below.square.and.square.filled")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(.white)
+                        }
+                        Text("Controllers reach the game as XInput pads. PC Controls' layouts, mouse modes and BCD's extras are in the game's in-game menu.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     PanelCard("Windows", symbol: "pc") {

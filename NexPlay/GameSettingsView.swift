@@ -253,8 +253,22 @@ struct GameSettingsView: View {
         )
     }
 
+    /// 8.2.0: Automatic is stored as nil.
+    private var controlsStyleBinding: Binding<String> {
+        Binding(
+            get: { game?.controlsStyle?.rawValue ?? "auto" },
+            set: { value in store.mutate(gameID) { $0.controlsStyle = ControlsStyle(rawValue: value) } }
+        )
+    }
+
     private func controlsSection(_ game: Game) -> some View {
         Section {
+            Picker(selection: controlsStyleBinding) {
+                Text("Automatic (\(ControlsStyle.automatic(for: game).title))").tag("auto")
+                ForEach(ControlsStyle.allCases) { style in
+                    Text(style.title).tag(style.rawValue)
+                }
+            } label: { Label("Controls Style", systemImage: "hand.tap.fill") }
             Toggle(isOn: binding(\.gamepad, default: true)) { Label("On-Screen Controls", systemImage: "gamecontroller.fill") }
             Button { showControllerMap = true } label: { Label("Controller Mapping", systemImage: "gamecontroller") }
             Picker(selection: mouseBinding) {
@@ -268,7 +282,7 @@ struct GameSettingsView: View {
         } header: {
             SettingsHeader(title: "Controls", symbol: "dpad.fill", color: .purple)
         } footer: {
-            Text("To move, resize or add buttons, open the game, tap your game's bubble and then the pencil.")
+            Text("\((game.controlsStyle ?? ControlsStyle.automatic(for: game)).detail) \(ControlsStyle.automaticNote(for: game)) To move, resize or add buttons, open the game, tap your game's bubble and then the pencil, or use Edit Touch Controls in the Game Panel.")
         }
     }
 

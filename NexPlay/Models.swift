@@ -195,6 +195,8 @@ struct Game: Identifiable, Codable, Hashable {
     var lastGoodRuntime: RuntimeKind?
     /// 7.3.0: how touches act as a mouse (web-view games); nil = Direct Touch.
     var mouseMode: MouseMode?
+    /// 8.2.0: NexPlay Pad or PC Controls (ControlsStyle.swift); nil = Automatic.
+    var controlsStyle: ControlsStyle?
     /// 7.12.0: arguments, environment and language for the game's runtime.
     var runOptions: RunOptions?
 

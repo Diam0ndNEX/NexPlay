@@ -29,3 +29,7 @@ into its own target (only in builds with the Windows engine, see `NexPlayWindows
   starts games); Enable JIT uses NexPlay's JIT (`NexWindowsHost.enableJIT`, NexPlay's helper and pairing file) instead
   of BCD's JIT coordinator; BCD's JIT setup sheet is not shown; the restart alert names NexPlay.
 - `Library.swift`: the one-game-per-run message names NexPlay.
+
+### 2026-11-13, NexPlay 8.2.0 (Controls Style)
+- Added: `NexPlayPCControls.swift` (NexPlay's code, not BCD's): BCD's touch layer and editor over NexPlay's web-view
+  games, and NexPlay's pad over Windows games. No BCD file was changed.
