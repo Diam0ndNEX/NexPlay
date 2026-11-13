@@ -11,7 +11,7 @@ struct WhatsNewView: View {
     let standalone: Bool
     @Environment(\.dismiss) private var dismiss
 
-    static let version = "7.6"
+    static let version = "7.8"
 
     private struct Item: Identifiable {
         let symbol: String
@@ -34,6 +34,8 @@ struct WhatsNewView: View {
              text: "Layout presets (Controller, Point & Click, WASD + Mouse, Visual Novel, RPG Maker, Twin-Stick), a Trackpad mouse, a PC keyboard with F-keys, and Quick Save, Quick Load and Game Panel buttons."),
         Item(symbol: "battery.75", color: .orange, title: "Power Profiles",
              text: "Battery Saver (30 FPS), Balanced (60) or Max, per game in the Game Panel. Hot iPhones get a Battery Saver offer, idle games pause."),
+        Item(symbol: "gamecontroller.fill", color: .pink, title: "Controller in the Library",
+             text: "D-pad or stick moves a highlight, A opens the game page (A again plays), X plays right away, B goes back, Y favorites, L1/R1 switch tabs, Menu opens Settings. In games, the control bar's gear now opens the Game Panel; hold it for the old menu."),
         Item(symbol: "stethoscope", color: .mint, title: "Diagnostics Self-Test",
              text: "Settings > Diagnostics > Run All Checks, and Export Logs ZIP for bug reports."),
     ]

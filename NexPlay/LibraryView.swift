@@ -320,6 +320,10 @@ struct LibraryView: View {
     @AppStorage(SettingsKey.whatsNewSeen) private var whatsNewSeen = ""
     @State private var tab: RootTab = .home
     @State private var showOnboarding = false
+    // 7.8.0: controller navigation.
+    @StateObject private var pad = LibraryController()
+    @State private var focusID: UUID?
+    @State private var gridWidth: CGFloat = 390
     @AppStorage(SettingsKey.onboarding7Seen) private var onboardingSeen = false
     @State private var showSetupCenter = false
     @ObservedObject private var jit = JITManager.shared
@@ -536,6 +540,11 @@ struct LibraryView: View {
         } message: {
             Text("Save files are kept in Rescued Saves. Browser-mode saves are deleted.")
         }
+        .onAppear { startPad() }
+        .onChange(of: playing?.id) { id in
+            // The player's controller code took the handlers; take them back when the game closes.
+            if id == nil { startPad() }
+        }
         .onChange(of: appState.pendingPlay) { id in
             guard let id else { return }
             appState.pendingPlay = nil
@@ -601,6 +610,7 @@ struct LibraryView: View {
     // MARK: - Home (7.4.0)
 
     private var homeContent: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text(summary).font(.caption).foregroundStyle(.secondary)
@@ -618,6 +628,11 @@ struct LibraryView: View {
             }
             .padding()
             .padding(.bottom, 90)
+        }
+        .onChange(of: focusID) { id in
+            guard let id else { return }
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
+        }
         }
     }
 
@@ -655,6 +670,7 @@ struct LibraryView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             CoverView(game: game)
                                 .frame(width: 112)
+                                .focusRing(focusID == game.id)
                                 .overlay(alignment: .topTrailing) {
                                     if GameReadiness.setupReason(for: game) != nil {
                                         Circle().fill(Color.orange).frame(width: 10, height: 10)
@@ -667,12 +683,14 @@ struct LibraryView: View {
                                 .lineLimit(2)
                                 .frame(width: 112, alignment: .leading)
                         }
+                        .id(game.id)
                         .contentShape(Rectangle())
                         .onTapGesture { tap(game) }
                         .contextMenu { contextMenu(for: game) }
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 4)
             }
         }
     }
@@ -699,6 +717,83 @@ struct LibraryView: View {
         .accessibilityLabel("Add games")
     }
 
+    // MARK: - Controller navigation (7.8.0)
+
+    /// The games the focus ring moves through on the current tab.
+    private var navList: [Game] {
+        if tab == .library { return visible }
+        var seen = Set<UUID>()
+        var list: [Game] = []
+        let parts: [[Game]] = [continueGame.map { [$0] } ?? [], recentlyPlayed, favorites, recentlyAdded, needsSetup]
+        for game in parts.joined() where !seen.contains(game.id) {
+            seen.insert(game.id)
+            list.append(game)
+        }
+        return list
+    }
+
+    private var navColumns: Int {
+        guard tab == .library, layout != "list" else { return 1 }
+        return max(1, Int((gridWidth - 32 + 14) / 164))
+    }
+
+    private var focusedGame: Game? {
+        guard let focusID else { return nil }
+        return store.game(id: focusID)
+    }
+
+    private func startPad() {
+        pad.onMove = { dx, dy in moveFocus(dx, dy) }
+        pad.onButton = { button in padButton(button) }
+        pad.start()
+    }
+
+    private func moveFocus(_ dx: Int, _ dy: Int) {
+        guard playing == nil, detail == nil, tab != .settings, !selecting else { return }
+        let list = navList
+        guard !list.isEmpty else { return }
+        guard let current = focusID, let index = list.firstIndex(where: { $0.id == current }) else {
+            focusID = list.first?.id
+            return
+        }
+        let next = min(max(index + dx + dy * navColumns, 0), list.count - 1)
+        focusID = list[next].id
+    }
+
+    private func padButton(_ button: LibraryController.Button) {
+        guard playing == nil else { return }
+        switch button {
+        case .a:
+            if let open = detail {
+                detail = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { playing = open }
+            } else if tab != .settings, let game = focusedGame {
+                detail = game
+            }
+        case .x:
+            if let open = detail {
+                detail = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { playing = open }
+            } else if tab != .settings, let game = focusedGame {
+                playing = game
+            }
+        case .b:
+            if detail != nil { detail = nil } else { focusID = nil }
+        case .y:
+            if detail == nil, let game = focusedGame { store.toggleFavorite(game) }
+        case .l1, .r1:
+            guard detail == nil else { return }
+            let all = RootTab.allCases
+            let index = all.firstIndex(of: tab) ?? 0
+            let step = button == .r1 ? 1 : all.count - 1
+            tab = all[(index + step) % all.count]
+            focusID = nil
+        case .menu:
+            guard detail == nil else { return }
+            tab = tab == .settings ? .home : .settings
+        }
+    }
+
     private var deleteTitle: String {
         if pendingDelete.count == 1, let game = pendingDelete.first { return "Delete \(game.name)?" }
         return "Delete \(pendingDelete.count) games?"
@@ -707,6 +802,7 @@ struct LibraryView: View {
     // MARK: - Content
 
     private var content: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if !store.games.isEmpty && search.isEmpty {
@@ -722,6 +818,8 @@ struct LibraryView: View {
                     LazyVStack(spacing: 10) {
                         ForEach(visible) { game in
                             GameRow(game: game, selected: selecting ? selection.contains(game.id) : nil)
+                                .focusRing(focusID == game.id)
+                                .id(game.id)
                                 .onTapGesture { tap(game) }
                                 .contextMenu { contextMenu(for: game) }
                         }
@@ -730,6 +828,8 @@ struct LibraryView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 18) {
                         ForEach(visible) { game in
                             GameCard(game: game, titleUnder: titleUnder, selected: selecting ? selection.contains(game.id) : nil)
+                                .focusRing(focusID == game.id)
+                                .id(game.id)
                                 .contentShape(Rectangle())
                                 .onTapGesture { tap(game) }
                                 .contextMenu { contextMenu(for: game) }
@@ -739,6 +839,16 @@ struct LibraryView: View {
             }
             .padding()
             .padding(.bottom, selecting ? 70 : 90)
+        }
+        .background(GeometryReader { geo in
+            Color.clear
+                .onAppear { gridWidth = geo.size.width }
+                .onChange(of: geo.size.width) { width in gridWidth = width }
+        })
+        .onChange(of: focusID) { id in
+            guard let id else { return }
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
+        }
         }
     }
 
@@ -837,6 +947,8 @@ struct LibraryView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(game.tagColor ?? Color.white.opacity(0.14), lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .focusRing(focusID == game.id)
+        .id(game.id)
         .onTapGesture { detail = game }
         .contextMenu { contextMenu(for: game) }
     }
