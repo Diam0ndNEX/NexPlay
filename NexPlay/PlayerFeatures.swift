@@ -15,6 +15,8 @@ final class PlayerContext {
     var setMouseMode: (MouseMode) -> Void = { _ in }
     var applyPreset: (LayoutPreset) -> Void = { _ in }
     var showPCKeyboard: () -> Void = {}
+    /// 7.7.0: asks before leaving the game (Game Panel's Exit button).
+    var exitGame: () -> Void = {}
 
     init(gameLog: GameLog) {
         self.gameLog = gameLog

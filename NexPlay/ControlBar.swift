@@ -294,13 +294,15 @@ final class ControlBarView: UIView {
         button.accessibilityLabel = title(for: item)
         button.backgroundColor = item == .close ? UIColor.systemRed.withAlphaComponent(0.6) : UIColor(white: 1, alpha: 0.12)
         if item == .settings {
-            button.showsMenuAsPrimaryAction = true
+            // 7.7.0: a tap opens the Game Panel; touch and hold shows the full game menu.
+            button.showsMenuAsPrimaryAction = false
             button.menu = UIMenu(children: [
                 UIDeferredMenuElement.uncached { [weak self] completion in
                     self?.stopTimer()
                     completion(self?.menuProvider?() ?? [])
                 },
             ])
+            button.addAction(UIAction { [weak self] _ in self?.tapped(item) }, for: .touchUpInside)
         } else {
             button.addAction(UIAction { [weak self] _ in self?.tapped(item) }, for: .touchUpInside)
         }
@@ -312,7 +314,7 @@ final class ControlBarView: UIView {
         case .close: return "Exit game"
         case .keyboard: return "Keyboard"
         case .gamepad: return "Show or hide on-screen controls"
-        case .settings: return "Game menu"
+        case .settings: return "Game Panel (hold for the game menu)"
         case .screenshot: return "Screenshot"
         case .edit: return "Edit controls"
         case .fastForward: return "Fast forward"

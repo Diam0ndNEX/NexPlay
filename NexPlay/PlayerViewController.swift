@@ -161,6 +161,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         context.setMouseMode = { [weak self] mode in self?.setMouseMode(mode) }
         context.applyPreset = { [weak self] preset in self?.applyPreset(preset) }
         context.showPCKeyboard = { [weak self] in self?.showKeyboard(pcKeys: true) }
+        context.exitGame = { [weak self] in self?.confirmExit() }
         features = PlayerFeatures.make(context: context)
         for feature in features {
             for script in feature.userScripts(for: game) { content.addUserScript(script) }
@@ -810,7 +811,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         case .gamepad:
             toggleGamepad()
         case .settings:
-            break
+            gamePanel?.openPanel()
         case .screenshot:
             takeScreenshot()
         case .edit:

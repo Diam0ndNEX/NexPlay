@@ -130,6 +130,22 @@ final class GamePanelModel: ObservableObject {
 
     var powerProfile: PowerProfile { powerChoice ?? PowerProfile.appDefault }
 
+    /// The next power profile (the Game Panel top row).
+    func cyclePower() {
+        let all = PowerProfile.allCases
+        let index = all.firstIndex(of: powerProfile) ?? 0
+        setPower(all[(index + 1) % all.count])
+    }
+
+    /// Closes the panel, then asks whether to leave the game.
+    func exitGame() {
+        let context = panel?.context
+        shouldClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            context?.exitGame()
+        }
+    }
+
     func setPower(_ choice: PowerProfile?) {
         powerChoice = choice
         panel?.power.choose(choice)
@@ -322,6 +338,7 @@ struct GamePanelView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     header
+                    quickRow
                     if model.supportsStates { savesCard }
                     if model.isRPG && !model.rewind.isEmpty { rewindCard }
                     if model.isWeb { playbackCard }
@@ -400,6 +417,26 @@ struct GamePanelView: View {
             Spacer(minLength: 0)
             if model.working { ProgressView().tint(.white) }
         }
+    }
+
+    /// 7.7.0 (SPEC-7.0-review D5): the four most used actions as big buttons.
+    private var quickRow: some View {
+        HStack(spacing: 10) {
+            QuickButton(title: "Save", symbol: "bolt.circle.fill", tint: .orange, enabled: model.supportsStates) {
+                model.quickSave()
+            }
+            QuickButton(title: "Load", symbol: "bolt.horizontal.circle.fill", tint: .teal,
+                        enabled: model.supportsStates && model.hasQuick) {
+                model.quickLoad()
+            }
+            QuickButton(title: model.powerProfile.shortTitle, symbol: model.powerProfile.symbol, tint: .yellow, enabled: true) {
+                model.cyclePower()
+            }
+            QuickButton(title: "Exit", symbol: "xmark.circle.fill", tint: .red, enabled: true) {
+                model.exitGame()
+            }
+        }
+        .disabled(model.working)
     }
 
     private var savesCard: some View {
@@ -647,5 +684,37 @@ struct RewindChip: View {
         .padding(.vertical, 10)
         .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NexStyle.cardStroke))
+    }
+}
+
+
+/// A big square button for the Game Panel's top row.
+struct QuickButton: View {
+    let title: String
+    let symbol: String
+    let tint: Color
+    let enabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(tint)
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity, minHeight: 72)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NexStyle.cardStroke))
+        }
+        .buttonStyle(PressScaleStyle())
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+        .accessibilityLabel(title)
     }
 }
