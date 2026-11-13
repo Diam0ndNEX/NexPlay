@@ -11,7 +11,7 @@ struct WhatsNewView: View {
     let standalone: Bool
     @Environment(\.dismiss) private var dismiss
 
-    static let version = "6.1"
+    static let version = "7.6"
 
     private struct Item: Identifiable {
         let symbol: String
@@ -22,16 +22,20 @@ struct WhatsNewView: View {
     }
 
     private let items: [Item] = [
-        Item(symbol: "square.grid.2x2.fill", color: .indigo, title: "Game Panel",
-             text: "Every in-game tool in one place: game menu > Game Panel. Big buttons for Quick Save, Quick Load and Save States, a pause button and a speed picker, a volume slider, text options and the safety net, in cards instead of menus inside menus."),
-        Item(symbol: "square.stack.3d.down.right.fill", color: .purple, title: "New Save States Screen",
-             text: "States are cards with a large picture, place and time. Touch and hold one to delete it."),
-        Item(symbol: "text.bubble.fill", color: .blue, title: "Chat-style Message Log",
-             text: "Lines show as speech bubbles with the speaker's name; your choices appear on the right."),
-        Item(symbol: "bolt.circle.fill", color: .orange, title: "Quick Save in the Menu",
-             text: "Quick Save and Quick Load stay right in the game menu, next to Game Panel."),
-        Item(symbol: "speedometer", color: .teal, title: "Game Tools (6.0)",
-             text: "Volume for every game, pause and 0.5×-4× speed for HTML5, Godot, Construct, Twine, Tyrano, Ren'Py and Flash, Twine save states, Ren'Py text and auto-forward options."),
+        Item(symbol: "house.fill", color: .indigo, title: "Home, Library and Settings Tabs",
+             text: "Home has Continue, Recently Played, Favorites, Recently Added and Needs Setup. Library has filters, including Ready to Play. The floating + also imports a whole folder of games at once."),
+        Item(symbol: "pc", color: .blue, title: "Windows Games and Built-in JIT",
+             text: "Windows games run through Wine and FEX (BCD's runtime). JIT is built in: import your pairing file in Setup Center, connect LocalDevVPN, and enable it."),
+        Item(symbol: "map.fill", color: .green, title: "RPG Maker 2000/2003",
+             text: "Runs natively with EasyRPG. Import the RTP once in Setup Center if a game asks for it."),
+        Item(symbol: "info.circle.fill", color: .teal, title: "Game Page",
+             text: "A How It Runs card tells you which runtime a game uses and lets you vote Works, Playable or Broken. Games that need setup get a Set Up button."),
+        Item(symbol: "cursorarrow.click", color: .purple, title: "Input Overhaul",
+             text: "Layout presets (Controller, Point & Click, WASD + Mouse, Visual Novel, RPG Maker, Twin-Stick), a Trackpad mouse, a PC keyboard with F-keys, and Quick Save, Quick Load and Game Panel buttons."),
+        Item(symbol: "battery.75", color: .orange, title: "Power Profiles",
+             text: "Battery Saver (30 FPS), Balanced (60) or Max, per game in the Game Panel. Hot iPhones get a Battery Saver offer, idle games pause."),
+        Item(symbol: "stethoscope", color: .mint, title: "Diagnostics Self-Test",
+             text: "Settings > Diagnostics > Run All Checks, and Export Logs ZIP for bug reports."),
     ]
 
     var body: some View {

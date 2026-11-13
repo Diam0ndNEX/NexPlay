@@ -319,6 +319,8 @@ struct LibraryView: View {
     @State private var showWhatsNew = false
     @AppStorage(SettingsKey.whatsNewSeen) private var whatsNewSeen = ""
     @State private var tab: RootTab = .home
+    @State private var showOnboarding = false
+    @AppStorage(SettingsKey.onboarding7Seen) private var onboardingSeen = false
     @State private var showSetupCenter = false
     @ObservedObject private var jit = JITManager.shared
 
@@ -465,10 +467,17 @@ struct LibraryView: View {
         .sheet(isPresented: $showWhatsNew, onDismiss: { whatsNewSeen = WhatsNewView.version }) {
             WhatsNewView(standalone: true)
         }
+        .fullScreenCover(isPresented: $showOnboarding) {
+            OnboardingView()
+        }
         .task {
-            guard whatsNewSeen != WhatsNewView.version else { return }
             try? await Task.sleep(nanoseconds: 700_000_000)
-            if playing == nil && detail == nil { showWhatsNew = true }
+            guard playing == nil && detail == nil else { return }
+            if !onboardingSeen {
+                showOnboarding = true
+            } else if whatsNewSeen != WhatsNewView.version {
+                showWhatsNew = true
+            }
         }
         .sheet(item: Binding(
             get: { appState.pendingBackup.map { ShareItem(url: $0) } },

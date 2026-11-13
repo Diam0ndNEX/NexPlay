@@ -243,12 +243,16 @@ enum DeviceInfo {
 struct DiagnosticsView: View {
     @State private var refresh = 0
     @State private var message: String?
+    @State private var selfTest: [SelfTestResult] = []
+    @State private var exportURL: URL?
 
     var body: some View {
         let signed = DeviceInfo.signedDebuggable
         let memory = DeviceInfo.hasEntitlement(Entitlement.increasedMemory)
         let address = DeviceInfo.hasEntitlement(Entitlement.extendedVA)
         return Form {
+            SelfTestSection(results: $selfTest)
+
             Section {
                 LabeledContent("Model", value: DeviceInfo.machine)
                 LabeledContent("iOS", value: DeviceInfo.systemVersion)
@@ -327,6 +331,15 @@ struct DiagnosticsView: View {
                 } label: {
                     Label("Copy Last 200 Log Lines", systemImage: "text.alignleft")
                 }
+                Button {
+                    do {
+                        exportURL = try SelfTest.exportLogsZIP(selfTest: selfTest)
+                    } catch {
+                        message = "Couldn't make the ZIP: \(error.localizedDescription)"
+                    }
+                } label: {
+                    Label("Export Logs ZIP", systemImage: "doc.zipper")
+                }
                 ShareLink(item: DeviceInfo.report() + "\n\n" + AppLog.shared.text) {
                     Label("Share Report and Log", systemImage: "square.and.arrow.up")
                 }
@@ -343,6 +356,12 @@ struct DiagnosticsView: View {
             }
         }
         .id(refresh)
+        .sheet(item: Binding(
+            get: { exportURL.map { ShareItem(url: $0) } },
+            set: { if $0 == nil { exportURL = nil } }
+        )) { item in
+            ActivityView(items: [item.url])
+        }
         .alert("Diagnostics", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(message ?? "") }

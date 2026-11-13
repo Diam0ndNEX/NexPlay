@@ -742,6 +742,8 @@ struct BackupSettings: View {
 // MARK: - Advanced
 
 struct AdvancedSettings: View {
+    @State private var showTour = false
+
     var body: some View {
         Form {
             Section {
@@ -749,6 +751,7 @@ struct AdvancedSettings: View {
                 NavigationLink { StorageView() } label: { Label("Storage", systemImage: "internaldrive") }
                 NavigationLink { StatsView() } label: { Label("Play Stats", systemImage: "chart.bar.fill") }
                 NavigationLink { WhatsNewView(standalone: false) } label: { Label("What's New", systemImage: "sparkles") }
+                Button { showTour = true } label: { Label("Welcome Tour", systemImage: "hand.wave.fill") }
                 NavigationLink("App Log") { AppLogView() }
                 NavigationLink("Credits") { CreditsView() }
             } header: {
@@ -757,6 +760,7 @@ struct AdvancedSettings: View {
                 Text("The app log lists imports, backups and crash notes. Each game also has its own Game Log in the game menu.")
             }
         }
+        .fullScreenCover(isPresented: $showTour) { OnboardingView() }
     }
 }
 
