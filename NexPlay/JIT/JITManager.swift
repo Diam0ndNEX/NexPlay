@@ -62,7 +62,7 @@ enum LoopbackProbe {
     static let port: UInt16 = 62078
 
     /// `completion` runs once, on the main thread: reachable, and a short detail.
-    static func check(timeout: TimeInterval = 3, completion: @escaping (Bool, String) -> Void) {
+    static func check(timeout: TimeInterval = 6, completion: @escaping (Bool, String) -> Void) {
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
             completion(false, "bad port")
             return
@@ -71,6 +71,7 @@ enum LoopbackProbe {
         let queue = DispatchQueue(label: "nexplay.jit.probe")
         let start = Date()
         var finished = false
+        var lastWaiting: String?
         func finish(_ ok: Bool, _ detail: String) {
             if finished { return }
             finished = true
@@ -82,12 +83,16 @@ enum LoopbackProbe {
             switch state {
             case .ready: finish(true, "connected")
             case .failed(let error): finish(false, "failed: \(error)")
-            case .waiting(let error): finish(false, "waiting: \(error)")
+            // 7.13.5: .waiting is not a failure. Through a VPN tunnel (and on mobile data) NWConnection often
+            // reports waiting while the path settles, then becomes ready. Only the timeout or .failed end it.
+            case .waiting(let error): lastWaiting = "\(error)"
             default: break
             }
         }
         connection.start(queue: queue)
-        queue.asyncAfter(deadline: .now() + timeout) { finish(false, "timed out") }
+        queue.asyncAfter(deadline: .now() + timeout) {
+            finish(false, lastWaiting.map { "timed out, last: \($0)" } ?? "timed out")
+        }
     }
 }
 
@@ -425,8 +430,10 @@ final class JITManager: ObservableObject {
         if reset.contains(where: { text.contains($0) }) {
             return "This iPhone dropped the connection. It may no longer accept this pairing file: make a new one, import it, and check that LocalDevVPN is connected."
         }
-        if vpn.contains(where: { text.contains($0) }) || vpnReachable == false {
-            return "There's no connection to this iPhone. Connect LocalDevVPN (Wi-Fi works best) and try again."
+        // 7.13.5: only the helper's own error decides this. The app's probe can fail while the helper still
+        // gets through, and then the real reason was hidden behind this message.
+        if vpn.contains(where: { text.contains($0) }) {
+            return "There's no connection to this iPhone through LocalDevVPN (\(message)). Turn LocalDevVPN off and on, then try again. Wi-Fi or mobile data both work."
         }
         return message
     }

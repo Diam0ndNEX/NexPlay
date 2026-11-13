@@ -39,7 +39,7 @@ struct JITSettingsView: View {
             } header: {
                 SettingsHeader(title: "JIT", symbol: "cpu", color: .orange)
             } footer: {
-                Text("Connect LocalDevVPN first (Wi-Fi works best). JIT lasts until NexPlay closes. Web, Godot, Ren'Py, Flash and mkxp games don't need it; Windows games (7.0) do.")
+                Text("Connect LocalDevVPN first (Wi-Fi or mobile data). JIT lasts until NexPlay closes. Web, Godot, Ren'Py, Flash and mkxp games don't need it; Windows games (7.0) do.")
             }
 
             Section {
@@ -141,7 +141,7 @@ struct SetupCenterView: View {
                          why: "Lets NexPlay ask iOS for JIT without a computer.",
                          actionTitle: "Import", action: { ImportPicker.pickOneFile { jit.importPairing($0) } })
                 SetupRow(title: "LocalDevVPN Connected", ok: jit.vpnReachable,
-                         why: "The JIT helper reaches this iPhone through it.",
+                         why: jit.vpnDetail ?? "The JIT helper reaches this iPhone through it.",
                          actionTitle: LocalDevVPN.actionTitle, action: { LocalDevVPN.open() })
                 SetupRow(title: "JIT Test Passed", ok: jit.testPassed,
                          why: "Windows games run only with JIT on.",
