@@ -9,6 +9,8 @@ enum GameRoute: String, Identifiable {
 
 /// The game page: cover in a glass frame, title, engine, save profiles, Play, and Manage Saves / Gallery / Mods.
 /// Layout follows RPGPlayer's pre-launch screen; NexPlay's own code.
+/// 7.5.0: "How it runs" card with the compatibility vote, and a Play button that says when setup is needed.
+@MainActor
 struct GameDetailView: View {
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var collections: CollectionStore
@@ -33,6 +35,7 @@ struct GameDetailView: View {
     @State private var folderSize: Int64?
     @State private var runtimeLabel: String?
     @State private var notice: String?
+    @State private var showSetupCenter = false
 
     private var game: Game? { store.game(id: gameID) }
 
@@ -47,6 +50,7 @@ struct GameDetailView: View {
                             titleBlock(game)
                             infoChips(game)
                             if let notice { noticeCard(notice) }
+                            howItRunsCard(game)
                             if game.usesNWMode { profileRow(game) }
                         }
                         .padding(.horizontal, 20)
@@ -98,6 +102,14 @@ struct GameDetailView: View {
         } message: {
             if let info = profileInfo {
                 Text("\(info.count) save file(s)" + (info.newest.map { " · last saved " + $0.formatted(date: .abbreviated, time: .shortened) } ?? ""))
+            }
+        }
+        .sheet(isPresented: $showSetupCenter) {
+            NavigationStack {
+                SetupCenterView()
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { showSetupCenter = false } }
+                    }
             }
         }
         .alert("Profiles", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
@@ -274,19 +286,81 @@ struct GameDetailView: View {
         .overlay { if busy { ProgressView().tint(.white) } }
     }
 
-    private func bottomBar(_ game: Game) -> some View {
-        VStack(spacing: 14) {
-            Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            Button {
-                onPlay(game)
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "play.fill")
-                    Text("Play").font(.pixel(24))
+    private func howItRunsCard(_ game: Game) -> some View {
+        let kind = GameRuntimes.kind(for: game)
+        let current = game.compatibility ?? .untested
+        return VStack(alignment: .leading, spacing: 12) {
+            Label("How It Runs", systemImage: kind.symbol)
+                .font(.pixel(14))
+                .foregroundStyle(NexStyle.accent)
+            Text(kind.howItRuns)
+                .font(.pixel(13))
+                .foregroundStyle(.white.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+            Text(game.runtime == nil ? "Runtime: Automatic (\(kind.title))" : "Runtime: \(kind.title), chosen in Game Settings")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ForEach([CompatStatus.works, .playable, .broken]) { status in
+                    Button {
+                        store.mutate(game.id) { $0.compatibility = current == status ? nil : status }
+                        UISelectionFeedbackGenerator().selectionChanged()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Circle().fill(status.color).frame(width: 8, height: 8)
+                            Text(status.title).font(.pixel(13))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(current == status ? status.color.opacity(0.45) : Color.white.opacity(0.08), in: Capsule())
+                        .overlay(Capsule().stroke(current == status ? status.color : Color.white.opacity(0.12)))
+                    }
+                    .buttonStyle(PressScaleStyle())
                 }
             }
-            .buttonStyle(PlayButtonStyle())
-            .padding(.horizontal, 20)
+            Text("Your verdict. It shows on the game's card.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NexStyle.cardStroke))
+    }
+
+    private func bottomBar(_ game: Game) -> some View {
+        let setup = GameReadiness.setupReason(for: game)
+        return VStack(spacing: 14) {
+            Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
+            if let setup {
+                Button {
+                    showSetupCenter = true
+                } label: {
+                    VStack(spacing: 2) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "wrench.and.screwdriver.fill")
+                            Text("Set Up").font(.pixel(22))
+                        }
+                        Text(setup).font(.pixel(11)).opacity(0.8)
+                    }
+                }
+                .buttonStyle(PlayButtonStyle())
+                .padding(.horizontal, 20)
+                Button("Play Anyway") { onPlay(game) }
+                    .font(.pixel(13))
+                    .foregroundStyle(.white.opacity(0.7))
+            } else {
+                Button {
+                    onPlay(game)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "play.fill")
+                        Text("Play").font(.pixel(24))
+                    }
+                }
+                .buttonStyle(PlayButtonStyle())
+                .padding(.horizontal, 20)
+            }
             HStack(spacing: 12) {
                 BottomTile(title: "Manage\nSaves", symbol: "square.and.arrow.down.on.square") { route = .saves }
                 BottomTile(title: "Gallery", symbol: "photo.on.rectangle.angled") { route = .media }

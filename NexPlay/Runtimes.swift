@@ -36,6 +36,18 @@ enum RuntimeKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+extension RuntimeKind {
+    /// 7.5.0: the "How it runs" line on the game page.
+    var howItRuns: String {
+        switch self {
+        case .web: return "Runs natively in the web runtime: best battery."
+        case .ruby: return "Runs natively with the mkxp core: good battery."
+        case .easyrpg: return "Runs natively with EasyRPG: best battery."
+        case .windows: return "Runs through Windows (Wine + FEX): uses more battery and needs JIT."
+        }
+    }
+}
+
 /// The owner's verdict on how well a game runs.
 enum CompatStatus: String, Codable, CaseIterable, Identifiable {
     case untested, works, playable, broken

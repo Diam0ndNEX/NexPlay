@@ -120,6 +120,22 @@ struct GameCard: View {
                     .padding(8)
                 }
                 .overlay(alignment: .bottomLeading) {
+                    // 7.5.0: compatibility dot and a PC chip when the game runs through Windows.
+                    HStack(spacing: 4) {
+                        if let compat = game.compatibility, compat != .untested {
+                            Circle().fill(compat.color).frame(width: 9, height: 9)
+                                .overlay(Circle().stroke(Color.black.opacity(0.4)))
+                        }
+                        if game.runtime == .windows && game.engine != .windows {
+                            Text("PC").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.8), in: Capsule())
+                        }
+                    }
+                    .padding(8)
+                    .opacity(titleUnder ? 1 : 0)
+                }
+                .overlay(alignment: .bottomLeading) {
                     if !titleUnder {
                         Text(game.name)
                             .font(.subheadline.weight(.semibold))
