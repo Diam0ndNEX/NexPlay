@@ -13,6 +13,16 @@ BCD="$WS/bcd"
 NX="$WS/nexplay/tools/windows"
 cd "$BCD"
 
+# 7.13.4: Homebrew's ccache brings fmt (and hiredis, xxhash, blake3) into /opt/homebrew. FEX's ARM64EC/WOW64 CMake
+# then found the macOS fmt for its Windows target ("IMPORTED_IMPLIB not set for imported target fmt::fmt"), xtajit64
+# wasn't built and BCD refused the build. Unlink them: ccache keeps working through /opt/homebrew/opt/<name>.
+if command -v brew >/dev/null 2>&1; then
+  for dep in fmt hiredis xxhash blake3; do
+    if brew list --formula "$dep" >/dev/null 2>&1; then brew unlink "$dep" >/dev/null 2>&1 && echo "unlinked $dep (ccache dependency)"; fi
+  done
+  ccache --version | head -1 || echo "::warning::ccache doesn't start after unlinking its dependencies"
+fi
+
 # BCD's public repo does not ship Apple's iOS libmetalirconverter.dylib (BCD's deps.sh stops without it, after an hour
 # of building). NexPlay keeps the iOS dylib and headers of Metal Shader Converter 4.0 beta 3 in
 # third_party/metal-shader-converter: copy them into BCD's tree and point BCD's pinned hash (beta 2) at beta 3.
