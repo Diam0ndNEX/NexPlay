@@ -3,7 +3,7 @@
 **7.0 build in progress: read `docs/SPEC-7.0.md`, then `docs/SPEC-7.0-review.md` (overrides the spec where they differ), then `docs/OWNER-ANSWERS-7.0.md` (overrides both: iOS 27+, development certificate with get-task-allow and the memory entitlements, Steam/GOG dropped).** Work through the version table in order; each step is its own push that builds. **Current step: the 7.0 version table is done, including the parts first left out (7.13.0, build 57). The owner tests everything at once now: 6.2.0 to 7.13.0 were never built on a device or compiled here, so expect a round of build-error fixes (fix the first error first). After that: device test, then 7.1.x Godot .NET only if Windows can't run Godot C# games.**
 
 Personal iPhone game player for RPG Maker MV/MZ and HTML5 games (SwiftUI + WKWebView, iOS 16+), with RPG Maker XP/VX/Ace through the mkxp-z core in builds that turn on `NEXPLAY_MKXP`.
-Not a general web browser: everything in here is treated as a game. Version 7.13.3 (build 60). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
+Not a general web browser: everything in here is treated as a game. Version 7.13.5 (build 62). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core.
 
 **Read `docs/SPEC.md` for the plan, `docs/RESEARCH.md` for what the reference apps do. Paste-ready prompt for new chats: `docs/PROMPT.md`.**
 

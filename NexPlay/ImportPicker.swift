@@ -25,7 +25,18 @@ final class ImportPicker: NSObject, UIDocumentPickerDelegate {
         present(types: [.folder], asCopy: false, onPick: onPick)
     }
 
-    private static func present(types: [UTType], asCopy: Bool, onPick: @escaping ([URL]) -> Void) {
+    /// 7.13.5: exactly one file of any type (pairing file). Single selection, so tapping the file picks it at once.
+    /// SwiftUI's fileImporter on the JIT and Setup Center screens showed the picker but ignored taps on files.
+    static func pickOneFile(onPick: @escaping (URL) -> Void) {
+        var types: [UTType] = [.item, .data, .propertyList, .xmlPropertyList, .binaryPropertyList]
+        if let pairing = UTType(filenameExtension: "mobiledevicepairing") { types.append(pairing) }
+        present(types: types, asCopy: true, multiple: false) { urls in
+            if let url = urls.first { onPick(url) }
+        }
+    }
+
+    private static func present(types: [UTType], asCopy: Bool, multiple: Bool = true,
+                                onPick: @escaping ([URL]) -> Void) {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first,
               var top = scene.windows.first(where: \.isKeyWindow)?.rootViewController
@@ -33,7 +44,7 @@ final class ImportPicker: NSObject, UIDocumentPickerDelegate {
         while let next = top.presentedViewController { top = next }
 
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: asCopy)
-        picker.allowsMultipleSelection = true
+        picker.allowsMultipleSelection = multiple
         let delegate = ImportPicker(onPick: onPick)
         active = delegate
         picker.delegate = delegate

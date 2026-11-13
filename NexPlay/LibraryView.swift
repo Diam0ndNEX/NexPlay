@@ -596,7 +596,8 @@ struct LibraryView: View {
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: store.isImporting)
             .background(AppBackground().ignoresSafeArea())
             .navigationTitle(tab == .home ? "NexPlay" : "Library")
-            .searchable(text: $search, prompt: "Search games")
+            // 7.13.5: under the title. The default placement on iOS 26+ is a bottom bar, which sat behind NexTabBar.
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search games")
             .toolbar { toolbar }
             .onChange(of: search) { text in
                 if !text.isEmpty && tab == .home { tab = .library }

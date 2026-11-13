@@ -113,7 +113,6 @@ struct RunOptionsSection: View {
 struct JITSheetView: View {
     @ObservedObject private var jit = JITManager.shared
     @Environment(\.dismiss) private var dismiss
-    @State private var importing = false
     @State private var finished = false
     let gameName: String
     /// true = JIT is on (or the player chose to let Windows Games handle it), false = cancelled.
@@ -125,7 +124,7 @@ struct JITSheetView: View {
                 Section {
                     step("Pairing File", ok: jit.pairingPresent,
                          detail: jit.pairingKind ?? "Lets NexPlay talk to this iPhone's debug service.") {
-                        Button(jit.pairingPresent ? "Replace" : "Import") { importing = true }
+                        Button(jit.pairingPresent ? "Replace" : "Import") { ImportPicker.pickOneFile { jit.importPairing($0) } }
                     }
                     step("LocalDevVPN", ok: jit.vpnReachable,
                          detail: jit.vpnDetail ?? "Connects NexPlay to itself through 10.7.0.1.") {
@@ -162,9 +161,6 @@ struct JITSheetView: View {
             }
             .onAppear { jit.refresh() }
             .onChange(of: jit.isActive) { active in if active { finish(true) } }
-            .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
-                if case .success(let url) = result { jit.importPairing(url) }
-            }
         }
         .interactiveDismissDisabled()
     }

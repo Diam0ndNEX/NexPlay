@@ -8,7 +8,6 @@ struct JITSettingsView: View {
     @ObservedObject private var jit = JITManager.shared
     @AppStorage(SettingsKey.jitAutoForGames) private var autoForGames = true
     @AppStorage(SettingsKey.jitAtLaunch) private var atLaunch = false
-    @State private var importing = false
     @State private var confirmRemove = false
 
     var body: some View {
@@ -44,7 +43,7 @@ struct JITSettingsView: View {
             }
 
             Section {
-                Button { importing = true } label: {
+                Button { ImportPicker.pickOneFile { jit.importPairing($0) } } label: {
                     Label(jit.pairingPresent ? "Replace Pairing File" : "Import Pairing File", systemImage: "doc.badge.plus")
                 }
                 if jit.pairingPresent {
@@ -72,9 +71,6 @@ struct JITSettingsView: View {
             } header: {
                 SettingsHeader(title: "Automatic", symbol: "wand.and.stars", color: .purple)
             }
-        }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
-            if case .success(let url) = result { jit.importPairing(url) }
         }
         .confirmationDialog("Remove the pairing file?", isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Remove", role: .destructive) { jit.removePairing() }
@@ -125,11 +121,9 @@ struct JITStatusCard: View {
 @MainActor
 struct SetupCenterView: View {
     @ObservedObject private var jit = JITManager.shared
-    @State private var importing = false
 
     @AppStorage(SettingsKey.windowsLoadAtLaunch) private var windowsLoadAtLaunch = true
     @State private var windowsError: String?
-    @State private var rtpImport: String?
     @State private var rtpMessage: String?
 
     private var windowsRuntime: Bool { BCDRuntimeInfo.isPresent }
@@ -145,7 +139,7 @@ struct SetupCenterView: View {
             Section {
                 SetupRow(title: "Pairing File", ok: jit.pairingPresent,
                          why: "Lets NexPlay ask iOS for JIT without a computer.",
-                         actionTitle: "Import", action: { rtpImport = nil; importing = true })
+                         actionTitle: "Import", action: { ImportPicker.pickOneFile { jit.importPairing($0) } })
                 SetupRow(title: "LocalDevVPN Connected", ok: jit.vpnReachable,
                          why: "The JIT helper reaches this iPhone through it.",
                          actionTitle: LocalDevVPN.actionTitle, action: { LocalDevVPN.open() })
@@ -199,40 +193,30 @@ struct SetupCenterView: View {
                             : "Runs RPG Maker 2000/2003 games natively. Comes with builds made by the 7.1.1 workflow.")
                 SetupRow(title: "RTP 2000", ok: EasyRPGCore.hasRTP("2000"),
                          why: "Only games shipped without the standard graphics and sounds need it.",
-                         actionTitle: "Import Folder", action: { rtpImport = "2000"; importing = true })
+                         actionTitle: "Import Folder", action: { importRTP("2000") })
                 SetupRow(title: "RTP 2003", ok: EasyRPGCore.hasRTP("2003"),
                          why: "The same for RPG Maker 2003 games.",
-                         actionTitle: "Import Folder", action: { rtpImport = "2003"; importing = true })
+                         actionTitle: "Import Folder", action: { importRTP("2003") })
             } header: {
                 SettingsHeader(title: "RPG Maker 2000/2003", symbol: "map", color: .orange)
             } footer: {
                 Text(rtpMessage ?? "Pick the installed RTP folder (it holds Backdrop, CharSet, Music and the other folders).")
             }
         }
-        // 7.13.3: one importer for the pairing file and the RTP folders. Two fileImporter modifiers in one view
-        // don't work together (the RTP one sat inside the form and the pairing one outside: one of them never opened).
-        // rtpImport stays set until the result arrives (the binding can be cleared before the completion runs).
-        .fileImporter(isPresented: $importing, allowedContentTypes: rtpImport != nil ? [.folder] : [.item]) { result in
-            let version = rtpImport
-            importing = false
-            rtpImport = nil
-            switch result {
-            case .success(let url):
-                if let version {
-                    do {
-                        try EasyRPGCore.importRTP(from: url, version: version)
-                        rtpMessage = "RTP \(version) imported."
-                    } catch {
-                        rtpMessage = "The RTP couldn't be copied: \(error.localizedDescription)"
-                    }
-                } else {
-                    jit.importPairing(url)
-                }
-            case .failure(let error):
-                if version != nil { rtpMessage = error.localizedDescription }
+        // 7.13.5: the pairing file and the RTP folders use the UIKit pickers (ImportPicker), no fileImporter.
+        .onAppear { jit.refresh() }
+    }
+
+    private func importRTP(_ version: String) {
+        ImportPicker.pickFolders { urls in
+            guard let url = urls.first else { return }
+            do {
+                try EasyRPGCore.importRTP(from: url, version: version)
+                rtpMessage = "RTP \(version) imported."
+            } catch {
+                rtpMessage = "The RTP couldn't be copied: \(error.localizedDescription)"
             }
         }
-        .onAppear { jit.refresh() }
     }
 }
 
