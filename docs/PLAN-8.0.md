@@ -13,7 +13,9 @@ once all steps are done, then pastes build errors (first error first).
 | Controls: extras for web games, presets in both styles | 8.2.1 (69) | pushed 2026-11-13 |
 | Controls: one controller system (hub, players, rumble, tester) | 8.2.2 (70) | failed: file names used twice (first engine build) |
 | Fix: NexPlay's JITPairing.swift and Onboarding.swift renamed | 8.2.3 (71) | pushed 2026-11-14 |
-| In-game | 8.3.0 | |
+| In-game: shared in-game menu (BCD layout), Game Panel on it | 8.3.0 (72) | pushed 2026-11-14 |
+| In-game: Windows panel on the menu, BCD's menu rows, one-Windows-game cards | 8.3.1 | |
+| In-game: Performance HUD in BCD's HUD layout, every engine | 8.3.2 | |
 | Game page | 8.4.0 | |
 | itch.io (other stores hidden) | 8.5.0 | |
 | Settings and extras | 8.6.0 | |
@@ -106,6 +108,15 @@ them would mean rewriting BCD's input path. NexPlay's `NexControllerHub` (Contro
 gives every engine player order with player lights, rumble for web games (Gamepad API vibrationActuator shim → the pad's
 haptics), Only Player 1 Presses Keys, battery and a live tester (Settings > Controls > Controllers). Gamepad-index-to-pad
 matching for web rumble follows connection order and can be wrong after Make Player 1.
+
+8.3.0 notes: split in three. 8.3.0 = `NexPlay/NexInGameMenu.swift` (NexPlay's code on the 8.1 design system, BCD's
+BCDInGameMenu layout: panel over the dimmed game, docked leading in landscape / bottom in portrait, eyebrow + title + close,
+tabs, sections of rows in cards, pages that push in, questions inside the panel; `NexMenuHostingController` =
+overFullScreen, the game's orientation) and the Game Panel rebuilt on it (tabs Game, Display, Controls, Tools; sections by
+engine; Display has Power and the Performance HUD toggle/corner/detail). No BCD file changed. Not yet: controller
+navigation in the menu (8.7.0). 8.3.1: the Windows panel on NexInGameMenu with BCD's session menu rows
+(BCDSessionMenuSource) in NexPlay's look, the second-Windows-game error card + Close NexPlay, "Restart NexPlay to play",
+Quit Game warning. 8.3.2: BCD's HUD (BCDHUDView/BCDHUDCore) merged with PerformanceHUD for every engine.
 
 ## Controls: both systems, one place to choose
 - Every game has **Controls Style**:

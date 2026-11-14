@@ -2,7 +2,8 @@ import UIKit
 import SwiftUI
 import WebKit
 
-// Game Panel (6.1.0): one sheet for the in-game tools instead of nested menus. Game menu > Game Panel… (Quick Save
+// Game Panel (6.1.0): one place for the in-game tools instead of nested menus. 8.3.0: shown in BCD's in-game menu
+// layout (NexInGameMenu.swift). Game menu > Game Panel… (Quick Save
 // and Quick Load stay right in the menu). It owns PlayAssistFeature and WebToolsFeature and forwards their scripts
 // and lifecycle; they add no menu entries of their own.
 
@@ -62,14 +63,11 @@ final class GamePanelFeature: PlayerFeature {
         return items
     }
 
+    /// 8.3.0: a panel over the dimmed game (BCD's in-game menu layout), not a sheet.
     func openPanel() {
         let model = GamePanelModel(panel: self, game: context.game())
-        let host = UIHostingController(rootView: GamePanelView(model: model))
-        host.modalPresentationStyle = .pageSheet
-        if let sheet = host.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = true
-        }
+        let host = NexMenuHostingController(rootView: GamePanelView(model: model))
+        model.onClose = { [weak host] in host?.presentingViewController?.dismiss(animated: true) }
         context.present(host)
     }
 }
@@ -92,8 +90,13 @@ final class GamePanelModel: ObservableObject {
     @Published var mouseMode: MouseMode = .direct
     /// 8.2.0: nil = Automatic.
     @Published var controlsStyle: ControlsStyle?
+    /// 8.3.0: the Performance HUD of this game.
+    @Published var statsOn = false
+    /// Dismisses the panel (set by `openPanel`).
+    var onClose: () -> Void = {}
     private weak var panel: GamePanelFeature?
     private var lastVolume: Double = 1
+    private var closing = false
 
     init(panel: GamePanelFeature, game: Game) {
         self.game = game
@@ -105,6 +108,19 @@ final class GamePanelModel: ObservableObject {
         self.powerChoice = panel.power.gameChoice
         self.mouseMode = panel.context.mouseMode()
         self.controlsStyle = panel.context.controlsStyle()
+        self.statsOn = panel.context.statsShown()
+    }
+
+    func close() {
+        guard !closing else { return }
+        closing = true
+        onClose()
+    }
+
+    func toggleStats() {
+        panel?.context.toggleStats()
+        statsOn = panel?.context.statsShown() ?? false
+        say(statsOn ? "Performance HUD on" : "Performance HUD off")
     }
 
     // MARK: Controls Style (8.2.0)
@@ -356,99 +372,123 @@ struct PanelCard<Content: View>: View {
     }
 }
 
+/// 8.3.0: the Game Panel in BCD's in-game menu layout (`NexInGameMenu`): a panel over the dimmed game with the tabs
+/// Game, Display, Controls and Tools; sections appear by engine.
 struct GamePanelView: View {
     @ObservedObject var model: GamePanelModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var pendingRewind: RewindPoint?
+    @State private var tab = "game"
+    @State private var page: String?
+    @State private var question: NexMenuQuestion?
+    @AppStorage(SettingsKey.hudCorner) private var hudCorner = "topLeft"
+    @AppStorage(SettingsKey.hudDetail) private var hudDetail = "full"
 
-    private let tileColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    private let tabs = [
+        NexMenuTab(id: "game", title: "Game"),
+        NexMenuTab(id: "display", title: "Display"),
+        NexMenuTab(id: "controls", title: "Controls"),
+        NexMenuTab(id: "tools", title: "Tools"),
+    ]
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    header
-                    quickRow
-                    if model.supportsStates { savesCard }
-                    if model.isRPG && !model.rewind.isEmpty { rewindCard }
-                    if model.isWeb { playbackCard }
-                    soundCard
-                    powerCard
-                    inputCard
-                    if model.isRPG { textCard }
-                    if model.supportsStates { safetyCard }
-                    if model.game.engine == .twine { storyCard }
-                    if model.game.engine == .renpy { renpyCard }
-                }
-                .padding(16)
-                .padding(.bottom, 40)
-            }
-            .background(AppBackground().ignoresSafeArea())
-            .navigationTitle("Game Panel")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    SheetHelpButton(title: "Game Panel", text: "Every in-game tool in one place. The top row saves, loads, switches the power profile and leaves the game. The game keeps running while the panel is open; Save States pauses it. Touch and hold the gear on the control bar for the full game menu.")
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    SheetCloseButton { dismiss() }
+        NexInGameMenu(eyebrow: model.game.engine.badge, title: model.game.name, symbol: model.game.engine.symbol,
+                      tint: model.game.engine.accent, tabs: tabs, tab: $tab,
+                      pageTitle: page == "presets" ? "Layout Preset" : nil,
+                      back: page == nil ? nil : { page = nil },
+                      question: $question, status: model.status, working: model.working,
+                      close: { model.close() }) {
+            if page == "presets" {
+                presetsPage
+            } else {
+                switch tab {
+                case "display": displayTab
+                case "controls": controlsTab
+                case "tools": toolsTab
+                default: gameTab
                 }
             }
-            .overlay(alignment: .bottom) {
-                if let status = model.status {
-                    Text(status)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(Capsule().stroke(NexStyle.cardStroke))
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 12)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: model.status)
         }
-        .environment(\.colorScheme, .dark)
         .task { await model.refresh() }
-        .onChange(of: model.shouldClose) { close in
-            if close { dismiss() }
-        }
-        .confirmationDialog("Rewind?", isPresented: Binding(get: { pendingRewind != nil }, set: { if !$0 { pendingRewind = nil } }),
-                            titleVisibility: .visible, presenting: pendingRewind) { point in
-            Button("Rewind \(SaveStatesView.ago(point.ago))") { model.rewind(to: point) }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("The game goes back to this moment. Rewind can undo it again.")
+        .onChange(of: model.shouldClose) { _, close in
+            if close { model.close() }
         }
     }
 
-    // MARK: Cards
+    // MARK: Game
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: model.game.engine.symbol)
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(width: 50, height: 50)
-                .background(NexStyle.accentGradient, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                .shadow(color: NexStyle.accent.opacity(0.5), radius: 10, y: 4)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(model.game.name)
-                    .font(.pixel(18, relativeTo: .headline))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                HStack(spacing: 6) {
-                    StatChip(symbol: "cpu", text: model.game.engine.badge)
-                    if model.paused { StatChip(symbol: "pause.fill", text: "Paused") }
-                    if model.isWeb && model.speed != 1 { StatChip(symbol: "speedometer", text: WebToolsFeature.speedText(model.speed)) }
-                    if model.options.volume == 0 { StatChip(symbol: "speaker.slash.fill", text: "Muted") }
+    @ViewBuilder private var gameTab: some View {
+        Button {
+            if model.paused { model.togglePause() }
+            model.close()
+        } label: {
+            Label(model.paused ? "Resume Game" : "Back to Game", systemImage: "play.fill")
+        }
+        .buttonStyle(NexPrimaryButtonStyle())
+        quickRow
+        if model.supportsStates {
+            NexMenuSection("Saves") {
+                NexMenuRow(title: "Quick Save", symbol: "bolt.circle", enabled: !model.working) { model.quickSave() }
+                NexMenuRow(title: "Quick Load", detail: model.hasQuick ? nil : "No quick save yet",
+                           symbol: "bolt.horizontal.circle", enabled: model.hasQuick && !model.working) { model.quickLoad() }
+                NexMenuRow(title: "Save States", detail: "Every state with its picture", symbol: "square.stack.3d.down.right",
+                           accessory: .chevron) { model.openStates() }
+                if model.isRPG {
+                    NexMenuRow(title: "Message Log", symbol: "text.bubble", accessory: .chevron) { model.openLog() }
                 }
             }
-            Spacer(minLength: 0)
-            if model.working { ProgressView().tint(.white) }
+        }
+        if model.isRPG && !model.rewind.isEmpty {
+            NexMenuSection("Rewind") {
+                NexMenuCustomRow {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(model.rewind) { point in
+                                Button {
+                                    NexHaptics.tap()
+                                    question = NexMenuQuestion(title: "Rewind \(SaveStatesView.ago(point.ago))?",
+                                                               message: "The game goes back to this moment. Rewind can undo it again.",
+                                                               answer: "Rewind") { model.rewind(to: point) }
+                                } label: {
+                                    RewindChip(point: point)
+                                }
+                                .buttonStyle(PressScaleStyle())
+                            }
+                        }
+                    }
+                }
+                NexMenuNote(text: "A snapshot every 15 seconds on the map, for the last 5 minutes.")
+            }
+        }
+        if model.isWeb {
+            NexMenuSection("Playback") {
+                NexMenuToggleRow(title: "Pause Game", symbol: "pause.fill", isOn: model.paused) { _ in model.togglePause() }
+                NexMenuChipsRow(title: "Game Speed", symbol: "speedometer",
+                                choices: [0.5, 1, 2, 3, 4].map { NexMenuChoice(value: $0, title: WebToolsFeature.speedText($0)) },
+                                selected: model.speed) { model.setSpeed($0) }
+                NexMenuNote(text: "Works for games that time themselves with the browser clock. Sound keeps its normal speed.")
+            }
+        }
+        NexMenuSection("Sound") {
+            NexMenuCustomRow {
+                HStack(spacing: 12) {
+                    Button {
+                        NexHaptics.tap()
+                        model.toggleMute()
+                    } label: {
+                        Image(systemName: model.options.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    }
+                    .buttonStyle(NexGlassIconButtonStyle(size: 38))
+                    .accessibilityLabel(model.options.volume == 0 ? "Unmute" : "Mute")
+                    NexValueBar(value: model.options.volume, range: 0...1, step: 0.01,
+                                set: { model.previewVolume($0) }, done: { model.commitVolume() })
+                        .frame(height: 28)
+                        .accessibilityLabel("Volume")
+                    Text("\(Int((model.options.volume * 100).rounded()))%")
+                        .font(NexType.number)
+                        .foregroundStyle(NexColor.accentSoft)
+                        .frame(width: 48, alignment: .trailing)
+                }
+            }
+            NexMenuNote(text: "Kept for this game.")
         }
     }
 
@@ -465,257 +505,143 @@ struct GamePanelView: View {
             QuickButton(title: model.powerProfile.shortTitle, symbol: model.powerProfile.symbol, tint: .yellow, enabled: true) {
                 model.cyclePower()
             }
-            QuickButton(title: "Exit", symbol: "xmark.circle.fill", tint: .red, enabled: true) {
+            QuickButton(title: "Exit", symbol: "xmark.circle.fill", tint: NexColor.danger, enabled: true) {
                 model.exitGame()
             }
         }
         .disabled(model.working)
     }
 
-    private var savesCard: some View {
-        PanelCard("Saves", symbol: "square.stack.3d.down.right.fill") {
-            LazyVGrid(columns: tileColumns, spacing: 12) {
-                ActionTile(title: "Quick Save", symbol: "bolt.circle.fill", tint: .orange) { model.quickSave() }
-                ActionTile(title: "Quick Load", symbol: "bolt.horizontal.circle.fill", tint: .teal) { model.quickLoad() }
-                    .disabled(!model.hasQuick)
-                    .opacity(model.hasQuick ? 1 : 0.45)
-                ActionTile(title: "Save States", symbol: "square.stack.3d.down.right.fill", tint: NexStyle.accent) { model.openStates() }
+    // MARK: Display
+
+    @ViewBuilder private var displayTab: some View {
+        NexMenuSection("Power") {
+            NexMenuChipsRow(title: "Power Profile", detail: model.powerChoice == nil
+                                ? "Default is \(PowerProfile.appDefault.title) (Settings > Gameplay & Performance). \(model.powerProfile.detail)"
+                                : model.powerProfile.detail,
+                            symbol: model.powerProfile.symbol,
+                            choices: [NexMenuChoice(value: "", title: "Default")]
+                                + PowerProfile.allCases.map { NexMenuChoice(value: $0.rawValue, title: $0.shortTitle) },
+                            selected: model.powerChoice?.rawValue ?? "") { model.setPower(PowerProfile(rawValue: $0)) }
+        }
+        NexMenuSection("Performance HUD") {
+            NexMenuToggleRow(title: "Show Performance HUD", detail: "Frame rate, CPU, memory and temperature over the game",
+                             symbol: "speedometer", isOn: model.statsOn) { _ in model.toggleStats() }
+            NexMenuChipsRow(title: "Corner", choices: [
+                NexMenuChoice(value: "topLeft", title: "Top Left"),
+                NexMenuChoice(value: "topRight", title: "Top Right"),
+                NexMenuChoice(value: "bottomLeft", title: "Bottom Left"),
+                NexMenuChoice(value: "bottomRight", title: "Bottom Right"),
+            ], selected: hudCorner) { hudCorner = $0 }
+            NexMenuChipsRow(title: "Detail", choices: [
+                NexMenuChoice(value: "compact", title: "Compact"),
+                NexMenuChoice(value: "full", title: "Full"),
+            ], selected: hudDetail) { hudDetail = $0 }
+            NexMenuNote(text: "Corner and detail apply to every game. CPU and memory are NexPlay's own process; the game's page runs in WebKit's process.")
+        }
+    }
+
+    // MARK: Controls
+
+    @ViewBuilder private var controlsTab: some View {
+        NexMenuSection("Controls Style") {
+            NexMenuCustomRow {
+                ControlsStylePicker(game: model.game, choice: model.controlsStyle) { model.setControlsStyle($0) }
+            }
+        }
+        NexMenuSection("Touch Controls") {
+            NexMenuRow(title: "Edit Touch Controls", symbol: "slider.horizontal.below.square.and.square.filled",
+                       accessory: .chevron) { model.editControls() }
+            NexMenuRow(title: "Layout Preset", detail: "Replaces the touch layout of the game's Controls Style",
+                       symbol: "square.on.square", accessory: .chevron) { page = "presets" }
+            NexMenuRow(title: "Extras", detail: "Key bar, radial menu, turbo, gyro, aim zone, gestures, magnifier, Pencil",
+                       symbol: "sparkles", accessory: .chevron) { model.openExtras() }
+            NexMenuRow(title: "PC Keyboard", symbol: "keyboard") { model.showKeyboard() }
+        }
+        NexMenuSection("Mouse") {
+            NexMenuChipsRow(title: "Mouse Mode", detail: model.mouseMode.detail, symbol: "cursorarrow",
+                            choices: MouseMode.allCases.map { NexMenuChoice(value: $0, title: $0.shortTitle) },
+                            selected: model.mouseMode) { model.setMouseMode($0) }
+        }
+    }
+
+    @ViewBuilder private var presetsPage: some View {
+        NexMenuSection {
+            ForEach(LayoutPreset.allCases) { preset in
+                NexMenuRow(title: preset.title, symbol: preset.symbol) {
+                    model.applyPreset(preset)
+                    page = nil
+                }
+            }
+        }
+        NexMenuNote(text: "Mouse presets turn Trackpad on. Extras work with both styles.")
+    }
+
+    // MARK: Tools
+
+    @ViewBuilder private var toolsTab: some View {
+        if model.isRPG {
+            NexMenuSection("Messages") {
+                NexMenuToggleRow(title: "Instant Text", symbol: "text.badge.checkmark", isOn: model.options.instantText) { value in
+                    model.setOption { $0.instantText = value }
+                }
+                NexMenuChipsRow(title: "Auto-Advance", symbol: "text.alignleft",
+                                choices: [0, 1.5, 3, 5].map { NexMenuChoice(value: $0, title: $0 == 0 ? "Off" : PlayAssistFeature.seconds($0)) },
+                                selected: model.options.autoAdvance) { value in model.setOption { $0.autoAdvance = value } }
+            }
+        }
+        if model.supportsStates {
+            NexMenuSection("Safety Net") {
+                NexMenuChipsRow(title: "Auto Save State", symbol: "clock.arrow.circlepath",
+                                choices: [0, 5, 10, 15, 30].map { NexMenuChoice(value: $0, title: $0 == 0 ? "Off" : "\($0) min") },
+                                selected: model.options.autoStateMinutes) { value in model.setOption { $0.autoStateMinutes = value } }
                 if model.isRPG {
-                    ActionTile(title: "Message Log", symbol: "text.bubble.fill", tint: .blue) { model.openLog() }
-                }
-            }
-            .disabled(model.working)
-        }
-    }
-
-    private var rewindCard: some View {
-        PanelCard("Rewind", symbol: "backward.fill") {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(model.rewind) { point in
-                        Button {
-                            pendingRewind = point
-                        } label: {
-                            RewindChip(point: point)
-                        }
-                        .buttonStyle(PressScaleStyle())
+                    NexMenuToggleRow(title: "Record Rewind", symbol: "backward.fill", isOn: model.options.rewind) { value in
+                        model.setOption { $0.rewind = value }
                     }
                 }
+                NexMenuNote(text: "Auto states are also made when you leave the app. The last 3 are kept.")
             }
-            Text("A snapshot every 15 seconds on the map, for the last 5 minutes.")
-                .font(.caption).foregroundStyle(.secondary)
+        }
+        if model.game.engine == .twine {
+            NexMenuSection("Story") {
+                NexMenuRow(title: "Back", symbol: "arrow.uturn.backward") { model.twine("back") }
+                NexMenuRow(title: "Forward", symbol: "arrow.uturn.forward") { model.twine("forward") }
+                NexMenuNote(text: "Moves through the story's own history (SugarCube).")
+            }
+        }
+        if model.game.engine == .renpy {
+            NexMenuSection("Ren'Py") {
+                NexMenuRow(title: "Quick Save", detail: "Load screen, page Q", symbol: "bolt.circle") {
+                    model.renpy("renpy.run(renpy.store.QuickSave())", done: "Quick saved (Load screen, page Q)")
+                }
+                renpyChips("Auto-Forward", [
+                    ("On", "p = renpy.game.preferences\np.afm_enable = True\nif not p.afm_time:\n    p.afm_time = 15", "Auto-forward on"),
+                    ("Off", "renpy.game.preferences.afm_enable = False", "Auto-forward off"),
+                ])
+                renpyChips("Text Speed", [
+                    ("Instant", "renpy.game.preferences.text_cps = 0", "Text speed: instant"),
+                    ("Fast", "renpy.game.preferences.text_cps = 120", "Text speed: fast"),
+                    ("Normal", "renpy.game.preferences.text_cps = 40", "Text speed: normal"),
+                    ("Slow", "renpy.game.preferences.text_cps = 20", "Text speed: slow"),
+                ])
+                renpyChips("Skip Unseen Text", [
+                    ("On", "renpy.game.preferences.skip_unseen = True", "Skip skips unseen text too"),
+                    ("Off", "renpy.game.preferences.skip_unseen = False", "Skip skips seen text only"),
+                ])
+                NexMenuNote(text: "These change Ren'Py's own preferences, which the game keeps.")
+            }
+        }
+        NexMenuSection("Game") {
+            NexMenuRow(title: "Exit Game", symbol: "xmark.circle", destructive: true) { model.exitGame() }
+            NexMenuNote(text: "The game keeps running while this panel is open; Save States pauses it. Touch and hold the gear on the control bar for the full game menu.")
         }
     }
 
-    private var playbackCard: some View {
-        PanelCard("Playback", symbol: "play.rectangle.fill") {
-            Button {
-                model.togglePause()
-            } label: {
-                Label(model.paused ? "Resume Game" : "Pause Game", systemImage: model.paused ? "play.fill" : "pause.fill")
-            }
-            .buttonStyle(PlayButtonStyle())
-            Text("Game Speed").font(.subheadline.weight(.semibold))
-            Picker("Game Speed", selection: Binding(get: { model.speed }, set: { model.setSpeed($0) })) {
-                ForEach([0.5, 1, 2, 3, 4], id: \.self) { (value: Double) in
-                    Text(WebToolsFeature.speedText(value)).tag(value)
-                }
-            }
-            .pickerStyle(.segmented)
-            Text("Works for games that time themselves with the browser clock. Sound keeps its normal speed.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private var powerCard: some View {
-        PanelCard("Power", symbol: model.powerProfile.symbol) {
-            Picker("Power", selection: Binding(get: { model.powerChoice?.rawValue ?? "" },
-                                               set: { model.setPower(PowerProfile(rawValue: $0)) })) {
-                Text("Default").tag("")
-                ForEach(PowerProfile.allCases) { item in Text(item.shortTitle).tag(item.rawValue) }
-            }
-            .pickerStyle(.segmented)
-            Text(model.powerChoice == nil ? "Default is \(PowerProfile.appDefault.title) (Settings > Gameplay & Performance). \(model.powerProfile.detail)" : model.powerProfile.detail)
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private var inputCard: some View {
-        PanelCard("Input", symbol: "hand.point.up.left.fill") {
-            Text("Controls Style").font(NexType.label)
-            ControlsStylePicker(game: model.game, choice: model.controlsStyle) { model.setControlsStyle($0) }
-            HStack(spacing: 12) {
-                Button {
-                    model.editControls()
-                } label: {
-                    Label("Edit Controls", systemImage: "slider.horizontal.below.square.and.square.filled")
-                        .frame(maxWidth: .infinity)
-                }
-                Button {
-                    model.openExtras()
-                } label: {
-                    Label("Extras", systemImage: "sparkles")
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .buttonStyle(.bordered)
-            .tint(.white)
-            Picker("Mouse", selection: Binding(get: { model.mouseMode }, set: { model.setMouseMode($0) })) {
-                ForEach(MouseMode.allCases) { mode in Text(mode.shortTitle).tag(mode) }
-            }
-            .pickerStyle(.segmented)
-            Text(model.mouseMode.detail)
-                .font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                Menu {
-                    ForEach(LayoutPreset.allCases) { preset in
-                        Button {
-                            model.applyPreset(preset)
-                        } label: {
-                            Label(preset.title, systemImage: preset.symbol)
-                        }
-                    }
-                } label: {
-                    Label("Layout Preset", systemImage: "square.on.square")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                Button {
-                    model.showKeyboard()
-                } label: {
-                    Label("PC Keyboard", systemImage: "keyboard")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-            }
-            .tint(.white)
-            Text("A preset replaces the touch layout of the game's Controls Style. Extras (key bar, radial menu, turbo, gyro, aim zone, gestures, magnifier, Pencil) work with both styles.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private var soundCard: some View {
-        PanelCard("Sound", symbol: "speaker.wave.2.fill") {
-            HStack(spacing: 12) {
-                Button {
-                    model.toggleMute()
-                } label: {
-                    Image(systemName: model.options.volume == 0 ? "speaker.slash.fill" : "speaker.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 38, height: 38)
-                        .background(Color.white.opacity(0.12), in: Circle())
-                }
-                .buttonStyle(PressScaleStyle())
-                Slider(value: Binding(get: { model.options.volume }, set: { model.previewVolume($0) }), in: 0...1,
-                       onEditingChanged: { editing in
-                           if !editing { model.commitVolume() }
-                       })
-                    .tint(NexStyle.accent)
-                Text("\(Int((model.options.volume * 100).rounded()))%")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 46, alignment: .trailing)
-            }
-            Text("Kept for this game.").font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private var textCard: some View {
-        PanelCard("Messages", symbol: "text.alignleft") {
-            Toggle(isOn: Binding(get: { model.options.instantText }, set: { value in model.setOption { $0.instantText = value } })) {
-                Label("Instant Text", systemImage: "text.badge.checkmark")
-            }
-            .tint(NexStyle.accent)
-            Text("Auto-Advance").font(.subheadline.weight(.semibold))
-            Picker("Auto-Advance", selection: Binding(get: { model.options.autoAdvance }, set: { value in model.setOption { $0.autoAdvance = value } })) {
-                ForEach([0, 1.5, 3, 5], id: \.self) { (value: Double) in
-                    Text(value == 0 ? "Off" : PlayAssistFeature.seconds(value)).tag(value)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-    }
-
-    private var safetyCard: some View {
-        PanelCard("Safety Net", symbol: "lifepreserver.fill") {
-            HStack {
-                Label("Auto Save State", systemImage: "clock.arrow.circlepath")
-                Spacer()
-                Picker("Auto Save State", selection: Binding(get: { model.options.autoStateMinutes }, set: { value in model.setOption { $0.autoStateMinutes = value } })) {
-                    ForEach([0, 5, 10, 15, 30], id: \.self) { (value: Int) in
-                        Text(value == 0 ? "Off" : "Every \(value) min").tag(value)
-                    }
-                }
-                .pickerStyle(.menu)
-                .tint(NexStyle.accent)
-            }
-            if model.isRPG {
-                Toggle(isOn: Binding(get: { model.options.rewind }, set: { value in model.setOption { $0.rewind = value } })) {
-                    Label("Record Rewind", systemImage: "backward.fill")
-                }
-                .tint(NexStyle.accent)
-            }
-            Text("Auto states are also made when you leave the app. The last 3 are kept.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private var storyCard: some View {
-        PanelCard("Story", symbol: "text.book.closed.fill") {
-            LazyVGrid(columns: tileColumns, spacing: 12) {
-                ActionTile(title: "Back", symbol: "arrow.uturn.backward", tint: .pink) { model.twine("back") }
-                ActionTile(title: "Forward", symbol: "arrow.uturn.forward", tint: .mint) { model.twine("forward") }
-            }
-            Text("Moves through the story's own history (SugarCube).").font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private var renpyCard: some View {
-        PanelCard("Ren'Py", symbol: "bubble.left.and.text.bubble.right.fill") {
-            ActionTile(title: "Quick Save", symbol: "bolt.circle.fill", tint: .orange) {
-                model.renpy("renpy.run(renpy.store.QuickSave())", done: "Quick saved (Load screen, page Q)")
-            }
-            optionRow("Auto-Forward", [
-                ("On", "p = renpy.game.preferences\np.afm_enable = True\nif not p.afm_time:\n    p.afm_time = 15", "Auto-forward on"),
-                ("Off", "renpy.game.preferences.afm_enable = False", "Auto-forward off"),
-            ])
-            optionRow("Text Speed", [
-                ("Instant", "renpy.game.preferences.text_cps = 0", "Text speed: instant"),
-                ("Fast", "renpy.game.preferences.text_cps = 120", "Text speed: fast"),
-                ("Normal", "renpy.game.preferences.text_cps = 40", "Text speed: normal"),
-                ("Slow", "renpy.game.preferences.text_cps = 20", "Text speed: slow"),
-            ])
-            optionRow("Skip Unseen Text", [
-                ("On", "renpy.game.preferences.skip_unseen = True", "Skip skips unseen text too"),
-                ("Off", "renpy.game.preferences.skip_unseen = False", "Skip skips seen text only"),
-            ])
-            Text("These change Ren'Py's own preferences, which the game keeps.").font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    /// A label over a row of buttons that each run some Ren'Py Python.
-    private func optionRow(_ title: String, _ items: [(String, String, String)]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.subheadline.weight(.semibold))
-            HStack(spacing: 8) {
-                ForEach(items.indices, id: \.self) { index in
-                    let item = items[index]
-                    Button {
-                        model.renpy(item.1, done: item.2)
-                    } label: {
-                        Text(item.0)
-                            .font(.footnote.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 9)
-                            .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(NexStyle.cardStroke))
-                    }
-                    .buttonStyle(PressScaleStyle())
-                    .foregroundStyle(.white)
-                }
-            }
-        }
+    /// Buttons that each run some Ren'Py Python (Ren'Py keeps the value; NexPlay can't read it back).
+    private func renpyChips(_ title: String, _ items: [(String, String, String)]) -> some View {
+        NexMenuChipsRow(title: title, choices: items.indices.map { NexMenuChoice(value: $0, title: items[$0].0) },
+                        selected: nil) { index in model.renpy(items[index].1, done: items[index].2) }
     }
 }
 
@@ -739,7 +665,7 @@ struct RewindChip: View {
 }
 
 
-/// A big square button for the Game Panel's top row.
+/// A big square button for the Game Panel's top row (8.3.0: glass, design-system type).
 struct QuickButton: View {
     let title: String
     let symbol: String
@@ -748,20 +674,22 @@ struct QuickButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            NexHaptics.press()
+            action()
+        } label: {
             VStack(spacing: 6) {
                 Image(systemName: symbol)
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(tint)
                 Text(title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .font(NexType.captionStrong)
+                    .foregroundStyle(NexColor.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
-            .frame(maxWidth: .infinity, minHeight: 72)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(NexStyle.cardStroke))
+            .frame(maxWidth: .infinity, minHeight: 68)
+            .nexGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous), interactive: true)
         }
         .buttonStyle(PressScaleStyle())
         .disabled(!enabled)

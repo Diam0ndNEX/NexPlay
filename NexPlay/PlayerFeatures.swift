@@ -23,6 +23,9 @@ final class PlayerContext {
     var editControls: () -> Void = {}
     /// 8.2.1: the game's Extras sheet.
     var openExtras: () -> Void = {}
+    /// 8.3.0: the Performance HUD (Show Stats) of this game, for the Game Panel's Display tab.
+    var statsShown: () -> Bool = { false }
+    var toggleStats: () -> Void = {}
 
     init(gameLog: GameLog) {
         self.gameLog = gameLog

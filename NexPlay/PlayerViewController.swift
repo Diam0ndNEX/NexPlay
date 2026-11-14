@@ -179,6 +179,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         context.setControlsStyle = { [weak self] style in self?.setControlsStyle(style) }
         context.editControls = { [weak self] in self?.editControls() }
         context.openExtras = { [weak self] in self?.openExtras() }
+        context.statsShown = { [weak self] in self?.game.statsOverlay ?? false }
+        context.toggleStats = { [weak self] in self?.toggleStats() }
         features = PlayerFeatures.make(context: context)
         for feature in features {
             for script in feature.userScripts(for: game) { content.addUserScript(script) }
