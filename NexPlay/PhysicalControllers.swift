@@ -143,40 +143,51 @@ final class PhysicalControllerManager {
 
     private func attach(_ controller: GCController) {
         if let pad = controller.extendedGamepad {
-            bind(pad.buttonA, .a)
-            bind(pad.buttonB, .b)
-            bind(pad.buttonX, .x)
-            bind(pad.buttonY, .y)
-            bind(pad.leftShoulder, .l1)
-            bind(pad.rightShoulder, .r1)
-            bind(pad.leftTrigger, .l2)
-            bind(pad.rightTrigger, .r2)
-            bind(pad.buttonMenu, .menu)
-            if let options = pad.buttonOptions { bind(options, .options) }
-            if let l3 = pad.leftThumbstickButton { bind(l3, .l3) }
-            if let r3 = pad.rightThumbstickButton { bind(r3, .r3) }
-            pad.dpad.valueChangedHandler = { [weak self] _, x, y in
-                self?.updateDirections(x: x, y: y, fromStick: false)
+            bind(pad.buttonA, .a, controller)
+            bind(pad.buttonB, .b, controller)
+            bind(pad.buttonX, .x, controller)
+            bind(pad.buttonY, .y, controller)
+            bind(pad.leftShoulder, .l1, controller)
+            bind(pad.rightShoulder, .r1, controller)
+            bind(pad.leftTrigger, .l2, controller)
+            bind(pad.rightTrigger, .r2, controller)
+            bind(pad.buttonMenu, .menu, controller)
+            if let options = pad.buttonOptions { bind(options, .options, controller) }
+            if let l3 = pad.leftThumbstickButton { bind(l3, .l3, controller) }
+            if let r3 = pad.rightThumbstickButton { bind(r3, .r3, controller) }
+            pad.dpad.valueChangedHandler = { [weak self, weak controller] _, x, y in
+                guard let self, self.accepts(controller) else { return }
+                self.updateDirections(x: x, y: y, fromStick: false)
             }
-            pad.leftThumbstick.valueChangedHandler = { [weak self] _, x, y in
-                self?.updateDirections(x: x, y: y, fromStick: true)
+            pad.leftThumbstick.valueChangedHandler = { [weak self, weak controller] _, x, y in
+                guard let self, self.accepts(controller) else { return }
+                self.updateDirections(x: x, y: y, fromStick: true)
             }
             AppLog.log("controller connected: \(controller.vendorName ?? "unknown") (extended)")
         } else if let pad = controller.microGamepad {
-            bind(pad.buttonA, .a)
-            bind(pad.buttonX, .b)
-            bind(pad.buttonMenu, .menu)
-            pad.dpad.valueChangedHandler = { [weak self] _, x, y in
-                self?.updateDirections(x: x, y: y, fromStick: false)
+            bind(pad.buttonA, .a, controller)
+            bind(pad.buttonX, .b, controller)
+            bind(pad.buttonMenu, .menu, controller)
+            pad.dpad.valueChangedHandler = { [weak self, weak controller] _, x, y in
+                guard let self, self.accepts(controller) else { return }
+                self.updateDirections(x: x, y: y, fromStick: false)
             }
             AppLog.log("controller connected: \(controller.vendorName ?? "unknown") (basic)")
         }
     }
 
-    private func bind(_ input: GCControllerButtonInput, _ button: ControllerButton) {
-        input.pressedChangedHandler = { [weak self] _, _, pressed in
-            self?.handle(button, pressed)
+    private func bind(_ input: GCControllerButtonInput, _ button: ControllerButton, _ controller: GCController) {
+        input.pressedChangedHandler = { [weak self, weak controller] _, _, pressed in
+            guard let self, self.accepts(controller) else { return }
+            self.handle(button, pressed)
         }
+    }
+
+    /// 8.2.2: with Settings > Controls > Controllers > Only Player 1 Presses Keys, other pads are left to the game.
+    private func accepts(_ controller: GCController?) -> Bool {
+        guard UserDefaults.standard.bool(forKey: SettingsKey.controllerKeysPlayerOne) else { return true }
+        guard let one = NexControllerHub.shared.playerOne, let controller else { return true }
+        return controller === one
     }
 
     private func handle(_ button: ControllerButton, _ pressed: Bool) {

@@ -92,6 +92,8 @@ struct NexPlayApp: App {
         SettingsKey.physicalControllerEnabled: true,
         SettingsKey.hidePadWithController: true,
         SettingsKey.barWithController: false,
+        SettingsKey.controllerRumble: true,
+        SettingsKey.controllerKeysPlayerOne: false,
         SettingsKey.autoRotateInGames: false,
         SettingsKey.newGameOrientation: "landscape",
         SettingsKey.autoRotateOutside: false,
@@ -131,6 +133,8 @@ struct NexPlayApp: App {
                 .onOpenURL { url in open(url) }
                 .task {
                     OrientationManager.unlock()
+                    // 8.2.2: player order, player lights and rumble for every engine.
+                    NexControllerHub.shared.start()
                     // 6.3.0: Settings > JIT & Performance > Enable JIT at App Launch.
                     if UserDefaults.standard.bool(forKey: SettingsKey.jitAtLaunch) {
                         JITManager.shared.enable()

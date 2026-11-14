@@ -242,7 +242,7 @@ struct SettingsView: View {
 
     private func resetDefaults() {
         let defaults = UserDefaults.standard
-        let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys + SettingsKey.powerKeys + SettingsKey.hudKeys
+        let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys + SettingsKey.powerKeys + SettingsKey.hudKeys + SettingsKey.controllerKeys
             + [SettingsKey.translationEnabled, SettingsKey.colorProfile, SettingsKey.colorProfileSeed]
         for key in keys { defaults.removeObject(forKey: key) }
         OrientationManager.unlock()
@@ -610,6 +610,11 @@ struct ControlsSettings: View {
                     Label("Controller Mapping", systemImage: "pencil")
                 }
                 .disabled(!physical)
+                NavigationLink {
+                    ControllersView()
+                } label: {
+                    SettingLabel("Controllers", "Players, rumble, battery and a live tester, for every engine.")
+                }
             } header: {
                 SettingsHeader(title: "Physical Controller", symbol: "gamecontroller.fill", color: .green)
             }

@@ -11,7 +11,7 @@ once all steps are done, then pastes build errors (first error first).
 | Design system applied: Home, Library, tab bar, Settings, Setup Center | 8.1.1 (67) | pushed 2026-11-13 |
 | Controls Style (NexPlay Pad / PC Controls) | 8.2.0 (68) | built OK 2026-11-13 |
 | Controls: extras for web games, presets in both styles | 8.2.1 (69) | pushed 2026-11-13 |
-| Controls: merged physical controllers | 8.2.2 | |
+| Controls: one controller system (hub, players, rumble, tester) | 8.2.2 (70) | pushed 2026-11-14 |
 | In-game | 8.3.0 | |
 | Game page | 8.4.0 | |
 | itch.io (other stores hidden) | 8.5.0 | |
@@ -98,6 +98,13 @@ aim zone, gestures, magnifier, Pencil; opened from the Game Panel, the NexPlay P
 editor is unchanged, so it has no Extras entry). Windows games keep BCD's own extras (in-game menu). Layout presets now
 work in both styles (PC Controls: converted to a BCD touch layout) and in the Windows panel. 8.2.2: BCD's HardwareInput and
 controller hub merged with PhysicalControllers.
+
+8.2.2 notes: "merged" as one NexPlay system on top of both, not a code merge: BCD's HardwareInput/GamepadInput/hub stay
+unchanged and keep running Windows games (XInput slots, rumble, controller-as-keyboard in BCD's in-game menu); replacing
+them would mean rewriting BCD's input path. NexPlay's `NexControllerHub` (Controllers.swift, ideas from BCDControllerHub)
+gives every engine player order with player lights, rumble for web games (Gamepad API vibrationActuator shim → the pad's
+haptics), Only Player 1 Presses Keys, battery and a live tester (Settings > Controls > Controllers). Gamepad-index-to-pad
+matching for web rumble follows connection order and can be wrong after Make Player 1.
 
 ## Controls: both systems, one place to choose
 - Every game has **Controls Style**:

@@ -63,7 +63,7 @@ enum PlayerFeatures {
         let panel = GamePanelFeature(context: context, assist: PlayAssistFeature(context: context),
                                      tools: WebToolsFeature(context: context), power: PowerFeature(context: context))
         return [panel, PluginsFeature(context: context), CheatsFeature(context: context),
-                TranslationFeature(context: context), RenPySavesFeature(context: context)]
+                TranslationFeature(context: context), RenPySavesFeature(context: context), RumbleFeature(context: context)]
     }
 
     /// Replacement file contents the scheme handler serves for a game (relative path, lowercased), or nil.
