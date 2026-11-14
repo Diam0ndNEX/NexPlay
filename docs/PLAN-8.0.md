@@ -13,7 +13,7 @@ once all steps are done, then pastes build errors (first error first).
 | Controls: extras for web games, presets in both styles | 8.2.1 (69) | pushed 2026-11-13 |
 | Controls: one controller system (hub, players, rumble, tester) | 8.2.2 (70) | failed: file names used twice (first engine build) |
 | Fix: NexPlay's JITPairing.swift and Onboarding.swift renamed | 8.2.3 (71) | pushed 2026-11-14 |
-| In-game: shared in-game menu (BCD layout), Game Panel on it | 8.3.0 (72) | pushed 2026-11-14 |
+| In-game: shared in-game menu (BCD layout), Game Panel on it | 8.3.0 (72) | built OK 2026-11-14 |
 | In-game: Windows panel on the menu, BCD's menu rows, one-Windows-game cards | 8.3.1 | |
 | In-game: Performance HUD in BCD's HUD layout, every engine | 8.3.2 | |
 | Game page | 8.4.0 | |
