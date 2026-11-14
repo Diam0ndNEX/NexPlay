@@ -11,7 +11,8 @@ once all steps are done, then pastes build errors (first error first).
 | Design system applied: Home, Library, tab bar, Settings, Setup Center | 8.1.1 (67) | pushed 2026-11-13 |
 | Controls Style (NexPlay Pad / PC Controls) | 8.2.0 (68) | built OK 2026-11-13 |
 | Controls: extras for web games, presets in both styles | 8.2.1 (69) | pushed 2026-11-13 |
-| Controls: one controller system (hub, players, rumble, tester) | 8.2.2 (70) | pushed 2026-11-14 |
+| Controls: one controller system (hub, players, rumble, tester) | 8.2.2 (70) | failed: file names used twice (first engine build) |
+| Fix: NexPlay's JITPairing.swift and Onboarding.swift renamed | 8.2.3 (71) | pushed 2026-11-14 |
 | In-game | 8.3.0 | |
 | Game page | 8.4.0 | |
 | itch.io (other stores hidden) | 8.5.0 | |
