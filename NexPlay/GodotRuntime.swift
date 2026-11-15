@@ -47,6 +47,8 @@ struct GodotLaunch {
     let args: [String]
     /// 8.7.16: a Godot 3 C# game on the C# (Mono) web runtime.
     var csharp = false
+    /// 8.9.0: the packs the game loads itself from its pack/ folder; they go to <executable folder>/pack/ in the web file system.
+    var companions: [URL] = []
 }
 
 enum GodotRuntime {
@@ -280,7 +282,53 @@ enum GodotRuntime {
             packs.append((url, size))
         }
         let valid = packs.filter { packVersion($0.0) != nil }
-        return (valid.isEmpty ? packs : valid).max { $0.1 < $1.1 }?.0
+        let pool = valid.isEmpty ? packs : valid
+        // 8.9.0: a pack named like an executable beside it is the game's main pack (Project Kat: ProjectKat.exe carries
+        // ProjectKat.pck; pack/_ch000.pck and the others are loaded by the game itself and are bigger).
+        let named = pool.filter { isMainPackOfExecutable($0.0) }
+        return (named.isEmpty ? pool : named).max { $0.1 < $1.1 }?.0
+    }
+
+    /// True when an executable with the pack's name sits beside it ("Game.pck" next to "Game.exe").
+    static func isMainPackOfExecutable(_ pack: URL) -> Bool {
+        let base = pack.deletingPathExtension().lastPathComponent.lowercased()
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: pack.deletingLastPathComponent().path)) ?? [])
+        return names.contains { name in
+            let lower = name.lowercased()
+            let ext = (lower as NSString).pathExtension
+            return (lower as NSString).deletingPathExtension == base && executableExtensions.contains(ext) && ext != ""
+        }
+    }
+
+    /// 8.9.0: for a game imported before this fix (its entry is the biggest pack, not the one named like the .exe):
+    /// the pack named like an executable, when the entry is not one.
+    static func betterMainPack(than entry: URL, root: URL) -> URL? {
+        guard !isMainPackOfExecutable(entry), let best = mainPack(in: root), best != entry, isMainPackOfExecutable(best) else { return nil }
+        return best
+    }
+
+    /// 8.9.0: the packs a game loads itself from a pack/ folder beside its main pack (Lacie Engine games load
+    /// `<exe folder>/pack/*.pck` with ProjectSettings.LoadResourcePack). Translation packs only for the phone's language:
+    /// each is memory the web view holds.
+    static func companionPacks(of pack: URL) -> [URL] {
+        let folder = pack.deletingLastPathComponent()
+        let dirs = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.lowercased() == "pack" }
+        var out: [URL] = []
+        let language = (Locale.preferredLanguages.first ?? "en").replacingOccurrences(of: "-", with: "_")
+        let short = String(language.prefix(2)).lowercased()
+        for dir in dirs {
+            let url = folder.appendingPathComponent(dir, isDirectory: true)
+            for file in ((try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []).sorted() where file.lowercased().hasSuffix(".pck") {
+                let lower = file.lowercased()
+                if lower.hasPrefix("translation_") {
+                    let code = String(lower.dropFirst(12).dropLast(4))
+                    let chinese = short == "zh" ? (language.lowercased().contains("hant") || language.lowercased().contains("tw") || language.lowercased().contains("hk") ? "zh_tw" : "zh_cn") : ""
+                    guard code == short || code == language.lowercased().prefix(code.count) || code == chinese else { continue }
+                }
+                out.append(url.appendingPathComponent(file))
+            }
+        }
+        return out
     }
 
     /// True when the folder looks like a C#/.NET Godot export (those can't run on the web runtime).
@@ -619,7 +667,12 @@ enum GodotRuntime {
                 let folder = try prepareMono(mono)
                 notes += try GodotMono.prepare(pack: pack, root: root, runtimeFolder: folder, runtime: mono)
                 notes.append("C# game: Godot \(mono) C# web runtime (C# is interpreted and single-threaded here, so it runs slower than on a PC)")
-                return GodotLaunch(version: head.version, runtime: mono, folder: folder, notes: notes, args: args, csharp: true)
+                var launch = GodotLaunch(version: head.version, runtime: mono, folder: folder, notes: notes, args: args, csharp: true)
+                launch.companions = companionPacks(of: pack)
+                if !launch.companions.isEmpty {
+                    launch.notes.append("packs the game loads itself: " + launch.companions.map { $0.lastPathComponent }.joined(separator: ", "))
+                }
+                return launch
             }
             if info.mainScene == nil && cfgScene == nil && !info.scenes.isEmpty {
                 let top = info.scenes.sorted { (depth($0), $0) < (depth($1), $1) }.prefix(15)
@@ -668,7 +721,7 @@ enum GodotRuntime {
 
     /// The page that starts a desktop game on the web runtime. Paths are URL paths on the local server.
     /// `packPath` is percent-encoded and relative to the game folder.
-    static func launcherPage(packPath: String, title: String, threads: Bool, args: [String] = []) -> Data {
+    static func launcherPage(packPath: String, title: String, threads: Bool, args: [String] = [], companions: [(url: String, name: String)] = []) -> Data {
         let pack = PageScripts.jsString("/" + packPath)
         // override.cfg goes next to the pack in Godot's file system (same folder as the pack's path there).
         let packDir = (packPath as NSString).deletingLastPathComponent
@@ -683,6 +736,10 @@ enum GodotRuntime {
             } else {
                 engineArgs.append(arg)
             }
+        }
+        // 8.9.0: the game's own packs, where `OS.GetExecutablePath().GetBaseDir() + "/pack/"` finds them ('/__godot/godot').
+        for companion in companions {
+            preloads.append("[" + PageScripts.jsString("/" + companion.url) + ", " + PageScripts.jsString("/__godot/pack/" + companion.name) + "]")
         }
         let argList = "[" + engineArgs.map { PageScripts.jsString($0) }.joined(separator: ", ") + "]"
         let preloadList = "[" + preloads.joined(separator: ", ") + "]"

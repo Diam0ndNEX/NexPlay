@@ -106,7 +106,10 @@ enum GodotMono {
     /// log. Synchronous file work: call it from a background task.
     static func prepare(pack: URL, root: URL?, runtimeFolder: URL, runtime: GodotVersion) throws -> [String] {
         let fm = FileManager.default
-        guard let gameFolder = gameAssemblies(pack: pack, root: root) else { throw MonoError.noAssemblies }
+        // 8.9.0: no assemblies folder = the game's C# is inside the pack itself (Project Kat's .exe carries a pack with
+        // res://.mono/assemblies/Release/Lacie Engine.dll and the desktop class libraries): "embedded" mode.
+        let gameFolder = gameAssemblies(pack: pack, root: root)
+        let embedded = gameFolder == nil
         // The runtime's files first (class libraries for the web, GodotSharp.dll for this engine), then the game's.
         var byName: [String: Addition] = [:]
         var order: [String] = []
@@ -130,17 +133,19 @@ enum GodotMono {
         guard byName["mscorlib.dll"] != nil, byName["godotsharp.dll"] != nil else {
             throw MonoError.badPack("the Godot \(runtime) C# runtime in this build is incomplete")
         }
-        for url in ((try? fm.contentsOfDirectory(at: gameFolder, includingPropertiesForKeys: [.fileSizeKey])) ?? [])
-            .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            if url.lastPathComponent.lowercased().hasPrefix("godotsharp") { continue }
-            if add(url) { fromGame += 1 }
+        if let gameFolder {
+            for url in ((try? fm.contentsOfDirectory(at: gameFolder, includingPropertiesForKeys: [.fileSizeKey])) ?? [])
+                .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                if url.lastPathComponent.lowercased().hasPrefix("godotsharp") { continue }
+                if add(url) { fromGame += 1 }
+            }
+            guard fromGame > 0 else { throw MonoError.noAssemblies }
         }
-        guard fromGame > 0 else { throw MonoError.noAssemblies }
         let additions = order.compactMap { byName[$0] }
 
         // Done before with the same files?
         let marker = pack.deletingLastPathComponent().appendingPathComponent("." + pack.lastPathComponent + ".nexmono")
-        let stamp = (["runtime \(runtime)"] + additions.map { "\($0.name) \($0.size)" }).joined(separator: "\n")
+        let stamp = (["runtime \(runtime)" + (embedded ? " embedded" : "")] + additions.map { "\($0.name) \($0.size)" }).joined(separator: "\n")
         if let old = try? String(contentsOf: marker, encoding: .utf8), old == stamp {
             return ["C# files already in the pack for the Godot \(runtime) C# runtime (\(additions.count) files)"]
         }
@@ -173,8 +178,25 @@ enum GodotMono {
             let name = String(decoding: nameData.prefix { $0 != 0 }, as: UTF8.self)
             entries.append(Entry(nameData: nameData, name: name, offset: offset, size: size, md5: md5))
         }
-        // Earlier C# files (another runtime) are replaced.
-        let kept = entries.filter { !$0.name.lowercased().hasPrefix("res://.mono/assemblies/") }
+        // Earlier C# files (another runtime) are replaced. Embedded mode keeps the game's own assemblies (Lacie Engine.dll,
+        // Karambolo.PO.dll, Newtonsoft.Json.dll...) and drops the desktop class libraries, GodotSharp and the .pdb files:
+        // the runtime brings the web versions of those.
+        func isFramework(_ file: String) -> Bool {
+            ["system.", "mono.", "i18n", "accessibility", "mscorlib", "netstandard", "novell.", "godotsharp"].contains { file.hasPrefix($0) }
+        }
+        let assembliesPrefix = "res://.mono/assemblies/"
+        let kept = entries.filter { entry in
+            let lower = entry.name.lowercased()
+            guard lower.hasPrefix(assembliesPrefix) else { return true }
+            guard embedded else { return false }
+            let file = (lower as NSString).lastPathComponent
+            return file.hasSuffix(".dll") && byName[file] == nil && !isFramework(file)
+        }
+        let embeddedGame = kept.filter { $0.name.lowercased().hasPrefix(assembliesPrefix) }
+        if embedded {
+            guard !embeddedGame.isEmpty else { throw MonoError.noAssemblies }
+            fromGame = embeddedGame.count
+        }
 
         var newNames: [Data] = []
         for addition in additions {
@@ -249,7 +271,8 @@ enum GodotMono {
         }
         _ = try fm.replaceItemAt(pack, withItemAt: temp)
         try? stamp.write(to: marker, atomically: true, encoding: .utf8)
-        return ["C# files put into the pack for the Godot \(runtime) C# runtime: \(fromGame) from the game (\(gameFolder.deletingLastPathComponent().lastPathComponent)/Assemblies), \(fromRuntime) from the runtime; \(entries.count - kept.count) earlier ones replaced"]
+        let source = gameFolder.map { "\($0.deletingLastPathComponent().lastPathComponent)/Assemblies" } ?? "the pack itself"
+        return ["C# files put into the pack for the Godot \(runtime) C# runtime: \(fromGame) from the game (\(source)), \(fromRuntime) from the runtime; \(entries.count - kept.count + embeddedGame.count) earlier ones replaced"]
     }
 
     private static func appendU32(_ data: inout Data, _ value: UInt32) {

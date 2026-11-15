@@ -578,12 +578,24 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     /// bundled web runtime and serves it under __godot/, with a launcher page that loads the game's .pck.
     /// Returns false (with a banner) on failure.
     private func prepareGodotRuntime(on server: LocalGameServer) async -> Bool {
-        let pack = Paths.folder(for: game).appendingPathComponent(game.entry)
+        var pack = Paths.folder(for: game).appendingPathComponent(game.entry)
         let chosen = game.runtimeVersion
         let root = Paths.folder(for: game)
+        // 8.9.0: a game imported with the wrong main pack (the biggest one) gets the one named like its .exe.
+        var entry = game.entry
+        if let better = GodotRuntime.betterMainPack(than: pack, root: root) {
+            let rel = String(better.path.dropFirst(root.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if !rel.isEmpty {
+                gameLog.add("godot: main pack is \(rel) (not \(game.entry))")
+                pack = better
+                entry = rel
+                update { $0.entry = rel }
+            }
+        }
+        let launchPack = pack
         let result = await Task.detached(priority: .userInitiated) { () -> Result<GodotLaunch, Error> in
             do {
-                return .success(try GodotRuntime.launch(pack: pack, override: chosen, root: root))
+                return .success(try GodotRuntime.launch(pack: launchPack, override: chosen, root: root))
             } catch {
                 return .failure(error)
             }
@@ -598,10 +610,16 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                 if (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { continue }
                 server.virtualFiles["__godot/" + name] = file.path
             }
-            let encoded = game.entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? game.entry
+            let encoded = entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? entry
             let threads = launch.runtime.major == 4 && launch.runtime.minor < 3
+            let companions: [(url: String, name: String)] = launch.companions.map { file in
+                let rel = String(file.path.dropFirst(root.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                return (url: rel.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? rel,
+                        name: file.lastPathComponent)
+            }
             server.virtualPages["__nexplay/godot.html"] = GodotRuntime.launcherPage(packPath: encoded, title: game.name,
-                                                                                    threads: threads, args: launch.args + (game.runOptions?.argumentList ?? []))
+                                                                                    threads: threads, args: launch.args + (game.runOptions?.argumentList ?? []),
+                                                                                    companions: companions)
             launchPath = "__nexplay/godot.html"
             activeRuntime = launch.runtime.description
             gameLog.add("Godot \(launch.version) game on the Godot \(launch.runtime)\(launch.csharp ? " C#" : "") web runtime")
