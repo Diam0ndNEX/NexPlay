@@ -55,6 +55,8 @@ struct GameSettingsView: View {
             .background(AppBackground().ignoresSafeArea())
             .navigationTitle("Game Settings")
             .navigationBarTitleDisplayMode(.inline)
+            // 8.10.4: inside the full-screen game page the page's own header shows the title and the close button.
+            .toolbar(embedded ? .hidden : .automatic, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     if !embedded { SheetCloseButton { dismiss() } }

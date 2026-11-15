@@ -115,15 +115,10 @@ struct GameDetailView: View {
                 } else {
                     gone
                 }
-                if panel != nil {
-                    Color.black.opacity(0.45)
-                        .ignoresSafeArea()
-                        .onTapGesture { closePanel() }
-                        .transition(.opacity)
-                }
+                // 8.10.4: Options, Saves, Media and Mods fill the whole screen (no half-open panel, no dim layer).
                 if let panel, let game {
                     panelView(game, panel, m)
-                        .transition(.move(edge: m.upright ? .bottom : .trailing))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(2)
                 }
             }
@@ -329,6 +324,8 @@ struct GameDetailView: View {
                         .padding(.horizontal, 14)
                         .frame(height: 38)
                         .nexGlassCapsule(interactive: true)
+                        .frame(minWidth: 64, minHeight: 48)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Back")
@@ -683,67 +680,32 @@ struct GameDetailView: View {
 
     // MARK: - Panel
 
+    /// 8.10.4: a full-screen page: the game's art blurred across the top, the page's title and a close button, the
+    /// other pages as a tab row, then the page. (Before: a half-open panel with a drag handle and a dim layer.)
     @ViewBuilder private func panelView(_ game: Game, _ page: GamePagePanel, _ m: GamePageMetrics) -> some View {
-        if m.upright {
+        ZStack {
+            AppBackground().ignoresSafeArea()
+            art(game)
+                .opacity(0.5)
+                .frame(height: 300)
+                .overlay {
+                    LinearGradient(stops: [.init(color: ground.opacity(0.55), location: 0),
+                                           .init(color: ground.opacity(0.92), location: 0.7),
+                                           .init(color: ground, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .blur(radius: 22)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             VStack(spacing: 0) {
-                // 8.7.8: the panel fills the screen below the status bar (it stopped at 86 % before, which looked
-                // half-open); drag the handle or the tab row down to close it.
-                // 8.7.10: a fixed gap. A Spacer shared the free height with the panel and left it half open.
-                Color.clear.frame(height: m.insets.top + 6)
-                VStack(spacing: 0) {
-                    VStack(spacing: 0) {
-                        Capsule().fill(NexColor.dark(.stroke)).frame(width: 40, height: 5).padding(.top, 8)
-                        panelHeader(game, page)
-                    }
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 12)
-                            .onChanged { value in panelDrag = max(0, value.translation.height) }
-                            .onEnded { value in
-                                if value.translation.height > 120 || value.predictedEndTranslation.height > 260 {
-                                    panelDrag = 0
-                                    closePanel()
-                                } else {
-                                    withAnimation(NexMotion.pick(NexMotion.snappy)) { panelDrag = 0 }
-                                }
-                            }
-                    )
-                    panelContent(game, page)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(maxHeight: .infinity)
-                .background {
-                    UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous)
-                        .fill(ground)
-                        .overlay {
-                            UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous)
-                                .strokeBorder(NexColor.dark(.stroke), lineWidth: 1)
-                        }
-                        .ignoresSafeArea(edges: .bottom)
-                }
-                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous))
-                // 8.7.9: the offset comes after the background, so the whole panel moves while dragged (the ground
-                // stayed behind as an empty black block before).
-                .offset(y: panelDrag)
+                panelHeader(game, page)
+                panelContent(game, page)
             }
-            .ignoresSafeArea(edges: .bottom)
-            .onDisappear { panelDrag = 0 }
-        } else {
-            HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                VStack(spacing: 0) {
-                    panelHeader(game, page)
-                    panelContent(game, page)
-                }
-                .frame(width: m.panelWidth)
-                .frame(maxHeight: .infinity)
-                .background {
-                    ground
-                        .overlay(alignment: .leading) { Rectangle().fill(NexColor.dark(.stroke)).frame(width: 1) }
-                        .ignoresSafeArea()
-                }
-            }
+            .frame(maxWidth: 820)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// The panel's title, the other pages of this game as chips, and close.
@@ -760,9 +722,31 @@ struct GameDetailView: View {
 
     private func panelHeader(_ game: Game, _ page: GamePagePanel) -> some View {
         let pages = panelPages(game)
-        return HStack(spacing: 8) {
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(game.name)
+                        .font(NexType.display(26))
+                        .foregroundStyle(NexColor.dark(.text))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text(page.title)
+                        .font(NexType.caption)
+                        .foregroundStyle(NexColor.dark(.textSoft))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Button { closePanel() } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(NexGlassIconButtonStyle(size: 44))
+                .accessibilityLabel("Close")
+            }
+            .padding(.horizontal, 18)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     ForEach(pages) { item in
                         Button {
                             guard panel != item else { return }
@@ -772,7 +756,7 @@ struct GameDetailView: View {
                             Label(item.title, systemImage: item.symbol)
                                 .font(NexType.captionStrong)
                                 .foregroundStyle(item == page ? NexColor.dark(.onAccent) : NexColor.dark(.text))
-                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .padding(.horizontal, 14).padding(.vertical, 10)
                                 .background {
                                     if item == page {
                                         Capsule().fill(NexColor.accentGradient)
@@ -780,18 +764,16 @@ struct GameDetailView: View {
                                         Capsule().fill(Color.white.opacity(0.08))
                                     }
                                 }
+                                .contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.leading, 14)
+                .padding(.horizontal, 18)
             }
-            Button { closePanel() } label: { Image(systemName: "xmark") }
-                .buttonStyle(NexGlassIconButtonStyle(size: 36))
-                .accessibilityLabel("Close")
-                .padding(.trailing, 12)
         }
-        .padding(.vertical, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
     }
 
     @ViewBuilder private func panelContent(_ game: Game, _ page: GamePagePanel) -> some View {

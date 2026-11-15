@@ -319,6 +319,8 @@ struct LibraryView: View {
     @State private var filter: LibraryFilter = .all
     @State private var playing: Game?
     @State private var detail: Game?
+    /// 8.10.4: the game to start once the game page has finished closing (see the detail cover's onDismiss).
+    @State private var pendingPlay: Game?
     @State private var showCollections = false
     @State private var selecting = false
     @State private var selection: Set<UUID> = []
@@ -423,6 +425,16 @@ struct LibraryView: View {
         return seen
     }
 
+    private func startPendingPlay() {
+        guard let next = pendingPlay, detail == nil else { return }
+        pendingPlay = nil
+        playing = nil
+        DispatchQueue.main.async {
+            AppLog.log("play: opening the player for \(next.name)")
+            playing = next
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             if tab == .settings {
@@ -448,16 +460,20 @@ struct LibraryView: View {
             })
             .ignoresSafeArea()
         }
-        .fullScreenCover(item: $detail) { game in
+        .fullScreenCover(item: $detail, onDismiss: startPendingPlay) { game in
             GameDetailView(gameID: game.id) { chosen in
+                // 8.10.4: the player opens when the game page has really closed (onDismiss), not after a guessed
+                // delay: a cover presented while another one was still closing was dropped, and `playing` then kept
+                // its value, so Play did nothing until the app restarted. 8.10.4: the card-to-page zoom is gone
+                // too: its interactive dismiss gesture swallowed taps on Back.
+                AppLog.log("play: \(chosen.name) chosen on the game page")
+                pendingPlay = chosen
                 detail = nil
-                // Let the game page finish closing before the player opens.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { playing = chosen }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { startPendingPlay() }
             }
             .environmentObject(store)
             .environmentObject(collections)
             .environmentObject(privacy)
-            .nexZoomDestination(game.id, in: cardSpace)
         }
         .sheet(isPresented: $showCollections) {
             CollectionsManagerView().environmentObject(collections)
