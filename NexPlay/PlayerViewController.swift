@@ -80,6 +80,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var loadTask: Task<Void, Never>?
     private var pickPurpose: PickPurpose = .jsonRestore
     private var didWarnAboutMemory = false
+    private var memoryKills: [Date] = []
     private var migrationRunning = false
     private let keyRouter = KeyRouter()
     private var controllers: PhysicalControllerManager?
@@ -191,6 +192,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         context.previewPicture = { [weak self] options in self?.previewPicture(options) }
         context.screenshot = { [weak self] in self?.takeScreenshot() }
         context.setOrientation = { [weak self] mode in self?.setOrientation(mode) }
+        context.restartGame = { [weak self] in self?.prepareAndLoad() }
+        context.showGameLog = { [weak self] in self?.showLog() }
         features = PlayerFeatures.make(context: context)
         for feature in features {
             for script in feature.userScripts(for: game) { content.addUserScript(script) }
@@ -1687,6 +1690,14 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         gameLog.add("the web content process stopped (probably out of memory); reloading")
         AppLog.log("\(game.name): web content process stopped (probably out of memory); reloaded")
+        let now = Date()
+        memoryKills = memoryKills.filter { now.timeIntervalSince($0) < 90 } + [now]
+        if memoryKills.count >= 3 {
+            // 8.11.2: three kills in 90 seconds means a reload loop; stop and say so.
+            gameLog.add("the game was stopped 3 times in 90 seconds; not reloading again")
+            showBanner("iOS keeps stopping this game because it needs too much memory. Close other apps, lower its resolution in Game Settings, or restart it from the game panel.")
+            return
+        }
         webView.reload()
         if !didWarnAboutMemory {
             didWarnAboutMemory = true

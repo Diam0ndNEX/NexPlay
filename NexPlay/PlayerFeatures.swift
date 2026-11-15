@@ -33,6 +33,9 @@ final class PlayerContext {
     var previewPicture: (AssistOptions) -> Void = { _ in }
     var screenshot: () -> Void = {}
     var setOrientation: (OrientationMode) -> Void = { _ in }
+    /// 8.11.2: restart the game, show its log.
+    var restartGame: () -> Void = {}
+    var showGameLog: () -> Void = {}
 
     init(gameLog: GameLog) {
         self.gameLog = gameLog

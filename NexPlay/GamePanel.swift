@@ -322,6 +322,18 @@ final class GamePanelModel: ObservableObject {
         say("Screen: \(mode.title)")
     }
 
+    func restart() {
+        let context = panel?.context
+        shouldClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { context?.restartGame() }
+    }
+
+    func openLog() {
+        let context = panel?.context
+        shouldClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { context?.showGameLog() }
+    }
+
     func screenshot() {
         let context = panel?.context
         shouldClose = true
@@ -534,6 +546,10 @@ struct GamePanelView: View {
                 }
             }
             NexMenuNote(text: "Kept for this game.")
+        }
+        NexMenuSection("Game") {
+            NexMenuRow(title: "Restart Game", detail: "Starts it again from the title", symbol: "arrow.clockwise") { model.restart() }
+            NexMenuRow(title: "Game Log", detail: "What the game reported; copy it to send", symbol: "doc.text.magnifyingglass") { model.openLog() }
         }
         NexMenuSection("Capture") {
             NexMenuRow(title: "Screenshot", detail: "Saved to the game's gallery and Photos", symbol: "camera") { model.screenshot() }
