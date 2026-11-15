@@ -367,6 +367,9 @@ enum GodotRuntime {
         /// 8.8.1: entries under res://.mono/ (C# script metadata or assemblies): also a C# game, even with no .cs
         /// files in the pack (Project Kat).
         var monoEntries = 0
+        /// 8.8.4: entries per file extension, and entries that look like C# files (.dll, mono, assembl), for the log.
+        var extCounts: [String: Int] = [:]
+        var dllSamples: [String] = []
 
         var needsDotNet: Bool { csharpScripts > 0 || monoEntries > 0 }
     }
@@ -409,6 +412,9 @@ enum GodotRuntime {
             if let scene = scenePath(name) { sceneSet.insert(scene) }
             let lower = name.lowercased()
             if lower.hasPrefix("res://.mono/") || lower.hasPrefix(".mono/") { info.monoEntries += 1 }
+            info.extCounts[(lower as NSString).pathExtension, default: 0] += 1
+            if lower.hasSuffix(".dll") || lower.contains("mono") || lower.contains("assembl") || lower.hasSuffix(".csproj") || lower.hasSuffix(".sln"),
+               info.dllSamples.count < 12 { info.dllSamples.append(name) }
             if lower.hasSuffix(".cs") {
                 info.csharpScripts += 1
                 if info.csharpSamples.count < 3 { info.csharpSamples.append(name) }
@@ -596,6 +602,8 @@ enum GodotRuntime {
                 }
             }
             notes.append(line)
+            notes.append("pack entries by type: " + info.extCounts.sorted { $0.value > $1.value }.prefix(14).map { ".\($0.key.isEmpty ? "none" : $0.key) \($0.value)" }.joined(separator: ", ")
+                         + (info.dllSamples.isEmpty ? "" : "; dll/mono/assembly entries: " + info.dllSamples.joined(separator: ", ")))
             // 8.8.1: a C# game is also one whose folder has the compiled C# (data_*/Assemblies).
             let assemblies = GodotMono.gameAssemblies(pack: pack, root: root)
             if assemblies == nil, !info.needsDotNet {
