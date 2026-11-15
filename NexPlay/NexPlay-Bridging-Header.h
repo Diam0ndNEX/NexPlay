@@ -11,6 +11,7 @@
 
 // 6.3.0: built-in JIT (BRK #0xf00d calls, SIGTRAP fallback, self-test).
 #include "JIT/NexJIT.h"
+#include "Launch/NexLaunchTrace.h"
 
 // 7.1.1: the libretro frontend for EasyRPG Player (RPG Maker 2000/2003).
 #include "EasyRPG/NexRetro.h"

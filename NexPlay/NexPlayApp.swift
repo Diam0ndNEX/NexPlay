@@ -49,12 +49,14 @@ struct NexPlayApp: App {
     @AppStorage(SettingsKey.theme) private var theme = "dark"
 
     init() {
+        nex_launch_mark("3 app init")
         UserDefaults.standard.register(defaults: NexPlayApp.defaultSettings)
         NexFont.setUp()
         AppDelegate.orientationMask = OrientationManager.outsideMode.mask
         AppLog.noteLaunch()
         // 7.10.0: a game that was still starting when NexPlay last closed is marked "crashed at start".
         LaunchGuard.checkAtLaunch()
+        nex_launch_mark("4 app init done")
     }
 
     static let defaultSettings: [String: Any] = [
@@ -132,6 +134,7 @@ struct NexPlayApp: App {
                 .preferredColorScheme(colorScheme)
                 .onOpenURL { url in open(url) }
                 .task {
+                    nex_launch_mark("5 first screen shown")
                     OrientationManager.unlock()
                     // 8.2.2: player order, player lights and rumble for every engine.
                     NexControllerHub.shared.start()
