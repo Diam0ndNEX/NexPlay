@@ -609,12 +609,20 @@ enum GodotRuntime {
     private static func unpack(zipName: String, folderName: String, version: String) throws -> URL {
         let fm = FileManager.default
         let folder = Paths.support.appendingPathComponent("GodotRuntimes/\(folderName)", isDirectory: true)
-        if fm.fileExists(atPath: folder.appendingPathComponent("godot.wasm").path) { return folder }
         guard let zip = Bundle.main.resourceURL?.appendingPathComponent("GodotRuntimes/\(zipName)"),
-              fm.fileExists(atPath: zip.path) else { throw RuntimeError.missing(version) }
+              fm.fileExists(atPath: zip.path) else {
+            if fm.fileExists(atPath: folder.appendingPathComponent("godot.wasm").path) { return folder }
+            throw RuntimeError.missing(version)
+        }
+        // 8.10.2: unpacked once per bundled zip (size), so a rebuilt runtime (8.10's patched mscorlib) replaces the old copy.
+        let zipSize = ((try? zip.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        let stampFile = folder.appendingPathComponent(".nexzip")
+        if fm.fileExists(atPath: folder.appendingPathComponent("godot.wasm").path),
+           (try? String(contentsOf: stampFile, encoding: .utf8)) == String(zipSize) { return folder }
         let temp = folder.deletingLastPathComponent().appendingPathComponent("unpack-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: temp, withIntermediateDirectories: true)
         try fm.unzipItem(at: zip, to: temp)
+        try? String(zipSize).write(to: temp.appendingPathComponent(".nexzip"), atomically: true, encoding: .utf8)
         try? fm.removeItem(at: folder)
         try fm.moveItem(at: temp, to: folder)
         return folder
