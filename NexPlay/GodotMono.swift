@@ -44,18 +44,46 @@ enum GodotMono {
         let fm = FileManager.default
         var starts = [pack.deletingLastPathComponent()]
         if let root, root.standardizedFileURL != starts[0].standardizedFileURL { starts.append(root) }
+        // 8.8.3: the folder that holds GodotSharp.dll is the game's Assemblies folder whatever it is called or where it
+        // is (the 8.8.1 name check found nothing for Project Kat).
         for start in starts {
             guard let walker = fm.enumerator(at: start, includingPropertiesForKeys: [.isDirectoryKey],
                                              options: [.skipsHiddenFiles]) else { continue }
+            var named: URL?
             for case let url as URL in walker {
-                if walker.level > 3 { walker.skipDescendants(); continue }
-                guard url.lastPathComponent.lowercased() == "assemblies",
-                      (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
-                let parent = url.deletingLastPathComponent().lastPathComponent.lowercased()
-                if parent.hasPrefix("data_") || parent == "godotsharp" { return url }
+                if walker.level > 6 { walker.skipDescendants(); continue }
+                let name = url.lastPathComponent.lowercased()
+                if name == "godotsharp.dll" { return url.deletingLastPathComponent() }
+                if named == nil, name == "assemblies",
+                   (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    let parent = url.deletingLastPathComponent().lastPathComponent.lowercased()
+                    if parent.hasPrefix("data_") || parent == "godotsharp" { named = url }
+                }
             }
+            if let named { return named }
         }
         return nil
+    }
+
+    /// For the log when no compiled C# was found: the game's folders (four levels) with their .dll counts.
+    static func folderSummary(pack: URL, root: URL?) -> String {
+        let fm = FileManager.default
+        let start = root ?? pack.deletingLastPathComponent()
+        guard let walker = fm.enumerator(at: start, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return "unreadable" }
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        for case let url as URL in walker {
+            if walker.level > 4 { walker.skipDescendants(); continue }
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            let rel = String(url.path.dropFirst(start.path.count))
+            if isDir {
+                if counts[rel] == nil { counts[rel] = 0; order.append(rel) }
+            } else if url.pathExtension.lowercased() == "dll" {
+                let parent = (rel as NSString).deletingLastPathComponent
+                counts[parent, default: 0] += 1
+            }
+        }
+        return order.prefix(40).map { "\($0)/ (\(counts[$0] ?? 0) dll)" }.joined(separator: ", ")
     }
 
     /// One file to put into the pack.

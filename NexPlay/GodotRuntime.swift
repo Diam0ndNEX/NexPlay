@@ -598,6 +598,9 @@ enum GodotRuntime {
             notes.append(line)
             // 8.8.1: a C# game is also one whose folder has the compiled C# (data_*/Assemblies).
             let assemblies = GodotMono.gameAssemblies(pack: pack, root: root)
+            if assemblies == nil, !info.needsDotNet {
+                notes.append("game folders: " + GodotMono.folderSummary(pack: pack, root: root))
+            }
             if info.needsDotNet || assemblies != nil {
                 notes.append("C# game: \(info.csharpScripts) C# scripts\(info.csharpSamples.isEmpty ? "" : " (" + info.csharpSamples.joined(separator: ", ") + ")"), \(info.monoEntries) .mono entries and \(info.gdScripts) GDScript files in the pack; compiled C# folder: \(assemblies.map { $0.deletingLastPathComponent().lastPathComponent + "/Assemblies" } ?? "none")")
                 // 8.7.16: Godot 3 C# games run on Godot 3's C# web runtime once their C# files are in the pack.
