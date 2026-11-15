@@ -11,8 +11,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "8.9.2"
-    CURRENT_PROJECT_VERSION: "107"
+    MARKETING_VERSION: "8.10.0"
+    CURRENT_PROJECT_VERSION: "108"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
     # The XP/VX/Ace core is off by default. The workflow turns it on with
@@ -51,6 +51,16 @@ targets:
           if [ "${NEXPLAY_SKIP_GODOT:-0}" = "1" ]; then echo "Skipping Godot runtimes"; exit 0; fi
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GodotRuntimes"
           /usr/bin/env python3 "${PROJECT_DIR}/tools/fetch_godot_runtimes.py" "$DEST" "${PROJECT_DIR}/build/godot-cache"
+      # 8.10.0: Godot 3 Mono web has no threads: patched mscorlib + NexShim (tools/godot/nexshim) make Task.Run and
+      # Monitor.Wait work on the main thread. Copied over the 3.5.3 C# runtime's assemblies.
+      - name: Patch Godot C# runtime
+        basedOnDependencyAnalysis: false
+        script: |
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GodotRuntimes"
+          for d in "$DEST"/godotmono-3.5.3*/assemblies; do
+            [ -d "$d" ] && cp -f "${PROJECT_DIR}/tools/godot/nexshim/mscorlib.dll" "${PROJECT_DIR}/tools/godot/nexshim/NexShim.dll" "$d/" && echo "Patched $d"
+          done
+          exit 0
       # Ren'Py games run on RenPyWeb (tools/renpy/runtimes.txt: the web runtime and the matching engine from the
       # official SDK). Set NEXPLAY_SKIP_RENPY=1 to build without them.
       - name: Bundle Ren'Py web runtimes
