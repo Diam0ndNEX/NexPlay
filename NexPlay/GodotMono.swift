@@ -75,7 +75,7 @@ enum GodotMono {
         for case let url as URL in walker {
             if walker.level > 4 { walker.skipDescendants(); continue }
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            let rel = String(url.path.dropFirst(start.path.count))
+            let rel = "/" + GameScanner.relativePath(of: url, in: start)
             if isDir {
                 if counts[rel] == nil { counts[rel] = 0; order.append(rel) }
             } else if url.pathExtension.lowercased() == "dll" {

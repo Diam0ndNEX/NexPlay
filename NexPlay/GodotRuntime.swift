@@ -793,6 +793,11 @@ enum GodotRuntime {
             }
             try {
                 var canvas = document.getElementById('canvas');
+                // iOS has no fullscreen for pages: games that ask for it (OS.WindowFullscreen) got an error from Godot.
+                // The page already fills the screen, so the request just succeeds.
+                ['requestFullscreen', 'webkitRequestFullscreen', 'webkitRequestFullScreen'].forEach(function (name) {
+                    try { Element.prototype[name] = function () { return Promise.resolve(); }; } catch (e) {}
+                });
                 var engine = new Engine({
                     canvas: canvas,
                     executable: '/__godot/godot',

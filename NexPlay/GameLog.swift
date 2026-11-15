@@ -28,8 +28,26 @@ final class GameLog {
 
     deinit { try? handle?.close() }
 
+    /// 8.11.1: a line that repeats (a C# exception thrown every frame printed 5 lines 60 times a second and pushed the
+    /// start of the game out of the exported log) is written 25 times per 10 seconds; after that only a count.
+    private var repeats: [String: (count: Int, since: Date)] = [:]
+
     func add(_ text: String) {
-        let line = "\(GameLog.formatter.string(from: Date()))  \(text)"
+        let now = Date()
+        var entry = repeats[text] ?? (count: 0, since: now)
+        if now.timeIntervalSince(entry.since) > 10 {
+            if entry.count > 25 { write("(the line above came \(entry.count - 25) more times in 10 seconds)", now) }
+            entry = (count: 0, since: now)
+        }
+        entry.count += 1
+        repeats[text] = entry
+        if repeats.count > 2000 { repeats.removeAll() }
+        if entry.count > 25 { return }
+        write(text, now)
+    }
+
+    private func write(_ text: String, _ date: Date) {
+        let line = "\(GameLog.formatter.string(from: date))  \(text)"
         lines.append(line)
         if lines.count > limit { lines.removeFirst(lines.count - limit) }
         if let data = (line + "\n").data(using: .utf8) { try? handle?.write(contentsOf: data) }
