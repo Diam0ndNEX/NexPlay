@@ -16,7 +16,8 @@ once all steps are done, then pastes build errors (first error first).
 | In-game: shared in-game menu (BCD layout), Game Panel on it | 8.3.0 (72) | built OK 2026-11-14 |
 | In-game: Windows panel on the menu, BCD's menu rows, one-Windows-game cards | 8.3.1 (73) | built OK 2026-11-15 |
 | In-game: Performance HUD in BCD's HUD layout, every engine | 8.3.2 (74) | built OK 2026-11-15 |
-| Game page | 8.4.0 | |
+| Game page: BCD's layout, sections by capability, Restart and Play | 8.4.0 (75) | pushed 2026-11-15 |
+| Game page: PC sections from BCD (AutoTune, recommendations, graphics, prefix tools, Windows saves) | 8.4.1 | |
 | itch.io (other stores hidden) | 8.5.0 | |
 | Settings and extras | 8.6.0 | |
 | Polish and cleanup | 8.7.0 | |
@@ -136,6 +137,18 @@ lowest FPS of the graph window (15 s / 30 s), not a true 1 % low. Windows games:
 chosen layout (`NexBCDHUD`, as BCD's menu does it), so the engine's real frame times, GPU and JIT pool show; BCD's HUD rows
 (Custom, place, dimming) stay in the panel's Display tab. Settings, Game Panel > Display and the Windows panel all use the
 same layout and place. Not built: BCD's Custom layout and dragging for web games, BCD's calm dimming for web games.
+
+8.4.0 notes: split in two. 8.4.0 = GameDetailView rebuilt in BCD's BCDGamePage structure (art across the screen with
+BCD's gradients, name + badges + Play and chips low on the left, Details (facts) and How It Runs cards on the right; upright
+phone: art on top, one column; Options/Saves/Media/Mods open in a panel from the right, or from the bottom upright, with
+page chips and close). Sections by `RuntimeCapabilities` (new flags fileSaves, mods, rpgMakerOptions, engineRuntimes,
+webOptions, pcSetup), also in Game Settings (RPG Maker, engine runtime, Windows, mouse, Block Internet). Notes under the
+actions: runtime notice, crash card (Use <runtime> / Dismiss), installers. PC games: Run Installer (`WindowsInstallers`
+in WindowsGames.swift: setup/vcredist/DirectX/PhysX/redist .exes; runs once in place of the program, kept in memory), then
+"Restart and Play" (main button + note, Close NexPlay = exit(0)). Pixel font gone from the game page (LibraryView) and
+GamePages (titles rounded). No BCD file changed. Not yet: matched card-to-page transition (8.7.0), controller focus on
+the page (8.7.0). 8.4.1: BCD's PC sections (AutoTune, recommendations, GPU cards, prefix tools, BCD's saves) through a
+NexPlay file in Windows/BCD.
 
 ## Controls: both systems, one place to choose
 - Every game has **Controls Style**:

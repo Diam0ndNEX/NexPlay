@@ -452,7 +452,6 @@ struct LibraryView: View {
                 // Let the game page finish closing before the player opens.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { playing = chosen }
             }
-            .font(.pixel(16))
             .environmentObject(store)
             .environmentObject(collections)
             .environmentObject(privacy)

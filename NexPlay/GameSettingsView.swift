@@ -94,18 +94,20 @@ struct GameSettingsView: View {
     }
 
     private func form(_ game: Game) -> some View {
-        Form {
+        // 8.4.0: sections by what the game's runtime can do (RuntimeCapabilities), not by engine checks here.
+        let caps = GameRuntimes.capabilities(for: game)
+        return Form {
             detailsSection(game)
             coverSection(game)
             progressSection(game)
             organizationSection(game)
-            controlsSection(game)
+            controlsSection(game, caps)
             RunOptionsSection(game: game)
-            screenSection(game)
-            if game.engine.isRPGMaker { engineSection(game) }
-            if game.engine == .renpy || game.isGodotDesktop { runtimeSection(game) }
+            screenSection(game, caps)
+            if caps.rpgMakerOptions { engineSection(game) }
+            if caps.engineRuntimes { runtimeSection(game) }
             if GameRuntimes.choices(for: game).count > 1 { runsOnSection(game) }
-            if game.engine == .windows || game.runtime == .windows { windowsSection(game) }
+            if caps.pcSetup { windowsSection(game) }
             notesSection
             dangerSection(game)
         }
@@ -267,7 +269,7 @@ struct GameSettingsView: View {
         )
     }
 
-    private func controlsSection(_ game: Game) -> some View {
+    private func controlsSection(_ game: Game, _ caps: RuntimeCapabilities) -> some View {
         Section {
             Picker(selection: controlsStyleBinding) {
                 Text("Automatic (\(ControlsStyle.automatic(for: game).title))").tag("auto")
@@ -280,9 +282,11 @@ struct GameSettingsView: View {
             if !ControlsStyle.isWindows(game) {
                 Button { showExtras = true } label: { Label("Extras", systemImage: "sparkles") }
             }
-            Picker(selection: mouseBinding) {
-                ForEach(MouseMode.allCases) { mode in Text(mode.title).tag(mode) }
-            } label: { Label("Mouse", systemImage: "computermouse.fill") }
+            if caps.webOptions {
+                Picker(selection: mouseBinding) {
+                    ForEach(MouseMode.allCases) { mode in Text(mode.title).tag(mode) }
+                } label: { Label("Mouse", systemImage: "computermouse.fill") }
+            }
             Button {
                 LayoutStore.reset(gameID)
                 message = "This game uses the default touch layout again."
@@ -295,12 +299,12 @@ struct GameSettingsView: View {
         }
     }
 
-    private func screenSection(_ game: Game) -> some View {
+    private func screenSection(_ game: Game, _ caps: RuntimeCapabilities) -> some View {
         Section {
             Picker(selection: binding(\.orientation, default: OrientationMode.auto)) {
                 ForEach(OrientationMode.allCases) { mode in Text(mode.title).tag(mode) }
             } label: { Label("Orientation", systemImage: "rotate.right.fill") }
-            if game.engine.isRPGMaker {
+            if caps.rpgMakerOptions {
                 Picker(selection: Binding(
                     get: { game.screenScaling ?? "global" },
                     set: { value in store.mutate(gameID) { $0.screenScaling = value == "global" ? nil : value } }
@@ -320,8 +324,10 @@ struct GameSettingsView: View {
             Toggle(isOn: Binding(
                 get: { game.statsOverlay ?? false },
                 set: { value in store.mutate(gameID) { $0.statsOverlay = value } }
-            )) { Label("FPS Overlay", systemImage: "speedometer") }
-            Toggle(isOn: binding(\.blockNetwork, default: false)) { Label("Block Internet", systemImage: "wifi.slash") }
+            )) { Label(caps.webOptions ? "FPS Overlay" : "Performance HUD", systemImage: "speedometer") }
+            if caps.webOptions {
+                Toggle(isOn: binding(\.blockNetwork, default: false)) { Label("Block Internet", systemImage: "wifi.slash") }
+            }
         } header: {
             SettingsHeader(title: "Screen & Play", symbol: "display", color: .orange)
         } footer: {

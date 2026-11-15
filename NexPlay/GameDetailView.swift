@@ -1,23 +1,17 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Pages the game page opens.
-enum GameRoute: String, Identifiable {
-    case settings, saves, media, mods
-    var id: String { rawValue }
-}
-
-/// 7.9.0: the game page's tabs.
-enum GamePageTab: String, CaseIterable, Identifiable {
-    case overview, saves, settings, media, mods
+/// 8.4.0: what the game page opens over itself (BCD's Options panel: from the right on a phone on its side and an iPad,
+/// from the bottom on an upright phone).
+enum GamePagePanel: String, Identifiable {
+    case options, saves, media, mods
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .overview: return "Overview"
+        case .options: return "Options"
         case .saves: return "Saves"
-        case .settings: return "Settings"
         case .media: return "Media"
         case .mods: return "Mods"
         }
@@ -25,24 +19,48 @@ enum GamePageTab: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .overview: return "info.circle.fill"
+        case .options: return "slider.horizontal.3"
         case .saves: return "square.and.arrow.down.on.square.fill"
-        case .settings: return "gearshape.fill"
         case .media: return "photo.on.rectangle.angled"
         case .mods: return "puzzlepiece.extension.fill"
         }
     }
 }
 
-/// The game page: cover in a glass frame, title, engine, save profiles, Play, and Manage Saves / Gallery / Mods.
-/// Layout follows RPGPlayer's pre-launch screen; NexPlay's own code.
-/// 7.5.0: "How it runs" card with the compatibility vote, and a Play button that says when setup is needed.
+/// A line under the game's actions (BCD's notes): a warning or a hint, with buttons that fix it.
+private struct GamePageNote: Identifiable {
+    let id: String
+    let text: String
+    var warning = false
+    var fixes: [GamePageFix] = []
+}
+
+private struct GamePageFix: Identifiable {
+    let id: String
+    let title: String
+    let symbol: String
+    let run: () -> Void
+}
+
+/// A label and its value in the facts card.
+private struct GamePageFact: Identifiable {
+    let label: String
+    let value: String
+    var id: String { label }
+}
+
+/// The game page. 8.4.0: BCD's structure and layout (BCDGamePage: the art across the screen, the name and actions low on
+/// the left, the facts card on the right; on an upright phone the art on top and one column below; Options in a panel),
+/// NexPlay's content: engine-aware sections chosen by `RuntimeCapabilities`, save profiles, Media, Mods, How It Runs and
+/// the crash card. NexPlay's own code on the 8.1 design system; layout ideas from BCD (GPL-3.0).
 @MainActor
 struct GameDetailView: View {
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var collections: CollectionStore
     @EnvironmentObject private var privacy: PrivacyLock
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontal
+    @Environment(\.verticalSizeClass) private var vertical
 
     let gameID: UUID
     /// Called with the game when the user taps Play.
@@ -50,7 +68,6 @@ struct GameDetailView: View {
 
     @State private var hero: UIImage?
     @State private var profiles: [ProfileSummary] = []
-    @State private var route: GameRoute?
     @State private var appeared = false
     @State private var busy = false
     @State private var message: String?
@@ -63,62 +80,54 @@ struct GameDetailView: View {
     @State private var runtimeLabel: String?
     @State private var notice: String?
     @State private var showSetupCenter = false
-    @State private var pageTab: GamePageTab = .overview
+    @State private var panel: GamePagePanel?
     /// 7.10.0: NexPlay closed while starting this game on this runtime last time.
     @State private var crashedOn: RuntimeKind?
+    /// 8.4.0: PC games: the program the game starts, and the installers that came with it.
+    @State private var program: String?
+    @State private var installers: [String] = []
+    @State private var askInstaller = false
+    @State private var askClose = false
 
     private var game: Game? { store.game(id: gameID) }
 
     var body: some View {
-        ZStack {
-            AppBackground().ignoresSafeArea()
-            if let game {
-                VStack(spacing: 0) {
-                    tabStrip
-                        .padding(.top, 62)
-                    switch pageTab {
-                    case .overview:
-                        ScrollView {
-                            VStack(spacing: 18) {
-                                coverFrame(game)
-                                titleBlock(game)
-                                infoChips(game)
-                                if let notice { noticeCard(notice) }
-                                if let crashedOn { crashCard(game, crashedOn) }
-                                howItRunsCard(game)
-                                if game.usesNWMode { profileRow(game) }
-                                detailsCard(game)
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.top, 8)
-                            .padding(.bottom, 24)
-                        }
-                        .scrollIndicators(.hidden)
-                        bottomBar(game)
-                    case .saves:
-                        GameSavesView(gameID: game.id, embedded: true)
-                    case .settings:
-                        GameSettingsView(gameID: game.id, onDeleted: { dismiss() }, embedded: true)
-                    case .media:
-                        MediaBrowserView(game: game, embedded: true)
-                    case .mods:
-                        ModsView(game: game, embedded: true)
+        GeometryReader { proxy in
+            let m = GamePageMetrics(size: proxy.size, insets: proxy.safeAreaInsets,
+                                    pad: horizontal == .regular && vertical == .regular)
+            ZStack {
+                NexColor.dark(.ground).ignoresSafeArea()
+                if let game {
+                    backdrop(game, m)
+                    Group {
+                        if m.upright { upright(game, m) } else { landscape(game, m) }
                     }
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 14)
+                    topBar(game, m)
+                } else {
+                    gone
                 }
-                topBar
+                if panel != nil {
+                    Color.black.opacity(0.45)
+                        .ignoresSafeArea()
+                        .onTapGesture { closePanel() }
+                        .transition(.opacity)
+                }
+                if let panel, let game {
+                    panelView(game, panel, m)
+                        .transition(.move(edge: m.upright ? .bottom : .trailing))
+                        .zIndex(2)
+                }
             }
         }
-        .font(.pixel(16))
+        .font(NexType.body)
+        .fontDesign(.rounded)
+        .foregroundStyle(NexColor.dark(.text))
         .environment(\.colorScheme, .dark)
         .task { await refresh() }
-        .fullScreenCover(item: $route, onDismiss: { Task { await refresh() } }) { page in
-            if let game {
-                routeView(page, game)
-                    .font(.pixel(16))
-                    .environmentObject(store)
-                    .environmentObject(collections)
-                    .environmentObject(privacy)
-            }
+        .onAppear {
+            withAnimation(NexMotion.pick(NexMotion.hero)) { appeared = true }
         }
         .alert("New Profile", isPresented: $askingNewProfile) {
             TextField("Name", text: $newProfileName)
@@ -149,6 +158,20 @@ struct GameDetailView: View {
                 Text("\(info.count) save file(s)" + (info.newest.map { " · last saved " + $0.formatted(date: .abbreviated, time: .shortened) } ?? ""))
             }
         }
+        .confirmationDialog("Run an Installer", isPresented: $askInstaller, titleVisibility: .visible) {
+            ForEach(installers, id: \.self) { path in
+                Button((path as NSString).lastPathComponent) { runInstaller(path) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The installer starts in place of the game, once. Windows starts one program per launch: when it is done, restart NexPlay and tap Play.")
+        }
+        .confirmationDialog("Close NexPlay?", isPresented: $askClose, titleVisibility: .visible) {
+            Button("Close NexPlay", role: .destructive) { closeNexPlay() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Windows runs once per launch. NexPlay closes now; open it again and tap Play.")
+        }
         .sheet(isPresented: $showSetupCenter) {
             NavigationStack {
                 SetupCenterView()
@@ -162,366 +185,599 @@ struct GameDetailView: View {
         } message: { Text(message ?? "") }
     }
 
-    @ViewBuilder
-    private func routeView(_ page: GameRoute, _ game: Game) -> some View {
-        switch page {
-        case .settings:
-            GameSettingsView(gameID: game.id) {
-                route = nil
-                dismiss()
+    // MARK: - Art
+
+    private var ground: Color { NexColor.dark(.ground) }
+
+    /// The hero art filling its frame, or the engine's placeholder.
+    private func art(_ game: Game) -> some View {
+        Color.clear
+            .overlay {
+                if let hero {
+                    Image(uiImage: hero)
+                        .resizable()
+                        .interpolation(hero.size.width < 400 ? .none : .high)
+                        .scaledToFill()
+                } else {
+                    NexPlaceholderCover(title: "", engine: game.engine, compact: true)
+                }
             }
-        case .saves:
-            GameSavesView(gameID: game.id)
-        case .media:
-            MediaBrowserView(game: game)
-        case .mods:
-            ModsView(game: game)
+            .clipped()
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private func backdrop(_ game: Game, _ m: GamePageMetrics) -> some View {
+        if m.upright {
+            VStack(spacing: 0) {
+                art(game)
+                    .frame(height: m.artHeight)
+                    .overlay {
+                        LinearGradient(stops: [.init(color: ground.opacity(0.25), location: 0),
+                                               .init(color: ground.opacity(0.4), location: 0.5),
+                                               .init(color: ground, location: 1)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
+                ground
+            }
+            .ignoresSafeArea()
+        } else {
+            art(game)
+                .overlay {
+                    LinearGradient(stops: [.init(color: ground.opacity(0.94), location: 0),
+                                           .init(color: ground.opacity(0.78), location: 0.4),
+                                           .init(color: ground.opacity(0.3), location: 0.78),
+                                           .init(color: ground.opacity(0.22), location: 1)],
+                                   startPoint: .leading, endPoint: .trailing)
+                }
+                .overlay {
+                    LinearGradient(colors: [.clear, ground.opacity(0.85)], startPoint: .center, endPoint: .bottom)
+                }
+                .ignoresSafeArea()
         }
     }
 
-    // MARK: - Pieces
+    // MARK: - Layouts
 
-    private var topBar: some View {
-        VStack {
-            HStack {
-                GlassCircleButton(symbol: "xmark", label: "Close") { dismiss() }
-                Spacer()
-                if let game {
-                    GlassCircleButton(symbol: game.isFavorite ? "heart.fill" : "heart",
-                                      label: game.isFavorite ? "Unfavorite" : "Favorite") {
-                        store.toggleFavorite(game)
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
+    /// A phone on its side and an iPad: the name and actions on the left, the facts on the right.
+    private func landscape(_ game: Game, _ m: GamePageMetrics) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            HStack(alignment: .top, spacing: m.columnGap) {
+                mainColumn(game, m)
+                    .frame(maxWidth: m.mainColumn, alignment: .leading)
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 16) {
+                    factsCard(game)
+                    howItRunsCard(game)
                 }
-                if pageTab != .overview, let game {
-                    GlassCircleButton(symbol: "play.fill", label: "Play") { onPlay(game) }
+                .frame(width: m.factsWidth)
+            }
+            .padding(.horizontal, m.gutter)
+            .padding(.top, m.pad ? 84 : 58)
+            .padding(.bottom, 20)
+            .frame(minHeight: m.size.height, alignment: .bottom)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    /// An upright phone or iPad: the art on top, everything below it in one column (an iPad keeps the facts beside it).
+    private func upright(_ game: Game, _ m: GamePageMetrics) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 22) {
+                Color.clear.frame(height: m.uprightLead)
+                if m.pad {
+                    HStack(alignment: .top, spacing: m.columnGap) {
+                        mainColumn(game, m).frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 16) {
+                            factsCard(game)
+                            howItRunsCard(game)
+                        }
+                        .frame(width: m.factsWidth)
+                    }
+                } else {
+                    mainColumn(game, m)
+                    factsCard(game)
+                    howItRunsCard(game)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
+            .padding(.horizontal, m.gutter)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private var gone: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "questionmark.square.dashed").font(.system(size: 40, weight: .semibold))
+                .foregroundStyle(NexColor.dark(.textSoft))
+            Text("This game isn't in your library any more").font(NexType.heading).multilineTextAlignment(.center)
+            Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
+                .buttonStyle(NexGlassButtonStyle(fullWidth: false))
+        }
+        .padding(24)
+    }
+
+    private func topBar(_ game: Game, _ m: GamePageMetrics) -> some View {
+        VStack {
+            HStack(spacing: 10) {
+                Button { dismiss() } label: {
+                    Label("Back", systemImage: "chevron.left")
+                        .font(NexType.label)
+                        .padding(.horizontal, 14)
+                        .frame(height: 38)
+                        .nexGlassCapsule(interactive: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back")
+                Spacer()
+                Button {
+                    store.toggleFavorite(game)
+                    NexHaptics.tap()
+                } label: {
+                    Image(systemName: game.isFavorite ? "heart.fill" : "heart")
+                        .foregroundStyle(game.isFavorite ? Color.pink : NexColor.dark(.text))
+                }
+                .buttonStyle(NexGlassIconButtonStyle(size: 40))
+                .accessibilityLabel(game.isFavorite ? "Unfavorite" : "Favorite")
+            }
+            .padding(.horizontal, m.gutter)
+            .padding(.top, m.pad ? 18 : 8)
             Spacer()
         }
     }
 
-    private func coverFrame(_ game: Game) -> some View {
-        Group {
-            if let hero {
-                Image(uiImage: hero)
-                    .resizable()
-                    .interpolation(hero.size.width < 400 ? .none : .high)
-                    .aspectRatio(contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            } else {
-                CoverView(game: game).frame(maxWidth: 240)
+    // MARK: - The game, its actions and the lines under them
+
+    private func mainColumn(_ game: Game, _ m: GamePageMetrics) -> some View {
+        let caps = GameRuntimes.capabilities(for: game)
+        return VStack(alignment: .leading, spacing: m.pad ? 16 : 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(game.name)
+                    .font(NexType.display(m.titleSize))
+                    .foregroundStyle(NexColor.dark(.text))
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.6)
+                    .shadow(color: .black.opacity(0.45), radius: 6)
+                badges(game)
             }
-        }
-        .frame(maxHeight: 300)
-        .padding(18)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 34, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-                .background(.ultraThinMaterial.opacity(0.35), in: RoundedRectangle(cornerRadius: 34, style: .continuous))
-        )
-        .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(game.tagColor ?? Color.white.opacity(0.14), lineWidth: 1.5))
-        .shadow(color: (game.tagColor ?? .black).opacity(0.35), radius: 20, y: 10)
-        .scaleEffect(appeared ? 1 : 0.94)
-        .opacity(appeared ? 1 : 0)
-        .onAppear {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) { appeared = true }
+            actionRows(game, caps, m)
+            if let setup = GameReadiness.setupReason(for: game) {
+                Text(setup).font(NexType.caption).foregroundStyle(NexColor.dark(.textSoft))
+            }
+            notesView(notes(game, caps), m)
+            if caps.fileSaves && game.usesNWMode { profileRow(game) }
         }
     }
 
-    private func titleBlock(_ game: Game) -> some View {
-        VStack(spacing: 12) {
-            Text(game.name)
-                .font(.pixel(30, relativeTo: .largeTitle))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-                .minimumScaleFactor(0.6)
-                .shadow(color: .black.opacity(0.5), radius: 6)
-            HStack(spacing: 8) {
-                Text(game.engine.badge)
-                    .font(.pixel(15))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.14)))
-                if game.isFavorite {
-                    Image(systemName: "heart.fill").foregroundStyle(.pink)
-                        .padding(9).background(.ultraThinMaterial, in: Circle())
-                }
-                if game.status != nil {
-                    Label(game.playStatus.title, systemImage: game.playStatus.symbol)
-                        .font(.pixel(13))
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(game.playStatus.color.opacity(0.3), in: Capsule())
-                }
+    /// Engine, status and the owner's verdict, one line of small capsules.
+    private func badges(_ game: Game) -> some View {
+        NexChipFlow(spacing: 6) {
+            Label(game.engine.title, systemImage: GameRuntimes.kind(for: game).symbol)
+                .font(NexType.captionStrong)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(game.engine.accent.opacity(0.35), in: Capsule())
+                .overlay(Capsule().strokeBorder(game.engine.accent.opacity(0.7), lineWidth: 1))
+            if game.status != nil {
+                Label(game.playStatus.title, systemImage: game.playStatus.symbol)
+                    .font(NexType.captionStrong)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(game.playStatus.color.opacity(0.3), in: Capsule())
             }
-            if game.playSeconds > 0 || game.lastPlayed != nil {
-                Text(statsLine(game)).font(.pixel(12)).foregroundStyle(.white.opacity(0.6))
+            if let developer = game.developer, !developer.isEmpty {
+                Text(developer)
+                    .font(NexType.captionStrong)
+                    .foregroundStyle(NexColor.dark(.textSoft))
+                    .padding(.vertical, 5)
             }
         }
     }
 
-    private func infoChips(_ game: Game) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                StatChip(symbol: "clock.fill", text: game.playSeconds > 0 ? formatHours(game.playSeconds) : "Not played")
-                if game.playCount > 0 {
-                    StatChip(symbol: "play.fill", text: "\(game.playCount) session\(game.playCount == 1 ? "" : "s")")
+    private struct Other: Identifiable {
+        let id: String
+        let title: String
+        let symbol: String
+        let run: () -> Void
+    }
+
+    /// The buttons beside Play: Options, then the sections this game has.
+    private func otherButtons(_ game: Game, _ caps: RuntimeCapabilities) -> [Other] {
+        var list: [Other] = [Other(id: "options", title: "Options", symbol: GamePagePanel.options.symbol) { openPanel(.options) }]
+        if caps.fileSaves { list.append(Other(id: "saves", title: "Saves", symbol: GamePagePanel.saves.symbol) { openPanel(.saves) }) }
+        list.append(Other(id: "media", title: "Media", symbol: GamePagePanel.media.symbol) { openPanel(.media) })
+        if caps.mods { list.append(Other(id: "mods", title: "Mods", symbol: GamePagePanel.mods.symbol) { openPanel(.mods) }) }
+        if caps.pcSetup && !installers.isEmpty && !WindowsEngine.ranThisLaunch {
+            list.append(Other(id: "installer", title: "Run Installer", symbol: "shippingbox.fill") { askInstaller = true })
+        }
+        if GameReadiness.setupReason(for: game) != nil {
+            list.append(Other(id: "anyway", title: "Play Anyway", symbol: "play") { play(game) })
+        }
+        return list
+    }
+
+    @ViewBuilder private func actionRows(_ game: Game, _ caps: RuntimeCapabilities, _ m: GamePageMetrics) -> some View {
+        let others = otherButtons(game, caps)
+        if m.upright && !m.pad {
+            VStack(alignment: .leading, spacing: 10) {
+                mainButton(game)
+                chips(others)
+            }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    mainButton(game).frame(width: m.mainWidth)
+                    ForEach(others) { item in chip(item) }
                 }
-                StatChip(symbol: "calendar", text: "Added " + game.addedAt.formatted(date: .abbreviated, time: .omitted))
-                if let folderSize {
-                    StatChip(symbol: "internaldrive.fill", text: ByteCountFormatter.string(fromByteCount: folderSize, countStyle: .file))
-                }
-                if let runtimeLabel {
-                    StatChip(symbol: "cpu", text: runtimeLabel)
+                VStack(alignment: .leading, spacing: 10) {
+                    mainButton(game).frame(width: m.mainWidth)
+                    chips(others)
                 }
             }
-            .padding(.horizontal, 4)
         }
     }
 
-    private func noticeCard(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            Text(text).font(.pixel(13)).foregroundStyle(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+    private func chips(_ list: [Other]) -> some View {
+        NexChipFlow(spacing: 10) {
+            ForEach(list) { item in chip(item) }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.14), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.orange.opacity(0.35)))
     }
 
-    private func statsLine(_ game: Game) -> String {
-        var parts = [formatDuration(game.playSeconds)]
-        if let last = game.lastPlayed { parts.append("last played " + last.formatted(.relative(presentation: .named))) }
-        return parts.joined(separator: " · ")
-    }
-
-    private func profileRow(_ game: Game) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 14) {
-                ForEach(profiles) { info in
-                    ProfileCard(info: info) {
-                        switchTo(info)
-                    } onInfo: {
-                        profileInfo = info
-                    }
-                }
-                Button {
-                    newProfileName = "Profile \(profiles.count + 1)"
-                    askingNewProfile = true
-                } label: {
-                    VStack(spacing: 10) {
-                        Image(systemName: "plus").font(.system(size: 34, weight: .black)).foregroundStyle(NexStyle.accent)
-                        Text("New Profile").font(.pixel(14)).foregroundStyle(.white)
-                    }
-                    .frame(width: 150, height: 120)
-                    .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])))
-                }
-                .buttonStyle(PressScaleStyle())
-            }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 2)
+    private func chip(_ item: Other) -> some View {
+        Button {
+            NexHaptics.tap()
+            item.run()
+        } label: {
+            Label(item.title, systemImage: item.symbol).lineLimit(1)
         }
-        .disabled(busy)
-        .overlay { if busy { ProgressView().tint(.white) } }
+        .buttonStyle(NexGlassButtonStyle(fullWidth: false))
     }
 
-    private func crashCard(_ game: Game, _ kind: RuntimeKind) -> some View {
-        let others = GameRuntimes.choices(for: game).filter { $0 != kind }
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "bolt.trianglebadge.exclamationmark.fill").foregroundStyle(.red)
-                Text("NexPlay closed while starting this game on \(kind.title) last time. Try another runtime, or play again if it was a one-off.")
-                    .font(.pixel(13))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .fixedSize(horizontal: false, vertical: true)
+    /// Play, or Set Up when the game needs setup first, or Restart and Play after an installer.
+    @ViewBuilder private func mainButton(_ game: Game) -> some View {
+        if GameReadiness.setupReason(for: game) != nil {
+            Button {
+                NexHaptics.press()
+                showSetupCenter = true
+            } label: {
+                Label("Set Up", systemImage: "wrench.and.screwdriver.fill")
             }
-            HStack(spacing: 10) {
-                ForEach(others) { other in
-                    Button {
-                        store.mutate(game.id) { $0.runtime = other }
-                        LaunchGuard.clearCrash(for: game.id)
-                        crashedOn = nil
-                    } label: {
-                        Label("Use \(other.title)", systemImage: other.symbol).font(.pixel(13))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(NexStyle.accentDeep)
-                }
-                Button("Dismiss") {
+            .buttonStyle(NexPrimaryButtonStyle())
+        } else if installerRan(game) {
+            Button {
+                NexHaptics.press()
+                askClose = true
+            } label: {
+                Label("Restart and Play", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(NexPrimaryButtonStyle())
+        } else {
+            let title = WindowsEngine.playTitle(for: game)
+            Button {
+                play(game)
+            } label: {
+                Label(title, systemImage: title == "Play" ? "play.fill" : "arrow.clockwise")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .buttonStyle(NexPrimaryButtonStyle())
+        }
+    }
+
+    private func installerRan(_ game: Game) -> Bool {
+        WindowsInstallers.ranFor == game.id && WindowsEngine.ranThisLaunch
+    }
+
+    /// The lines under the actions: runtime notices, the crash card, the installer and restart hints.
+    private func notes(_ game: Game, _ caps: RuntimeCapabilities) -> [GamePageNote] {
+        var list: [GamePageNote] = []
+        if let notice { list.append(GamePageNote(id: "notice", text: notice, warning: true)) }
+        if let crashedOn {
+            var fixes: [GamePageFix] = GameRuntimes.choices(for: game).filter { $0 != crashedOn }.map { other in
+                GamePageFix(id: "use." + other.rawValue, title: "Use \(other.title)", symbol: other.symbol) {
+                    store.mutate(game.id) { $0.runtime = other }
                     LaunchGuard.clearCrash(for: game.id)
-                    crashedOn = nil
+                    self.crashedOn = nil
                 }
-                .font(.pixel(13))
-                .buttonStyle(.bordered)
-                .tint(.white)
+            }
+            fixes.append(GamePageFix(id: "dismiss", title: "Dismiss", symbol: "xmark") {
+                LaunchGuard.clearCrash(for: game.id)
+                self.crashedOn = nil
+            })
+            list.append(GamePageNote(id: "crash", text: "NexPlay closed while starting this game on \(crashedOn.title) last time. Try another runtime, or play again if it was a one-off.",
+                                     warning: true, fixes: fixes))
+        }
+        if caps.pcSetup {
+            if installerRan(game) {
+                list.append(GamePageNote(id: "restart", text: "The installer ran. Windows starts once per launch, so installing and playing are two launches: close NexPlay, open it again and tap Play.",
+                                         warning: true, fixes: [
+                                            GamePageFix(id: "close", title: "Close NexPlay", symbol: "power") { askClose = true }
+                                         ]))
+            } else if WindowsEngine.ranThisLaunch {
+                list.append(GamePageNote(id: "restart", text: "A Windows game already ran this launch. Windows starts once per launch: restart NexPlay to play this one."))
+            } else if !installers.isEmpty {
+                let first = (installers[0] as NSString).lastPathComponent
+                let more = installers.count > 1 ? " and \(installers.count - 1) more" : ""
+                list.append(GamePageNote(id: "installers", text: "This game comes with installers (\(first)\(more)). Most games run without them. If one is needed, installing and playing are two launches: run it, then restart NexPlay and play.",
+                                         fixes: [
+                                            GamePageFix(id: "install", title: "Run Installer", symbol: "shippingbox.fill") { askInstaller = true }
+                                         ]))
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.14), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.red.opacity(0.35)))
+        return list
     }
 
-    private var tabStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(GamePageTab.allCases) { item in
-                    Button {
-                        if pageTab != item {
-                            UISelectionFeedbackGenerator().selectionChanged()
-                            pageTab = item
-                        }
-                    } label: {
-                        Label(item.title, systemImage: item.symbol)
-                            .font(.pixel(13))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .background {
-                                if pageTab == item {
-                                    Capsule().fill(NexStyle.accentGradient)
-                                } else {
-                                    Capsule().fill(Color.white.opacity(0.08))
+    private func notesView(_ notes: [GamePageNote], _ m: GamePageMetrics) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(notes) { note in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: note.warning ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(note.warning ? NexColor.dark(.warning) : NexColor.dark(.accentSoft))
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(note.text)
+                            .font(NexType.body)
+                            .foregroundStyle(NexColor.dark(.text).opacity(0.92))
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !note.fixes.isEmpty {
+                            NexChipFlow(spacing: 8) {
+                                ForEach(note.fixes) { fix in
+                                    Button {
+                                        NexHaptics.tap()
+                                        fix.run()
+                                    } label: {
+                                        Label(fix.title, systemImage: fix.symbol).font(NexType.captionStrong)
+                                    }
+                                    .buttonStyle(NexGlassButtonStyle(fullWidth: false))
                                 }
                             }
-                            .overlay(Capsule().stroke(Color.white.opacity(pageTab == item ? 0 : 0.12)))
+                        }
                     }
-                    .buttonStyle(PressScaleStyle())
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 6)
         }
+        .frame(maxWidth: m.upright ? .infinity : 460, alignment: .leading)
     }
 
-    /// Overview: status, developer, version and notes (edited in the Settings tab).
-    private func detailsCard(_ game: Game) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Details", systemImage: "list.bullet.rectangle.fill")
-                .font(.pixel(14))
-                .foregroundStyle(NexStyle.accent)
-            detailRow("Status", game.playStatus.title)
-            if let developer = game.developer, !developer.isEmpty { detailRow("Developer", developer) }
-            if let version = game.version, !version.isEmpty { detailRow("Version", version) }
-            detailRow("Engine", game.engine.title)
+    // MARK: - Cards
+
+    private func facts(_ game: Game) -> [GamePageFact] {
+        let caps = GameRuntimes.capabilities(for: game)
+        var list = [GamePageFact(label: "Engine", value: game.engine.title)]
+        let kind = GameRuntimes.kind(for: game)
+        list.append(GamePageFact(label: "Runs On", value: runtimeLabel.map { "\(kind.title) · \($0)" } ?? kind.title))
+        list.append(GamePageFact(label: "Played", value: game.playSeconds > 0 ? formatHours(game.playSeconds) : "Not yet"))
+        if game.playCount > 0 {
+            list.append(GamePageFact(label: "Sessions", value: "\(game.playCount)"))
+        }
+        if let last = game.lastPlayed {
+            list.append(GamePageFact(label: "Last Played", value: last.formatted(.relative(presentation: .named))))
+        }
+        list.append(GamePageFact(label: "Added", value: game.addedAt.formatted(date: .abbreviated, time: .omitted)))
+        if let folderSize {
+            list.append(GamePageFact(label: "Size", value: ByteCountFormatter.string(fromByteCount: folderSize, countStyle: .file)))
+        }
+        if let version = game.version, !version.isEmpty { list.append(GamePageFact(label: "Version", value: version)) }
+        if caps.pcSetup {
+            if let program { list.append(GamePageFact(label: "Program", value: (program as NSString).lastPathComponent)) }
+            if let info = game.windowsInfo { list.append(GamePageFact(label: "Outlook", value: info.summary)) }
+        }
+        return list
+    }
+
+    private func factsCard(_ game: Game) -> some View {
+        NexMenuSection("Details") {
+            ForEach(facts(game)) { fact in
+                NexMenuCustomRow {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(fact.label).font(NexType.caption).foregroundStyle(NexColor.dark(.textSoft))
+                        Spacer(minLength: 8)
+                        Text(fact.value).font(NexType.captionStrong).multilineTextAlignment(.trailing).lineLimit(2)
+                    }
+                }
+            }
             if let notes = game.notes, !notes.isEmpty {
-                Text(notes)
-                    .font(.pixel(13))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 4)
+                NexMenuNote(text: notes, symbol: "note.text", tint: NexColor.dark(.text))
             }
-            Button {
-                pageTab = .settings
-            } label: {
-                Label("Edit in Settings", systemImage: "pencil")
-                    .font(.pixel(13))
-            }
-            .tint(NexStyle.accent)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NexStyle.cardStroke))
-    }
-
-    private func detailRow(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title).font(.pixel(13)).foregroundStyle(.secondary)
-            Spacer()
-            Text(value).font(.pixel(13)).foregroundStyle(.white).multilineTextAlignment(.trailing)
+            NexMenuRow(title: "Edit Details", symbol: "pencil", accessory: .chevron) { openPanel(.options) }
         }
     }
 
     private func howItRunsCard(_ game: Game) -> some View {
         let kind = GameRuntimes.kind(for: game)
         let current = game.compatibility ?? .untested
-        return VStack(alignment: .leading, spacing: 12) {
-            Label("How It Runs", systemImage: kind.symbol)
-                .font(.pixel(14))
-                .foregroundStyle(NexStyle.accent)
-            Text(kind.howItRuns)
-                .font(.pixel(13))
-                .foregroundStyle(.white.opacity(0.85))
-                .fixedSize(horizontal: false, vertical: true)
-            Text(game.runtime == nil ? "Runtime: Automatic (\(kind.title))" : "Runtime: \(kind.title), chosen in Game Settings")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                ForEach([CompatStatus.works, .playable, .broken]) { status in
-                    Button {
-                        store.mutate(game.id) { $0.compatibility = current == status ? nil : status }
-                        UISelectionFeedbackGenerator().selectionChanged()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Circle().fill(status.color).frame(width: 8, height: 8)
-                            Text(status.title).font(.pixel(13))
+        return NexMenuSection("How It Runs") {
+            NexMenuNote(text: kind.howItRuns, symbol: kind.symbol, tint: NexColor.dark(.text))
+            NexMenuNote(text: game.runtime == nil ? "Runtime: Automatic (\(kind.title))" : "Runtime: \(kind.title), chosen in Options")
+            NexMenuCustomRow {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        ForEach([CompatStatus.works, .playable, .broken]) { status in
+                            Button {
+                                store.mutate(game.id) { $0.compatibility = current == status ? nil : status }
+                                NexHaptics.selection()
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Circle().fill(status.color).frame(width: 8, height: 8)
+                                    Text(status.title).font(NexType.captionStrong).lineLimit(1).minimumScaleFactor(0.8)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity)
+                                .background(current == status ? status.color.opacity(0.45) : Color.white.opacity(0.08), in: Capsule())
+                                .overlay(Capsule().strokeBorder(current == status ? status.color : Color.white.opacity(0.12)))
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity)
-                        .background(current == status ? status.color.opacity(0.45) : Color.white.opacity(0.08), in: Capsule())
-                        .overlay(Capsule().stroke(current == status ? status.color : Color.white.opacity(0.12)))
+                    }
+                    Text("Your verdict. It shows on the game's card.")
+                        .font(NexType.caption).foregroundStyle(NexColor.dark(.textSoft))
+                }
+            }
+        }
+    }
+
+    private func profileRow(_ game: Game) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            NexMenuEyebrow(text: "Save Profiles").padding(.leading, 4)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(profiles) { info in
+                        ProfileCard(info: info) {
+                            switchTo(info)
+                        } onInfo: {
+                            profileInfo = info
+                        }
+                    }
+                    Button {
+                        newProfileName = "Profile \(profiles.count + 1)"
+                        askingNewProfile = true
+                    } label: {
+                        VStack(spacing: 10) {
+                            Image(systemName: "plus").font(.system(size: 30, weight: .black)).foregroundStyle(NexColor.dark(.accent))
+                            Text("New Profile").font(NexType.label)
+                        }
+                        .frame(width: 150, height: 120)
+                        .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])))
                     }
                     .buttonStyle(PressScaleStyle())
                 }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 2)
             }
-            Text("Your verdict. It shows on the game's card.")
-                .font(.caption).foregroundStyle(.secondary)
+            .disabled(busy)
+            .overlay { if busy { ProgressView().tint(.white) } }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(NexStyle.cardStroke))
     }
 
-    private func bottomBar(_ game: Game) -> some View {
-        let setup = GameReadiness.setupReason(for: game)
-        return VStack(spacing: 14) {
-            Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            if let setup {
-                Button {
-                    showSetupCenter = true
-                } label: {
-                    VStack(spacing: 2) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "wrench.and.screwdriver.fill")
-                            Text("Set Up").font(.pixel(22))
+    // MARK: - Panel
+
+    @ViewBuilder private func panelView(_ game: Game, _ page: GamePagePanel, _ m: GamePageMetrics) -> some View {
+        if m.upright {
+            VStack(spacing: 0) {
+                Spacer(minLength: m.insets.top + 30)
+                VStack(spacing: 0) {
+                    Capsule().fill(NexColor.dark(.stroke)).frame(width: 40, height: 5).padding(.top, 8)
+                    panelHeader(game, page)
+                    panelContent(game, page)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: (m.size.height + m.insets.bottom) * 0.86)
+                .background {
+                    UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous)
+                        .fill(ground)
+                        .overlay {
+                            UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous)
+                                .strokeBorder(NexColor.dark(.stroke), lineWidth: 1)
                         }
-                        Text(setup).font(.pixel(11)).opacity(0.8)
-                    }
+                        .ignoresSafeArea(edges: .bottom)
                 }
-                .buttonStyle(PlayButtonStyle())
-                .padding(.horizontal, 20)
-                Button("Play Anyway") { onPlay(game) }
-                    .font(.pixel(13))
-                    .foregroundStyle(.white.opacity(0.7))
-            } else {
-                Button {
-                    onPlay(game)
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: WindowsEngine.playTitle(for: game) == "Play" ? "play.fill" : "arrow.clockwise")
-                        Text(WindowsEngine.playTitle(for: game)).font(.pixel(24)).lineLimit(1).minimumScaleFactor(0.5)
-                    }
-                }
-                .buttonStyle(PlayButtonStyle())
-                .padding(.horizontal, 20)
+                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous))
             }
-            Color.clear.frame(height: 4)
+            .ignoresSafeArea(edges: .bottom)
+        } else {
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                VStack(spacing: 0) {
+                    panelHeader(game, page)
+                    panelContent(game, page)
+                }
+                .frame(width: m.panelWidth)
+                .frame(maxHeight: .infinity)
+                .background {
+                    ground
+                        .overlay(alignment: .leading) { Rectangle().fill(NexColor.dark(.stroke)).frame(width: 1) }
+                        .ignoresSafeArea()
+                }
+            }
         }
-        .background(LinearGradient(colors: [.clear, .black.opacity(0.45)], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
     }
 
-    // MARK: - Profiles
+    /// The panel's title, the other pages of this game as chips, and close.
+    private func panelHeader(_ game: Game, _ page: GamePagePanel) -> some View {
+        let caps = GameRuntimes.capabilities(for: game)
+        var pages: [GamePagePanel] = [.options]
+        if caps.fileSaves { pages.append(.saves) }
+        pages.append(.media)
+        if caps.mods { pages.append(.mods) }
+        return HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(pages) { item in
+                        Button {
+                            guard panel != item else { return }
+                            NexHaptics.selection()
+                            panel = item
+                        } label: {
+                            Label(item.title, systemImage: item.symbol)
+                                .font(NexType.captionStrong)
+                                .foregroundStyle(item == page ? NexColor.dark(.onAccent) : NexColor.dark(.text))
+                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .background {
+                                    if item == page {
+                                        Capsule().fill(NexColor.accentGradient)
+                                    } else {
+                                        Capsule().fill(Color.white.opacity(0.08))
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.leading, 14)
+            }
+            Button { closePanel() } label: { Image(systemName: "xmark") }
+                .buttonStyle(NexGlassIconButtonStyle(size: 36))
+                .accessibilityLabel("Close")
+                .padding(.trailing, 12)
+        }
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder private func panelContent(_ game: Game, _ page: GamePagePanel) -> some View {
+        switch page {
+        case .options:
+            GameSettingsView(gameID: game.id, onDeleted: {
+                panel = nil
+                dismiss()
+            }, embedded: true)
+        case .saves:
+            GameSavesView(gameID: game.id, embedded: true)
+        case .media:
+            MediaBrowserView(game: game, embedded: true)
+        case .mods:
+            ModsView(game: game, embedded: true)
+        }
+    }
+
+    private func openPanel(_ page: GamePagePanel) {
+        withAnimation(NexMotion.pick(NexMotion.smooth)) { panel = page }
+    }
+
+    private func closePanel() {
+        withAnimation(NexMotion.pick(NexMotion.snappy)) { panel = nil }
+        Task { await refresh() }
+    }
+
+    // MARK: - Play, installers
+
+    private func play(_ game: Game) {
+        NexHaptics.press()
+        onPlay(game)
+    }
+
+    private func runInstaller(_ path: String) {
+        guard let game else { return }
+        WindowsInstallers.runNext(path, for: game.id)
+        AppLog.log("windows: \(game.name): installer chosen \(path)")
+        play(game)
+    }
+
+    private func closeNexPlay() {
+        AppLog.log("windows: closing NexPlay from the game page (restart and play)")
+        _ = AppLog.shared.text
+        exit(0)
+    }
+
+    // MARK: - Loading
 
     private func refresh() async {
         guard let game else { return }
@@ -537,7 +793,7 @@ struct GameDetailView: View {
             notice = FlashRuntime.folder == nil ? FlashRuntime.FlashError.missing.errorDescription : nil
         case .rpg2k:
             let fine = EasyRPGCore.isPresent || target.runtime == .windows
-            notice = fine ? nil : "This build has no EasyRPG core. Pick Windows in Game Settings > Runtime, or install a newer build."
+            notice = fine ? nil : "This build has no EasyRPG core. Pick Windows in Options > Runs On, or install a newer build."
         case .windows:
             notice = WindowsEngine.unavailableReason ?? target.windowsInfo.flatMap {
                 $0.outlook == .likely ? nil : "Windows runtime outlook: \($0.summary)."
@@ -555,6 +811,17 @@ struct GameDetailView: View {
             } else {
                 runtimeLabel = nil
             }
+        }
+        if GameRuntimes.capabilities(for: target).pcSetup {
+            let found = await Task.detached(priority: .utility) { () -> (String?, [String]) in
+                let root = Paths.folder(for: target)
+                return (WindowsGameFiles.program(for: target), WindowsInstallers.list(in: root))
+            }.value
+            program = found.0
+            installers = found.1
+        } else {
+            program = nil
+            installers = []
         }
         folderSize = await Task.detached(priority: .utility) { GameScanner.size(of: Paths.folder(for: target)) }.value
         if target.usesNWMode {
@@ -637,6 +904,25 @@ struct GameDetailView: View {
     }
 }
 
+/// Sizes for each layout (BCD's BCDGamePageMetrics): a phone on its side, an upright phone, an iPad either way.
+private struct GamePageMetrics {
+    let size: CGSize
+    let insets: EdgeInsets
+    let pad: Bool
+
+    var upright: Bool { size.height > size.width }
+    var gutter: CGFloat { pad ? 36 : 20 }
+    var columnGap: CGFloat { pad ? 36 : 22 }
+    var factsWidth: CGFloat { pad ? 330 : (size.width < 760 ? 240 : 270) }
+    var mainColumn: CGFloat { max(260, size.width - 2 * gutter - factsWidth - columnGap) }
+    var titleSize: CGFloat { pad ? 44 : 30 }
+    var mainWidth: CGFloat { pad ? 240 : 190 }
+    var panelWidth: CGFloat { pad ? 460 : min(440, max(340, size.width * 0.55)) }
+    /// An upright screen: how tall the art is, and how far down the name starts on it.
+    var artHeight: CGFloat { max(250, (size.height + insets.top + insets.bottom) * (pad ? 0.5 : 0.44)) }
+    var uprightLead: CGFloat { max(40, artHeight - insets.top - (pad ? 210 : 150)) }
+}
+
 /// A save profile card: check mark when active, name, save count, date and an info button.
 struct ProfileCard: View {
     let info: ProfileSummary
@@ -648,7 +934,7 @@ struct ProfileCard: View {
             HStack(spacing: 8) {
                 Image(systemName: info.isActive ? "checkmark.seal.fill" : "person.crop.circle")
                     .foregroundStyle(info.isActive ? NexStyle.accent : .white.opacity(0.6))
-                Text(info.profile.name).font(.pixel(17)).foregroundStyle(.white).lineLimit(1)
+                Text(info.profile.name).font(NexType.heading).foregroundStyle(.white).lineLimit(1)
                 Spacer(minLength: 4)
                 Button(action: onInfo) {
                     Image(systemName: "info.circle").foregroundStyle(.white.opacity(0.55)).padding(4)
@@ -656,9 +942,9 @@ struct ProfileCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Profile options")
             }
-            Text(info.count == 1 ? "1 save" : "\(info.count) saves").font(.pixel(13)).foregroundStyle(.white.opacity(0.6))
+            Text(info.count == 1 ? "1 save" : "\(info.count) saves").font(NexType.caption).foregroundStyle(.white.opacity(0.6))
             Text(info.newest.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "No saves yet")
-                .font(.pixel(13)).foregroundStyle(.white.opacity(0.45))
+                .font(NexType.caption).foregroundStyle(.white.opacity(0.45))
         }
         .padding(16)
         .frame(width: 210, height: 120, alignment: .topLeading)
@@ -681,7 +967,7 @@ struct BottomTile: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: symbol).font(.system(size: 18, weight: .semibold)).foregroundStyle(NexStyle.accent)
-                Text(title).font(.pixel(15)).foregroundStyle(.white).multilineTextAlignment(.center).lineLimit(2)
+                Text(title).font(NexType.label).foregroundStyle(.white).multilineTextAlignment(.center).lineLimit(2)
                     .minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity, minHeight: 64)

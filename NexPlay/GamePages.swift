@@ -7,7 +7,7 @@ import Photos
 // screenshots (action tiles, profile card, save cards with "Newest"; media tabs with counts and search; mods
 // with a global switch); NexPlay's own code.
 
-/// Header used by the full-screen pages: a capsule button on each side and a pixel title.
+/// Header used by the full-screen pages: a capsule button on each side and a rounded title (8.4.0: no pixel font).
 struct PageHeader<Leading: View, Trailing: View>: View {
     let title: String
     @ViewBuilder let leading: () -> Leading
@@ -15,7 +15,7 @@ struct PageHeader<Leading: View, Trailing: View>: View {
 
     var body: some View {
         ZStack {
-            Text(title).font(.pixel(20)).foregroundStyle(.white)
+            Text(title).font(NexType.title(20)).foregroundStyle(.white)
             HStack {
                 leading()
                 Spacer()
@@ -28,7 +28,7 @@ struct PageHeader<Leading: View, Trailing: View>: View {
     }
 }
 
-/// A capsule glass button with a pixel title.
+/// A capsule glass button with a short title.
 struct CapsuleButton: View {
     let title: String
     var tint: Color = NexStyle.accent
@@ -37,7 +37,7 @@ struct CapsuleButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.pixel(16))
+                .font(.system(size: 16, weight: .medium, design: .rounded))
                 .foregroundStyle(tint)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 11)
@@ -133,7 +133,7 @@ struct GameSavesView: View {
             }
             if busy { ProgressView().tint(.white).scaleEffect(1.4) }
         }
-        .font(.pixel(16))
+        .font(.system(size: 16, weight: .medium, design: .rounded))
         .environment(\.colorScheme, .dark)
         .task { await refresh() }
         .sheet(isPresented: $sharing) { ActivityView(items: shareURLs) }
@@ -195,11 +195,11 @@ struct GameSavesView: View {
         return HStack(spacing: 14) {
             Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(NexStyle.accent)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Save Profile").font(.pixel(12)).foregroundStyle(.white.opacity(0.55))
-                Text(active.name).font(.pixel(20)).foregroundStyle(.white)
+                Text("Save Profile").font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.55))
+                Text(active.name).font(.system(size: 20, weight: .medium, design: .rounded)).foregroundStyle(.white)
             }
             Spacer()
-            Text("Switch on the game page").font(.pixel(11)).foregroundStyle(.white.opacity(0.4))
+            Text("Switch on the game page").font(.system(size: 11, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.4))
         }
         .padding(16)
         .background(.ultraThinMaterial.opacity(0.6), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -224,9 +224,9 @@ struct GameSavesView: View {
                         .background(NexStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
-                            Text(file.name).font(.pixel(19)).foregroundStyle(.white).lineLimit(1)
+                            Text(file.name).font(.system(size: 19, weight: .medium, design: .rounded)).foregroundStyle(.white).lineLimit(1)
                             if file.id == newestID {
-                                Text("Newest").font(.pixel(12)).foregroundStyle(.white)
+                                Text("Newest").font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.white)
                                     .padding(.horizontal, 8).padding(.vertical, 3)
                                     .background(NexStyle.accentDeep, in: Capsule())
                             }
@@ -235,7 +235,7 @@ struct GameSavesView: View {
                             Label(file.date.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
                             Label(ByteCountFormatter.string(fromByteCount: file.bytes, countStyle: .file), systemImage: "internaldrive")
                         }
-                        .font(.pixel(12))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.6))
                     }
                     Spacer()
@@ -280,9 +280,9 @@ struct GameSavesView: View {
                             .frame(width: 58, height: 58)
                             .background(NexStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(entry.date.formatted(date: .abbreviated, time: .shortened)).font(.pixel(17)).foregroundStyle(.white)
+                            Text(entry.date.formatted(date: .abbreviated, time: .shortened)).font(.system(size: 17, weight: .medium, design: .rounded)).foregroundStyle(.white)
                             Text(safety ? "Safety copy" : ByteCountFormatter.string(fromByteCount: entry.bytes, countStyle: .file))
-                                .font(.pixel(12)).foregroundStyle(.white.opacity(0.6))
+                                .font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.6))
                         }
                         Spacer()
                         Image(systemName: "arrow.counterclockwise").foregroundStyle(.white.opacity(0.5))
@@ -318,8 +318,8 @@ struct GameSavesView: View {
     private func emptyNote(_ title: String, _ text: String) -> some View {
         VStack(spacing: 10) {
             Image(systemName: "tray").font(.system(size: 36)).foregroundStyle(.white.opacity(0.4))
-            Text(title).font(.pixel(18)).foregroundStyle(.white)
-            Text(text).font(.pixel(13)).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
+            Text(title).font(.system(size: 18, weight: .medium, design: .rounded)).foregroundStyle(.white)
+            Text(text).font(.system(size: 13, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(28)
@@ -441,7 +441,7 @@ struct SaveActionTile: View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: symbol).font(.system(size: 22, weight: .semibold))
-                Text(title).font(.pixel(14))
+                Text(title).font(.system(size: 14, weight: .medium, design: .rounded))
             }
             .foregroundStyle(destructive && enabled ? Color.red : .white)
             .frame(maxWidth: .infinity, minHeight: 78)
@@ -502,7 +502,7 @@ struct MediaBrowserView: View {
                 if selecting && !selected.isEmpty { selectionBar }
             }
         }
-        .font(.pixel(16))
+        .font(.system(size: 16, weight: .medium, design: .rounded))
         .environment(\.colorScheme, .dark)
         .task { await load() }
         .sheet(isPresented: $sharing) { ActivityView(items: shareURLs) }
@@ -515,7 +515,7 @@ struct MediaBrowserView: View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.7))
             TextField("Search media", text: $search)
-                .font(.pixel(16))
+                .font(.system(size: 16, weight: .medium, design: .rounded))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             if !search.isEmpty {
@@ -539,8 +539,8 @@ struct MediaBrowserView: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: kind.symbol)
-                            Text(kind.title).font(.pixel(16))
-                            Text("\((index[kind] ?? []).count)").font(.pixel(12)).foregroundStyle(.white.opacity(0.6))
+                            Text(kind.title).font(.system(size: 16, weight: .medium, design: .rounded))
+                            Text("\((index[kind] ?? []).count)").font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.6))
                         }
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
@@ -560,15 +560,15 @@ struct MediaBrowserView: View {
     private var content: some View {
         if loading {
             Spacer()
-            ProgressView("Scanning the game…").tint(.white).font(.pixel(14))
+            ProgressView("Scanning the game…").tint(.white).font(.system(size: 14, weight: .medium, design: .rounded))
             Spacer()
         } else if items.isEmpty {
             Spacer()
             VStack(spacing: 10) {
                 Image(systemName: tab.symbol).font(.system(size: 40)).foregroundStyle(.white.opacity(0.35))
-                Text(tab == .screenshots ? "No screenshots yet" : "Nothing here").font(.pixel(17))
+                Text(tab == .screenshots ? "No screenshots yet" : "Nothing here").font(.system(size: 17, weight: .medium, design: .rounded))
                 if tab == .screenshots {
-                    Text("In a game, open its bubble and tap the camera.").font(.pixel(13)).foregroundStyle(.white.opacity(0.55))
+                    Text("In a game, open its bubble and tap the camera.").font(.system(size: 13, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.55))
                 }
             }
             Spacer()
@@ -603,7 +603,7 @@ struct MediaBrowserView: View {
 
     private var selectionBar: some View {
         HStack(spacing: 12) {
-            Text("\(selected.count) selected").font(.pixel(14))
+            Text("\(selected.count) selected").font(.system(size: 14, weight: .medium, design: .rounded))
             Spacer()
             Button {
                 let chosen = items.filter { selected.contains($0.id) }
@@ -613,7 +613,7 @@ struct MediaBrowserView: View {
                     sharing = !shareURLs.isEmpty
                 }
             } label: {
-                Label("Share", systemImage: "square.and.arrow.up").font(.pixel(15))
+                Label("Share", systemImage: "square.and.arrow.up").font(.system(size: 15, weight: .medium, design: .rounded))
             }
             .buttonStyle(.borderedProminent)
             .tint(NexStyle.accentDeep)
@@ -646,7 +646,7 @@ struct MediaThumb: View {
                 } else if item.kind.isVideo {
                     VStack(spacing: 6) {
                         Image(systemName: "film").font(.title)
-                        Text(item.name).font(.pixel(11)).lineLimit(2).multilineTextAlignment(.center)
+                        Text(item.name).font(.system(size: 11, weight: .medium, design: .rounded)).lineLimit(2).multilineTextAlignment(.center)
                     }
                     .foregroundStyle(.white.opacity(0.7))
                     .padding(6)
@@ -710,7 +710,7 @@ struct MediaViewer: View {
                 VStack(spacing: 10) {
                     Image(systemName: "film").font(.system(size: 44))
                     Text("\(item.url.pathExtension.uppercased()) videos can't be previewed on iPhone; the game plays them itself.")
-                        .font(.pixel(14)).multilineTextAlignment(.center).padding(.horizontal, 30)
+                        .font(.system(size: 14, weight: .medium, design: .rounded)).multilineTextAlignment(.center).padding(.horizontal, 30)
                 }
                 .foregroundStyle(.white.opacity(0.7))
             } else {
@@ -723,13 +723,13 @@ struct MediaViewer: View {
                         onClose()
                     }
                     Spacer()
-                    Text(item.name).font(.pixel(15)).lineLimit(1).padding(.horizontal, 12).padding(.vertical, 8)
+                    Text(item.name).font(.system(size: 15, weight: .medium, design: .rounded)).lineLimit(1).padding(.horizontal, 12).padding(.vertical, 8)
                         .background(.ultraThinMaterial, in: Capsule())
                 }
                 .padding(16)
                 Spacer()
                 if let note {
-                    Text(note).font(.pixel(14)).padding(10).background(.ultraThinMaterial, in: Capsule())
+                    Text(note).font(.system(size: 14, weight: .medium, design: .rounded)).padding(10).background(.ultraThinMaterial, in: Capsule())
                 }
                 if image != nil {
                     HStack(spacing: 12) {
@@ -742,7 +742,7 @@ struct MediaViewer: View {
             }
         }
         .foregroundStyle(.white)
-        .font(.pixel(16))
+        .font(.system(size: 16, weight: .medium, design: .rounded))
         .environment(\.colorScheme, .dark)
         .task { await load() }
         .sheet(isPresented: $sharing) { ActivityView(items: shareURLs) }
@@ -752,7 +752,7 @@ struct MediaViewer: View {
         Button(action: action) {
             VStack(spacing: 5) {
                 Image(systemName: symbol).font(.title3)
-                Text(title).font(.pixel(12))
+                Text(title).font(.system(size: 12, weight: .medium, design: .rounded))
             }
             .frame(width: 96, height: 62)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -844,13 +844,13 @@ struct ModsView: View {
                         } else {
                             ForEach(mods) { mod in modRow(mod) }
                         }
-                        Text(helpText).font(.pixel(12)).foregroundStyle(.white.opacity(0.5)).padding(.horizontal, 6)
+                        Text(helpText).font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.5)).padding(.horizontal, 6)
                     }
                     .padding(16)
                 }
             }
         }
-        .font(.pixel(16))
+        .font(.system(size: 16, weight: .medium, design: .rounded))
         .environment(\.colorScheme, .dark)
         .onAppear { reload() }
         // One importer for both kinds: two fileImporter modifiers on one view don't work together.
@@ -880,20 +880,20 @@ struct ModsView: View {
 
     private func headerCard(_ game: Game) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(game.name).font(.pixel(18))
+            Text(game.name).font(.system(size: 18, weight: .medium, design: .rounded))
             Toggle(isOn: Binding(get: { useGlobal }, set: { value in
                 useGlobal = value
                 var config = ModStore.config(game)
                 config.useGlobal = value
                 ModStore.setConfig(config, for: game)
             })) {
-                Text("Use Global Mods").font(.pixel(18))
+                Text("Use Global Mods").font(.system(size: 18, weight: .medium, design: .rounded))
             }
             .tint(NexStyle.accent)
             Text("Changes here affect only this game. Game-specific mods take priority over global mods.")
-                .font(.pixel(12)).foregroundStyle(.white.opacity(0.55))
+                .font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.55))
             Button { showGlobal = true } label: {
-                Label("Manage Global Mods", systemImage: "puzzlepiece.extension.fill").font(.pixel(16))
+                Label("Manage Global Mods", systemImage: "puzzlepiece.extension.fill").font(.system(size: 16, weight: .medium, design: .rounded))
             }
             .tint(.blue)
         }
@@ -904,14 +904,14 @@ struct ModsView: View {
     private var emptyState: some View {
         VStack(spacing: 14) {
             Image(systemName: "puzzlepiece.extension").font(.system(size: 52)).foregroundStyle(.white.opacity(0.45))
-            Text("No mods added").font(.pixel(20))
+            Text("No mods added").font(.system(size: 20, weight: .medium, design: .rounded))
             Text(game == nil ? "Global mods apply to every game that uses them." : "Add a mod folder, a ZIP, or a plugin .js.")
-                .font(.pixel(13)).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
+                .font(.system(size: 13, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
             Menu {
                 Button { pickingFolder = true } label: { Label("Mod Folder…", systemImage: "folder") }
                 Button { pickingFiles = true } label: { Label("ZIP or Plugin (.js)…", systemImage: "doc.zipper") }
             } label: {
-                Label("Add Mod", systemImage: "plus").font(.pixel(18)).foregroundStyle(.white)
+                Label("Add Mod", systemImage: "plus").font(.system(size: 18, weight: .medium, design: .rounded)).foregroundStyle(.white)
                     .padding(.horizontal, 30).padding(.vertical, 15)
                     .background(NexStyle.accentGradient, in: Capsule())
             }
@@ -928,8 +928,8 @@ struct ModsView: View {
                 .frame(width: 50, height: 50)
                 .background(NexStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
-                Text(mod.name).font(.pixel(17)).lineLimit(1)
-                Text(mod.isPlugin ? "Plugin" : "\(mod.fileCount) file(s)").font(.pixel(12)).foregroundStyle(.white.opacity(0.55))
+                Text(mod.name).font(.system(size: 17, weight: .medium, design: .rounded)).lineLimit(1)
+                Text(mod.isPlugin ? "Plugin" : "\(mod.fileCount) file(s)").font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.55))
             }
             Spacer()
             Toggle("", isOn: Binding(get: { mod.enabled }, set: { value in

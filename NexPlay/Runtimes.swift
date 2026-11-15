@@ -96,6 +96,20 @@ struct RuntimeCapabilities: Equatable {
     var pause = false
     var touchMouse = false
     var cheats = false
+    // 8.4.0: which game page and Game Settings sections show (a Twine game never shows PC setup, a PC game never
+    // shows Ren'Py or RPG Maker options).
+    /// Manage Saves (RPG Maker save files, backups, profiles).
+    var fileSaves = false
+    /// Mods (overlay files and plugin .js, web-view games).
+    var mods = false
+    /// RPG Maker MV/MZ options: NW.js mode, plugins, screen scaling, fast forward.
+    var rpgMakerOptions = false
+    /// The bundled engine runtime version (Ren'Py, desktop Godot).
+    var engineRuntimes = false
+    /// Web player options: mouse mode, FPS overlay, Block Internet.
+    var webOptions = false
+    /// PC setup: program, installers (8.4.1: graphics, prefix tools, AutoTune, recommendations, Windows saves).
+    var pcSetup = false
 }
 
 /// One way of running games.
@@ -179,6 +193,11 @@ struct WebGameRuntime: GameRuntime {
         caps.gameSpeed = engine.isRPGMaker || engine.isWebGame
         caps.pause = caps.gameSpeed
         caps.cheats = engine.isRPGMaker
+        caps.fileSaves = engine.isRPGMaker
+        caps.mods = true
+        caps.rpgMakerOptions = engine.isRPGMaker
+        caps.engineRuntimes = engine == .renpy || game.isGodotDesktop
+        caps.webOptions = true
         return caps
     }
 
@@ -217,6 +236,7 @@ struct WindowsGameRuntime: GameRuntime {
         var caps = RuntimeCapabilities()
         caps.needsJIT = true
         caps.touchMouse = true
+        caps.pcSetup = true
         return caps
     }
 

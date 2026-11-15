@@ -80,6 +80,39 @@ enum WindowsGameFiles {
     }
 }
 
+/// 8.4.0: installers and redistributables that come with a PC game (setup.exe, vcredist, DirectX, PhysX...). Wine runs once
+/// per app launch, so installing and playing are two launches: Run Installer starts one in place of the game's program,
+/// and the game page then says "Restart and Play".
+enum WindowsInstallers {
+    private static let prefixes = ["setup", "install", "vcredist", "vc_redist", "dxsetup", "dxwebsetup", "directx", "dotnet",
+                                   "netfx", "ndp4", "oalinst", "physx", "ue4prereq", "ueprereq", "prereq", "redist"]
+
+    /// The game's installers, relative to its folder (never an uninstaller).
+    static func list(in root: URL) -> [String] {
+        WindowsGameFiles.allExecutables(in: root).filter { path in
+            let name = ((path as NSString).lastPathComponent as NSString).deletingPathExtension.lowercased()
+            if name.hasPrefix("unins") || name.hasPrefix("uninstall") { return false }
+            let folder = (path as NSString).deletingLastPathComponent.lowercased()
+            return prefixes.contains(where: { name.hasPrefix($0) }) || folder.contains("redist") || folder.contains("_commonredist")
+        }
+    }
+
+    /// The installer the next start of a game runs in place of its program (one start only, kept in memory).
+    @MainActor private static var pending: [UUID: String] = [:]
+    /// The game whose installer ran this launch.
+    @MainActor static var ranFor: UUID?
+
+    @MainActor static func runNext(_ installer: String, for gameID: UUID) {
+        pending[gameID] = installer
+        ranFor = gameID
+    }
+
+    /// The installer to start instead of the game's program, once.
+    @MainActor static func take(for gameID: UUID) -> String? {
+        pending.removeValue(forKey: gameID)
+    }
+}
+
 /// The link from BCD's Windows drive to a NexPlay game folder.
 enum WindowsLibraryLink {
     /// BCD's C: drive (Documents/wine/drive_c, as BCD's LibraryModel.drive).
@@ -217,7 +250,10 @@ final class WindowsLaunchController: UIViewController {
             fail(reason, retry: false)
             return
         }
-        guard let program = WindowsGameFiles.program(for: game) else {
+        // 8.4.0: Run Installer on the game page starts an installer once instead of the game's program.
+        let installer = WindowsInstallers.take(for: game.id)
+        if let installer { AppLog.log("windows: \(game.name): running installer \(installer)") }
+        guard let program = installer ?? WindowsGameFiles.program(for: game) else {
             fail("No Windows program (.exe) was found in this game's folder.", retry: false)
             return
         }
@@ -234,7 +270,7 @@ final class WindowsLaunchController: UIViewController {
             fail("The Windows engine couldn't add this game to its library.", retry: true)
             return
         }
-        if game.windowsInfo == nil, let info = WindowsPE.inspect(program: program, in: Paths.folder(for: game)) {
+        if installer == nil, game.windowsInfo == nil, let info = WindowsPE.inspect(program: program, in: Paths.folder(for: game)) {
             store.mutate(game.id) { $0.windowsInfo = info }
         }
         let current = session ?? makeSession()
