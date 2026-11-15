@@ -21,7 +21,7 @@ targets:
           -lgnutls -lhogweed -lnettle -lgmp -lmadeira_rppairing
           -lavformat -lavcodec -lswresample -lavutil
           -lc++ -lz -lsqlite3 -llzma
-          -framework IOKit -framework Metal -framework QuartzCore -framework MetalFX -framework OpenGLES
+          -framework IOKit -framework Metal -framework QuartzCore -framework MetalFX -weak_framework OpenGLES
           -framework IOSurface -framework VideoToolbox -framework CoreMedia -framework CoreVideo
           -framework AudioToolbox -framework CoreFoundation -weak_framework ExtensionFoundation
         LIBRARY_SEARCH_PATHS:
