@@ -96,7 +96,7 @@ struct GameSettingsView: View {
     private func form(_ game: Game) -> some View {
         // 8.4.0: sections by what the game's runtime can do (RuntimeCapabilities), not by engine checks here.
         let caps = GameRuntimes.capabilities(for: game)
-        return Form {
+        return NexForm {
             detailsSection(game)
             coverSection(game)
             progressSection(game)

@@ -41,7 +41,7 @@ struct ControlEditorView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            NexForm {
                 appearanceSection
                 if item.action.isDirectional {
                     directionSection

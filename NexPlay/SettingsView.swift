@@ -281,9 +281,14 @@ struct SettingsHeader: View {
                 .font(.caption.bold())
                 .foregroundStyle(.white)
                 .frame(width: 24, height: 24)
-                .background(color, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            Text(title)
+                .background(color.gradient, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            // 8.6.3: the design system's section title (rounded small capitals, soft text).
+            Text(title.uppercased())
+                .font(.system(.caption, design: .rounded).weight(.bold))
+                .tracking(0.6)
+                .foregroundStyle(NexColor.textSoft)
         }
+        .textCase(nil)
         .accessibilityElement(children: .combine)
     }
 }
@@ -300,8 +305,8 @@ struct SettingLabel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-            Text(detail).font(.caption).foregroundStyle(.secondary)
+            Text(title).font(NexType.body).foregroundStyle(NexColor.text)
+            Text(detail).font(NexType.caption).foregroundStyle(NexColor.textSoft)
         }
     }
 }
@@ -318,7 +323,7 @@ struct ValueSlider: View {
             HStack {
                 Text(title)
                 Spacer()
-                Text(format(value)).foregroundStyle(Color.accentColor).monospacedDigit()
+                Text(format(value)).font(NexType.number).foregroundStyle(NexColor.accentSoft)
             }
             Slider(value: $value, in: range)
         }
@@ -375,7 +380,7 @@ struct AppearanceSettings: View {
     @AppStorage(SettingsKey.tapOpensGamePage) private var tapOpensPage = true
 
     var body: some View {
-        Form {
+        NexForm {
             // 8.1.1: colour profiles (the design system's semantic colours).
             Section {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -537,7 +542,7 @@ struct ControlsSettings: View {
     @State private var message: String?
 
     var body: some View {
-        Form {
+        NexForm {
             Section {
                 ValueSlider(title: "Size", value: $padScale, range: 0.6...1.6) { String(format: "%.1f×", $0) }
                 ValueSlider(title: "Opacity", value: $padOpacity, range: 0.2...1, format: percent)
@@ -653,7 +658,7 @@ struct GameplaySettings: View {
     @State private var message: String?
 
     var body: some View {
-        Form {
+        NexForm {
             PowerSettingsSection()
             HUDSettingsSection()
             Section {
@@ -724,7 +729,7 @@ struct TranslationGlobalSettings: View {
     @AppStorage(SettingsKey.translationEnabled) private var translation = false
 
     var body: some View {
-        Form {
+        NexForm {
             Section {
                 Toggle(isOn: $translation) {
                     SettingLabel("Translate MV/MZ Games", "Configure in-game text translation per game from the game menu (Translation…).")
@@ -744,7 +749,7 @@ struct PrivacySettings: View {
     @EnvironmentObject private var privacy: PrivacyLock
 
     var body: some View {
-        Form {
+        NexForm {
             Section {
                 LabeledContent("Hidden Games", value: "\(privacy.hiddenGames.count)")
                 Button {
@@ -782,7 +787,7 @@ struct BackupSettings: View {
     @State private var message: String?
 
     var body: some View {
-        Form {
+        NexForm {
             Section {
                 Toggle(isOn: $autoBackup) {
                     SettingLabel("Auto Backup Saves", "Back up save files when you stop playing and when NexPlay goes to the background.")
@@ -835,7 +840,7 @@ struct AdvancedSettings: View {
     @State private var showTour = false
 
     var body: some View {
-        Form {
+        NexForm {
             Section {
                 NavigationLink { EnginesSettingsView() } label: { Label("Engines & Runtimes", systemImage: "cpu") }
                 NavigationLink { StorageView() } label: { Label("Storage", systemImage: "internaldrive") }
@@ -856,7 +861,7 @@ struct AdvancedSettings: View {
 
 struct CreditsView: View {
     var body: some View {
-        List {
+        NexList {
             Section("Adapted code") {
                 Text("Empo, Copyright (C) 2026 Mateo M., https://github.com/mateo-m/empo-app, and mvmz-apple-mobile, https://github.com/mateo-m/mvmz-apple-mobile (GPL-3.0-only with additional terms): RPG Maker runtime (speed, pause, focus), NW.js shim, game file server, archive extraction with the system libarchive, save rescue and displaced-copy handling, controls model and touch handling ideas, controller bindings, backup retention and import pipeline invariants.")
                 Text("Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games)")

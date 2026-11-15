@@ -31,7 +31,7 @@ struct StorageView: View {
     private var rescuedBytes: Int64 { rescued.reduce(0) { $0 + $1.bytes } }
 
     var body: some View {
-        List {
+        NexList {
             Section {
                 if loading {
                     HStack { ProgressView(); Text("Measuring…").foregroundStyle(.secondary) }

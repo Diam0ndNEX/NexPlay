@@ -225,7 +225,7 @@ struct TranslationSettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            NexForm {
                 Section {
                     Toggle("Translate this game", isOn: Binding(
                         get: { enabled },

@@ -11,7 +11,7 @@ struct JITSettingsView: View {
     @State private var confirmRemove = false
 
     var body: some View {
-        Form {
+        NexForm {
             Section {
                 JITStatusCard(jit: jit)
             } header: {

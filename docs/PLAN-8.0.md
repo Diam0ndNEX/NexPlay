@@ -22,7 +22,7 @@ once all steps are done, then pastes build errors (first error first).
 | Settings: Windows Games page (BCD's engine settings with NexPlay rows) | 8.6.0 (79) | built OK 2026-11-15 |
 | Settings: Storage and external drives, logs and diagnostics | 8.6.1 (80) | built OK 2026-11-15 |
 | Settings: readiness checks in Setup Center, foldables | 8.6.2 (81) | built OK 2026-11-15 |
-| Settings: sub-pages from Forms to glass rows | 8.6.3 | |
+| Settings: sub-pages from Forms to glass rows | 8.6.3 (82) | pushed 2026-11-15 |
 | Settings: optional helper memory (MadeiraMemoryHost), only if its entitlements fit | 8.6.4 | |
 | Polish and cleanup | 8.7.0 | |
 
@@ -69,6 +69,13 @@ turn amber only when a game needs them) and Windows Games Check (BCD's `BCDReadi
 folder in the background, up to 40 games, games with notes first). `LibraryStore.current` (weak, set in init) gives it the
 library without an environment object. Windows Games › Graphics shows BCD's foldable switch on the foldable iPhone only
 (`NexBCDFoldableRow`); BCD's Duo interface switch is left out (it changes BCD's screens, which NexPlay doesn't show).
+
+8.6.3 notes: `NexFormStyle.swift`: `NexForm`/`NexList` = Form/List with rows on the profile's surface (NexMenuSection's card
+colour), profile hairlines, rounded type, accent tint, no stock grey (a Group passes listRowBackground/listRowSeparatorTint to
+every row). Every Settings sub-page Form (Appearance, Controls, Gameplay, JIT, Translation, Privacy, Import & Backup,
+Advanced, Diagnostics, Engines, controller mapping), Storage and Credits, plus Game Settings and Edit Button use them.
+`SettingsHeader` = the design system's small-capitals title; `SettingLabel`/`ValueSlider` use NexType/NexColor. Controls
+are unchanged (same toggles, pickers and links), so no setting moved.
 
 ## Owner's decision of 2026-11-15
 - **No itch.io.** The owner gets games from F95zone and imports them (files, folders, Download from Link). 8.5.0 added an

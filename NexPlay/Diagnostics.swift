@@ -250,7 +250,7 @@ struct DiagnosticsView: View {
         let signed = DeviceInfo.signedDebuggable
         let memory = DeviceInfo.hasEntitlement(Entitlement.increasedMemory)
         let address = DeviceInfo.hasEntitlement(Entitlement.extendedVA)
-        return Form {
+        return NexForm {
             SelfTestSection(results: $selfTest)
 
             Section {

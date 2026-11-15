@@ -257,7 +257,7 @@ struct ControllerMapView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            NexForm {
                 if let gameName, gameID != nil {
                     Picker("Applies to", selection: $scopeIsGame) {
                         Text("This game").tag(true)

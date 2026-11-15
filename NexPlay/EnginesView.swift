@@ -47,7 +47,7 @@ struct EnginesSettingsView: View {
     }
 
     var body: some View {
-        Form {
+        NexForm {
             Section {
                 engineRow("RPG Maker MV / MZ", symbol: GameEngine.rpgMV.symbol, detail: "Built in. NW.js mode keeps saves as files.", ok: true)
                 engineRow("RPG Maker XP / VX / Ace", symbol: GameEngine.rpgVXAce.symbol,
