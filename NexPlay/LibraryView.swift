@@ -338,6 +338,8 @@ struct LibraryView: View {
     @State private var gridWidth: CGFloat = 390
     @AppStorage(SettingsKey.onboarding7Seen) private var onboardingSeen = false
     @State private var showSetupCenter = false
+    /// 8.7.2: the card a game page zooms out of (iOS 18 zoom transition; off with Reduce Motion).
+    @Namespace private var cardSpace
     @ObservedObject private var jit = JITManager.shared
 
     private var sort: LibrarySortOrder { LibrarySortOrder(rawValue: sortRaw) ?? .playedRecent }
@@ -455,6 +457,7 @@ struct LibraryView: View {
             .environmentObject(store)
             .environmentObject(collections)
             .environmentObject(privacy)
+            .nexZoomDestination(game.id, in: cardSpace)
         }
         .sheet(isPresented: $showCollections) {
             CollectionsManagerView().environmentObject(collections)
@@ -703,6 +706,7 @@ struct LibraryView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             CoverView(game: game, compact: true)
                                 .frame(width: 112)
+                                .nexZoomSource(game.id, in: cardSpace)
                                 .focusRing(focusID == game.id)
                                 .overlay(alignment: .topTrailing) {
                                     if GameReadiness.setupReason(for: game) != nil {
@@ -853,6 +857,7 @@ struct LibraryView: View {
                     LazyVStack(spacing: 10) {
                         ForEach(visible) { game in
                             GameRow(game: game, selected: selecting ? selection.contains(game.id) : nil)
+                                .nexZoomSource(game.id, in: cardSpace)
                                 .focusRing(focusID == game.id)
                                 .id(game.id)
                                 .onTapGesture { tap(game) }
@@ -863,6 +868,7 @@ struct LibraryView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 18) {
                         ForEach(visible) { game in
                             GameCard(game: game, titleUnder: titleUnder, selected: selecting ? selection.contains(game.id) : nil)
+                                .nexZoomSource(game.id, in: cardSpace)
                                 .focusRing(focusID == game.id)
                                 .id(game.id)
                                 .contentShape(Rectangle())
@@ -1321,3 +1327,48 @@ private struct ChipGlass: ViewModifier {
         }
     }
 }
+
+// MARK: - 8.7.2: card to game page
+
+private struct NexZoomSource: ViewModifier {
+    let id: UUID
+    let space: Namespace.ID
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+        } else {
+            content.matchedTransitionSource(id: id, in: space) { source in
+                source.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+        }
+    }
+}
+
+private struct NexZoomDestination: ViewModifier {
+    let id: UUID
+    let space: Namespace.ID
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+        } else {
+            content.navigationTransition(.zoom(sourceID: id, in: space))
+        }
+    }
+}
+
+extension View {
+    /// The card a game page zooms out of.
+    fileprivate func nexZoomSource(_ id: UUID, in space: Namespace.ID) -> some View {
+        modifier(NexZoomSource(id: id, space: space))
+    }
+
+    /// The game page, zooming out of its card.
+    fileprivate func nexZoomDestination(_ id: UUID, in space: Namespace.ID) -> some View {
+        modifier(NexZoomDestination(id: id, space: space))
+    }
+}
+

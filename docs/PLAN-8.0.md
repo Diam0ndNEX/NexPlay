@@ -26,7 +26,7 @@ once all steps are done, then pastes build errors (first error first).
 | Settings: optional helper memory (MadeiraMemoryHost): entitlements fit (get-task-allow only) | 8.6.4 (83) | built OK 2026-11-15 |
 | Polish: What's New 8.7, game page again after Close NexPlay, Credits, docs | 8.7.0 (84) | built OK 2026-11-15 |
 | Polish: controller navigation in the in-game menu and on the game page | 8.7.1 (85) | built OK 2026-11-15 |
-| Polish: card-to-page transition, remove unused BCD front-end files | 8.7.2 | |
+| Polish: card-to-page zoom transition; BCD front-end files checked (none removable) | 8.7.2 (86) | pushed 2026-11-15 |
 
 8.0.0 notes: BCD's store (Steam, GOG, Epic, EA), Dock, front-end, update, feedback-upload and JIT-setup files are still
 compiled (unreachable: no screen shows them). What's New still says 7.8 (8.7.0 updated it to 8.7).
@@ -104,6 +104,16 @@ question answers focusable; ScrollViewReader keeps the ring in view). GameDetail
 focused, so A plays as in 7.8.0): main button, chips, note fixes, the cards' rows; B closes the panel then the page; L1/R1
 switch the panel's pages. Not covered: rows inside the panel's Form pages (Options), Windows games' own controller reading
 in the engine (a press can still reach the game while the Windows panel is open).
+
+8.7.2 notes: the game page zooms out of the card that opened it (iOS 18 `matchedTransitionSource` on the Library grid/list
+cards and the Home shelf covers, `navigationTransition(.zoom)` on the page's fullScreenCover; `NexZoomSource`/
+`NexZoomDestination` in LibraryView.swift, plain cover with Reduce Motion). Unused BCD front-end files: a script listed the
+types each candidate declares (BCDHomeView, BCDLibraryView, BCDLauncherView, BCDFrontEnd, BCDLiveFrontEnd, BCDDock*, Dock*,
+Onboarding, BCDSetupView, BCDAddGame*, BCDDownloadsView, BCDStartingScreen, BCDUpdate*, UpdateNotice, FeedbackUpload,
+BCDSettingsFeedback, ExternalGamesPicker, BCDLaunchers*) and searched every other source: each is still named by another
+BCD file (several by core files: MemoryRights, ContentView, Library, BCDSessionLive, BCDSettingsLive), so none was deleted;
+removing them would mean editing BCD's core files, against the "BCD updates stay easy" rule. They stay compiled and unreachable.
+**8.x is done**: the owner tests the finished build now and pastes the red build errors / device findings.
 
 ## Owner's decision of 2026-11-15
 - **No itch.io.** The owner gets games from F95zone and imports them (files, folders, Download from Link). 8.5.0 added an
