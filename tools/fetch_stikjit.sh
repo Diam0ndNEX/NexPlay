@@ -8,7 +8,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(tr -d ' \n\r' < "$ROOT/tools/jit/stikjit.version")"
 DEST="$ROOT/vendor/StikJIT"
-STAMP="$VERSION / $(xcodebuild -version | head -1)"
+# 8.7.7: read the whole output first; `xcodebuild -version | head -1` crashes xcodebuild 26.6 with a broken pipe.
+XCODE_VERSION_TEXT="$(xcodebuild -version)"
+STAMP="$VERSION / ${XCODE_VERSION_TEXT%%$'\n'*}"
 # 7.13.2: the workflow caches vendor/StikJIT; reuse it when it was made for this version and this Xcode.
 if [ -d "$DEST/StikJIT.xcframework" ] && [ "$(cat "$DEST/.stamp" 2>/dev/null)" = "$STAMP" ]; then
   echo "StikJIT $STAMP from the cache"
