@@ -18,6 +18,9 @@ enum NexBCDMenu {
 @MainActor final class NexBCDMenuBridge {
     let source = BCDLibraryMenuSource()
     let model: BCDSessionMenuModel
+    /// 8.7.13: BCD's own menu injects this (BCDInGameMenu); NexPlay's panel didn't, so a BCD row built with
+    /// `.bcdFocusable` (the Touch section) hit a missing EnvironmentObject and the app crashed when the menu opened.
+    let focus = BCDFocus(watchControllers: false)
 
     init() {
         model = BCDSessionMenuModel(source: source)
@@ -34,11 +37,14 @@ enum NexBCDMenu {
     var part: WindowsPanelView.BCDPart {
         let model = model
         let source = source
+        let focus = focus
         return WindowsPanelView.BCDPart(
             subtitle: { source.subtitle },
             content: { tab, pages, question in
                 AnyView(NexBCDMenuContent(model: model, tab: BCDSessionTab(rawValue: tab) ?? .game,
-                                          pages: pages, question: question))
+                                          pages: pages, question: question)
+                    .environmentObject(focus)
+                    .coordinateSpace(name: BCDFocus.space))
             },
             pageTitle: { id in source.page(id)?.title }
         )
