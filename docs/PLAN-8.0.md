@@ -18,7 +18,7 @@ once all steps are done, then pastes build errors (first error first).
 | In-game: Performance HUD in BCD's HUD layout, every engine | 8.3.2 (74) | built OK 2026-11-15 |
 | Game page: BCD's layout, sections by capability, Restart and Play | 8.4.0 (75) | built OK 2026-11-15 |
 | Game page: PC sections from BCD (AutoTune, recommendations, graphics, prefix tools, Windows saves) | 8.4.1 (76) | built OK 2026-11-15 |
-| itch.io (other stores hidden): sign in, library, uploads, install through NexPlay's import | 8.5.0 (77) | pushed 2026-11-15 |
+| itch.io (other stores hidden): sign in, library, uploads, install through NexPlay's import | 8.5.0 (77) | built OK 2026-11-15 |
 | Settings and extras | 8.6.0 | |
 | Polish and cleanup | 8.7.0 | |
 
