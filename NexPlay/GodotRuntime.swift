@@ -364,8 +364,11 @@ enum GodotRuntime {
         var gdScripts = 0
         /// A few of the C# script paths, for the log.
         var csharpSamples: [String] = []
+        /// 8.8.1: entries under res://.mono/ (C# script metadata or assemblies): also a C# game, even with no .cs
+        /// files in the pack (Project Kat).
+        var monoEntries = 0
 
-        var needsDotNet: Bool { csharpScripts > 0 }
+        var needsDotNet: Bool { csharpScripts > 0 || monoEntries > 0 }
     }
 
     /// Reads the pack directory (formats 1-3, not encrypted) and the project settings in it.
@@ -405,6 +408,7 @@ enum GodotRuntime {
             }
             if let scene = scenePath(name) { sceneSet.insert(scene) }
             let lower = name.lowercased()
+            if lower.hasPrefix("res://.mono/") || lower.hasPrefix(".mono/") { info.monoEntries += 1 }
             if lower.hasSuffix(".cs") {
                 info.csharpScripts += 1
                 if info.csharpSamples.count < 3 { info.csharpSamples.append(name) }
@@ -592,8 +596,10 @@ enum GodotRuntime {
                 }
             }
             notes.append(line)
-            if info.needsDotNet {
-                notes.append("pack holds \(info.csharpScripts) C# scripts (\(info.csharpSamples.joined(separator: ", "))) and \(info.gdScripts) GDScript files: a Godot .NET game")
+            // 8.8.1: a C# game is also one whose folder has the compiled C# (data_*/Assemblies).
+            let assemblies = GodotMono.gameAssemblies(pack: pack, root: root)
+            if info.needsDotNet || assemblies != nil {
+                notes.append("C# game: \(info.csharpScripts) C# scripts\(info.csharpSamples.isEmpty ? "" : " (" + info.csharpSamples.joined(separator: ", ") + ")"), \(info.monoEntries) .mono entries and \(info.gdScripts) GDScript files in the pack; compiled C# folder: \(assemblies.map { $0.deletingLastPathComponent().lastPathComponent + "/Assemblies" } ?? "none")")
                 // 8.7.16: Godot 3 C# games run on Godot 3's C# web runtime once their C# files are in the pack.
                 guard head.version.major == 3, head.format <= 1 else { throw RuntimeError.dotNet(head.version.description) }
                 guard let mono = monoRuntime(for: head.version) else {
