@@ -275,6 +275,14 @@ struct AssistOptions: Codable, Equatable {
     var volume: Double = 1
     /// 7.2.0: PowerProfile raw value; "" follows the app default.
     var power: String = ""
+    /// 8.11.0: Picture (Game Panel > Display). "" = the game's own sizing, else "fit", "fill" or "stretch" (scaled to the
+    /// screen); the whole screen instead of the safe area; zoom and the view's offset (-1...1); sharp pixels.
+    var pictureFit: String = ""
+    var pictureFull = false
+    var pictureZoom: Double = 1
+    var pictureX: Double = 0
+    var pictureY: Double = 0
+    var pictureSharp = false
 
     init() {}
 
@@ -286,6 +294,12 @@ struct AssistOptions: Codable, Equatable {
         rewind = try container.decodeIfPresent(Bool.self, forKey: .rewind) ?? true
         volume = try container.decodeIfPresent(Double.self, forKey: .volume) ?? 1
         power = try container.decodeIfPresent(String.self, forKey: .power) ?? ""
+        pictureFit = try container.decodeIfPresent(String.self, forKey: .pictureFit) ?? ""
+        pictureFull = try container.decodeIfPresent(Bool.self, forKey: .pictureFull) ?? false
+        pictureZoom = try container.decodeIfPresent(Double.self, forKey: .pictureZoom) ?? 1
+        pictureX = try container.decodeIfPresent(Double.self, forKey: .pictureX) ?? 0
+        pictureY = try container.decodeIfPresent(Double.self, forKey: .pictureY) ?? 0
+        pictureSharp = try container.decodeIfPresent(Bool.self, forKey: .pictureSharp) ?? false
     }
 
     private static func url(_ gameID: UUID) -> URL {

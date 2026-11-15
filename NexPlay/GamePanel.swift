@@ -284,6 +284,51 @@ final class GamePanelModel: ObservableObject {
         }
     }
 
+    // MARK: Picture and screen (8.11.0)
+
+    /// Saves a Picture option and applies it to the running game.
+    func setPicture(_ edit: (inout AssistOptions) -> Void) {
+        panel?.assist.change(edit)
+        options = AssistOptions.load(for: game.id)
+        panel?.context.applyPicture()
+    }
+
+    /// A slider being dragged: shown at once, saved with `commitPicture`.
+    func previewPicture(x: Double? = nil, y: Double? = nil) {
+        var preview = options
+        if let x { preview.pictureX = x }
+        if let y { preview.pictureY = y }
+        options = preview
+        panel?.context.previewPicture(preview)
+    }
+
+    func commitPicture() {
+        let x = options.pictureX
+        let y = options.pictureY
+        setPicture { $0.pictureX = x; $0.pictureY = y }
+    }
+
+    func resetPicture() {
+        setPicture {
+            $0.pictureFit = ""; $0.pictureFull = false; $0.pictureZoom = 1
+            $0.pictureX = 0; $0.pictureY = 0; $0.pictureSharp = false
+        }
+        say("Picture reset")
+    }
+
+    func setOrientation(_ mode: OrientationMode) {
+        game.orientation = mode
+        panel?.context.setOrientation(mode)
+        say("Screen: \(mode.title)")
+    }
+
+    func screenshot() {
+        let context = panel?.context
+        shouldClose = true
+        // The picture is taken once the panel is gone.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { context?.screenshot() }
+    }
+
     func setOption(_ edit: (inout AssistOptions) -> Void) {
         panel?.assist.change(edit)
         options = AssistOptions.load(for: game.id)
@@ -490,6 +535,9 @@ struct GamePanelView: View {
             }
             NexMenuNote(text: "Kept for this game.")
         }
+        NexMenuSection("Capture") {
+            NexMenuRow(title: "Screenshot", detail: "Saved to the game's gallery and Photos", symbol: "camera") { model.screenshot() }
+        }
     }
 
     /// 7.7.0 (SPEC-7.0-review D5): the four most used actions as big buttons.
@@ -533,6 +581,65 @@ struct GamePanelView: View {
             NexMenuChipsRow(title: "Place", choices: HUDPlace.allCases.map { NexMenuChoice(value: $0.rawValue, title: $0.title) },
                             selected: hudCorner) { hudCorner = $0 }
             NexMenuNote(text: "Layout and place apply to every game (Windows games use BCD's HUD in the same layout). CPU and memory are NexPlay's own process; the game's page runs in WebKit's process.")
+        }
+        pictureSection
+    }
+
+    /// 8.11.0: what Windows games have in BCD's menu (Picture: aspect and scaling, magnifier, filter, screen turn).
+    @ViewBuilder private var pictureSection: some View {
+        let moved = model.options.pictureZoom > 1 || !model.options.pictureFit.isEmpty
+        NexMenuSection("Picture") {
+            NexMenuChipsRow(title: "Screen Size", detail: Self.fitDetail(model.options.pictureFit), symbol: "aspectratio",
+                            choices: [NexMenuChoice(value: "", title: "Game"), NexMenuChoice(value: "fit", title: "Fit"),
+                                      NexMenuChoice(value: "fill", title: "Fill"), NexMenuChoice(value: "stretch", title: "Stretch")],
+                            selected: model.options.pictureFit) { value in model.setPicture { $0.pictureFit = value } }
+            NexMenuToggleRow(title: "Use the Whole Screen", detail: "Lets the game run under the notch and the home bar",
+                             symbol: "rectangle.inset.filled", isOn: model.options.pictureFull) { value in
+                model.setPicture { $0.pictureFull = value }
+            }
+            NexMenuChipsRow(title: "Magnifier", detail: "Enlarges the picture to read small text. Move it with the sliders.",
+                            symbol: "plus.magnifyingglass",
+                            choices: [1, 1.25, 1.5, 2, 3].map { NexMenuChoice(value: $0, title: $0 == 1 ? "Off" : String(format: "%g×", $0)) },
+                            selected: model.options.pictureZoom) { value in model.setPicture { $0.pictureZoom = value } }
+            if moved {
+                NexMenuCustomRow {
+                    pictureSlider("Left / Right", value: model.options.pictureX) { model.previewPicture(x: $0) }
+                }
+                NexMenuCustomRow {
+                    pictureSlider("Up / Down", value: model.options.pictureY) { model.previewPicture(y: $0) }
+                }
+            }
+            NexMenuChipsRow(title: "Picture Filter", detail: "Smooth blends the pixels when the game scales its picture up; Sharp keeps them square, best for pixel art.",
+                            symbol: "square.grid.3x3",
+                            choices: [NexMenuChoice(value: false, title: "Smooth"), NexMenuChoice(value: true, title: "Sharp")],
+                            selected: model.options.pictureSharp) { value in model.setPicture { $0.pictureSharp = value } }
+            NexMenuChipsRow(title: "Screen Turn", detail: "Whether the screen follows the way you hold the phone or stays in one orientation.",
+                            symbol: "rotate.right",
+                            choices: OrientationMode.allCases.map { NexMenuChoice(value: $0, title: $0.title) },
+                            selected: model.game.orientation) { model.setOrientation($0) }
+            NexMenuRow(title: "Reset Picture", symbol: "arrow.counterclockwise") { model.resetPicture() }
+            NexMenuNote(text: "Kept for this game. Fit shows all of the picture, Fill covers the screen and crops the edges, Stretch fills it without keeping the shape. Touches still land where the picture is drawn.")
+        }
+    }
+
+    private static func fitDetail(_ fit: String) -> String {
+        switch fit {
+        case "fit": return "The whole picture, as large as the screen allows."
+        case "fill": return "The picture covers the screen; the edges may be cut off."
+        case "stretch": return "The picture is pulled to the screen's shape."
+        default: return "The game sizes itself."
+        }
+    }
+
+    private func pictureSlider(_ title: String, value: Double, set: @escaping (Double) -> Void) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(NexType.caption)
+                .foregroundStyle(NexColor.dark(.textSoft))
+                .frame(width: 92, alignment: .leading)
+            NexValueBar(value: value, range: -1...1, step: 0.02, set: set, done: { model.commitPicture() })
+                .frame(height: 28)
+                .accessibilityLabel(title)
         }
     }
 

@@ -35,6 +35,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private var webView: WKWebView!
     private var webTop: NSLayoutConstraint?
     private var webBottom: NSLayoutConstraint?
+    private var webLeading: NSLayoutConstraint?
+    private var webTrailing: NSLayoutConstraint?
+    /// 8.11.0: the game's Picture options (Game Panel > Display), read once and when they change.
+    private var picture = AssistOptions()
     private let statsReceiver = StatsReceiver()
     private let logReceiver = LogReceiver()
     private let exitReceiver = MessageReceiver()
@@ -183,6 +187,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         context.openExtras = { [weak self] in self?.openExtras() }
         context.statsShown = { [weak self] in self?.game.statsOverlay ?? false }
         context.toggleStats = { [weak self] in self?.toggleStats() }
+        context.applyPicture = { [weak self] in self?.applyPicture() }
+        context.previewPicture = { [weak self] options in self?.previewPicture(options) }
+        context.screenshot = { [weak self] in self?.takeScreenshot() }
+        context.setOrientation = { [weak self] mode in self?.setOrientation(mode) }
         features = PlayerFeatures.make(context: context)
         for feature in features {
             for script in feature.userScripts(for: game) { content.addUserScript(script) }
@@ -223,12 +231,12 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         let bottom = webView.bottomAnchor.constraint(equalTo: guide.bottomAnchor)
         webTop = top
         webBottom = bottom
-        NSLayoutConstraint.activate([
-            top,
-            bottom,
-            webView.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
-        ])
+        let leading = webView.leadingAnchor.constraint(equalTo: guide.leadingAnchor)
+        let trailing = webView.trailingAnchor.constraint(equalTo: guide.trailingAnchor)
+        webLeading = leading
+        webTrailing = trailing
+        NSLayoutConstraint.activate([top, bottom, leading, trailing])
+        picture = AssistOptions.load(for: game.id)
 
         applyMouseMode()
         configureGamepad()
@@ -283,9 +291,19 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         // Portrait game position: move the game up so the touch controls cover less of it.
         let portrait = view.bounds.height > view.bounds.width
         let shift = portrait ? -CGFloat(prefs.portraitOffset) * view.bounds.height : 0
-        if let webTop, webTop.constant != shift {
-            webTop.constant = shift
-            webBottom?.constant = shift
+        // 8.11.0: "Use the whole screen" lets the game run under the notch and the home bar.
+        let full = picture.pictureFull
+        let topValue = shift - (full ? insets.top : 0)
+        let bottomValue = shift + (full ? insets.bottom : 0)
+        let leadingValue = full ? -insets.left : 0
+        let trailingValue = full ? insets.right : 0
+        if let webTop, webTop.constant != topValue { webTop.constant = topValue }
+        if let webBottom, webBottom.constant != bottomValue { webBottom.constant = bottomValue }
+        if let webLeading, webLeading.constant != leadingValue { webLeading.constant = leadingValue }
+        if let webTrailing, webTrailing.constant != trailingValue { webTrailing.constant = trailingValue }
+        if pictureCanvasSize != view.bounds.size {
+            pictureCanvasSize = view.bounds.size
+            applyPictureTransform()
         }
     }
 
@@ -926,6 +944,83 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         features.compactMap { $0 as? GamePanelFeature }.first
     }
 
+    // MARK: - Picture (8.11.0)
+
+    /// Size of the view the picture was last laid out for (re-measures after a rotation).
+    private var pictureCanvasSize = CGSize.zero
+
+    /// Re-reads the game's options and applies them.
+    private func applyPicture() {
+        picture = AssistOptions.load(for: game.id)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        applyPictureFilter()
+        applyPictureTransform()
+    }
+
+    /// A slider being dragged: apply without saving.
+    private func previewPicture(_ options: AssistOptions) {
+        picture = options
+        applyPictureTransform()
+    }
+
+    /// Sharp pixels: the game's own canvas scaling stops smoothing.
+    private func applyPictureFilter() {
+        let css = picture.pictureSharp ? "canvas{image-rendering:pixelated !important;}" : ""
+        let script = "(function(){var s=document.getElementById('__nexSharp');if(!s){s=document.createElement('style');s.id='__nexSharp';(document.head||document.documentElement).appendChild(s);}s.textContent='\(css)';})();"
+        webView?.evaluateJavaScript(script)
+    }
+
+    /// Fit, Fill, Stretch and zoom: the web view is scaled so the game's main canvas covers the screen the chosen way.
+    /// UIKit maps touches through the transform, so the game still gets the touch where it was drawn.
+    private func applyPictureTransform() {
+        guard let webView else { return }
+        let options = picture
+        let zoom = max(1, options.pictureZoom)
+        if options.pictureFit.isEmpty && zoom == 1 && options.pictureX == 0 && options.pictureY == 0 {
+            if webView.transform != .identity { UIView.animate(withDuration: 0.2) { webView.transform = .identity } }
+            return
+        }
+        let script = "(function(){var best=null,area=0,list=document.querySelectorAll('canvas,video,iframe');for(var i=0;i<list.length;i++){var r=list[i].getBoundingClientRect();var a=r.width*r.height;if(a>area){area=a;best=r;}}return best?[best.left,best.top,best.width,best.height]:null;})()"
+        webView.evaluateJavaScript(script) { [weak self] result, _ in
+            guard let self, let webView = self.webView else { return }
+            let bounds = webView.bounds
+            var rect = CGRect(origin: .zero, size: bounds.size)
+            if let list = result as? [Any] {
+                let numbers = list.compactMap { ($0 as? NSNumber)?.doubleValue }
+                if numbers.count == 4, numbers[2] > 1, numbers[3] > 1 {
+                    rect = CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
+                }
+            }
+            guard rect.width > 0, rect.height > 0 else { return }
+            let target = self.view.bounds
+            var sx: CGFloat = 1
+            var sy: CGFloat = 1
+            switch options.pictureFit {
+            case "fit":
+                sx = min(target.width / rect.width, target.height / rect.height); sy = sx
+            case "fill":
+                sx = max(target.width / rect.width, target.height / rect.height); sy = sx
+            case "stretch":
+                sx = target.width / rect.width; sy = target.height / rect.height
+            default:
+                break
+            }
+            sx *= CGFloat(zoom)
+            sy *= CGFloat(zoom)
+            // The canvas's centre, relative to the web view's centre, and where it should end up.
+            let cx = rect.midX - bounds.midX
+            let cy = rect.midY - bounds.midY
+            let fitted = !options.pictureFit.isEmpty
+            let goalX = fitted ? target.midX : webView.center.x + cx
+            let goalY = fitted ? target.midY : webView.center.y + cy
+            let tx = (goalX - webView.center.x) - sx * cx + CGFloat(options.pictureX) * target.width * 0.35
+            let ty = (goalY - webView.center.y) - sy * cy + CGFloat(options.pictureY) * target.height * 0.35
+            let transform = CGAffineTransform(a: sx, b: 0, c: 0, d: sy, tx: tx, ty: ty)
+            if webView.transform != transform { webView.transform = transform }
+        }
+    }
+
     // MARK: - Mouse (7.3.0)
 
     /// Where mouse buttons click: the trackpad cursor, else the middle of the game.
@@ -1549,6 +1644,11 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         applyStats()
         migrateSavesIfNeeded()
         features.forEach { $0.didFinishLoad() }
+        applyPictureFilter()
+        // The game's canvas appears a moment after the page loads: measure it again a few times.
+        for delay in [0.5, 2.0, 5.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.applyPictureTransform() }
+        }
         checkStartPage()
         if game.engine == .godot {
             let probe = "'secure=' + window.isSecureContext + ' isolated=' + window.crossOriginIsolated + ' sab=' + (typeof SharedArrayBuffer !== 'undefined')"

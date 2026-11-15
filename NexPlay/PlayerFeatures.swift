@@ -26,6 +26,13 @@ final class PlayerContext {
     /// 8.3.0: the Performance HUD (Show Stats) of this game, for the Game Panel's Display tab.
     var statsShown: () -> Bool = { false }
     var toggleStats: () -> Void = {}
+    /// 8.11.0: Picture. Re-reads the game's options and applies them; `previewPicture` applies options that aren't
+    /// saved yet (a slider being dragged); a screenshot goes to Photos (the closure gets whether it worked);
+    /// the game's orientation.
+    var applyPicture: () -> Void = {}
+    var previewPicture: (AssistOptions) -> Void = { _ in }
+    var screenshot: () -> Void = {}
+    var setOrientation: (OrientationMode) -> Void = { _ in }
 
     init(gameLog: GameLog) {
         self.gameLog = gameLog
