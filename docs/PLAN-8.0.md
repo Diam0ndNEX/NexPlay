@@ -20,7 +20,7 @@ once all steps are done, then pastes build errors (first error first).
 | Game page: PC sections from BCD (AutoTune, recommendations, graphics, prefix tools, Windows saves) | 8.4.1 (76) | built OK 2026-11-15 |
 | itch.io: built as 8.5.0 (77), then removed by the owner (games come from F95zone, imported as files/links) | 8.5.1 (78) | built OK 2026-11-15 |
 | Settings: Windows Games page (BCD's engine settings with NexPlay rows) | 8.6.0 (79) | built OK 2026-11-15 |
-| Settings: Storage and external drives, logs and diagnostics | 8.6.1 (80) | pushed 2026-11-15 |
+| Settings: Storage and external drives, logs and diagnostics | 8.6.1 (80) | built OK 2026-11-15 |
 | Settings: readiness checks in Setup Center, foldables | 8.6.2 | |
 | Settings: sub-pages from Forms to glass rows | 8.6.3 | |
 | Settings: optional helper memory (MadeiraMemoryHost), only if its entitlements fit | 8.6.4 | |
