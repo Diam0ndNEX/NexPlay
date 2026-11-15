@@ -25,7 +25,7 @@ once all steps are done, then pastes build errors (first error first).
 | Settings: sub-pages from Forms to glass rows | 8.6.3 (82) | built OK 2026-11-15 |
 | Settings: optional helper memory (MadeiraMemoryHost): entitlements fit (get-task-allow only) | 8.6.4 (83) | built OK 2026-11-15 |
 | Polish: What's New 8.7, game page again after Close NexPlay, Credits, docs | 8.7.0 (84) | built OK 2026-11-15 |
-| Polish: controller navigation in the in-game menu and on the game page | 8.7.1 (85) | pushed 2026-11-15 |
+| Polish: controller navigation in the in-game menu and on the game page | 8.7.1 (85) | built OK 2026-11-15 |
 | Polish: card-to-page transition, remove unused BCD front-end files | 8.7.2 | |
 
 8.0.0 notes: BCD's store (Steam, GOG, Epic, EA), Dock, front-end, update, feedback-upload and JIT-setup files are still
