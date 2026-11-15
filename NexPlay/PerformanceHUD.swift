@@ -1,14 +1,77 @@
 import SwiftUI
 import UIKit
 
-// 7.11.0 (SPEC-7.0 8.4): Performance HUD for web-view games: FPS with a graph of the last minute, CPU %, memory
-// used / available, thermal state, battery and time. Turned on per game (Game Settings > Show Stats or the game
-// menu); Settings > Gameplay & Performance sets the corner and how much it shows.
+// 7.11.0 (SPEC-7.0 8.4): Performance HUD for web-view games. Turned on per game (Game Settings > Show Stats, the game
+// menu, the Game Panel's Display tab). 8.3.2: BCD's HUD structure (BCDHUDCore: layouts Pulse, Strip, Tune, Report on a
+// small plate in one of six places; nothing animates, never takes touches) with NexPlay's readings. Windows games show
+// BCD's own HUD in the same layout (NexBCDHUD), which reads the engine's real frame times and GPU.
 
 extension SettingsKey {
     static let hudCorner = "hudCorner"
-    static let hudDetail = "hudDetail"
-    static let hudKeys: [String] = [hudCorner, hudDetail]
+    /// 8.3.2: the HUD's layout (`HUDLayout`), replaces hudDetail.
+    static let hudLayout = "hudLayout"
+    static let hudKeys: [String] = [hudCorner, hudLayout]
+}
+
+/// BCD's four finished layouts (BCDHUDLayout 1-4), same names and meaning.
+enum HUDLayout: String, CaseIterable, Identifiable {
+    case pulse, strip, tune, report
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .pulse: return "Pulse"
+        case .strip: return "Strip"
+        case .tune: return "Tune"
+        case .report: return "Report"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .pulse: return "One small number: the frame rate. A dot appears only if something is wrong."
+        case .strip: return "One line: frame rate, frame time, memory and heat."
+        case .tune: return "Three short lines and a 15 second graph: frame rate and its low, processor, memory, heat."
+        case .report: return "The whole picture for a bug report: engine and size, frame rate with its lows, a 30 second graph, load, memory, heat, battery and time."
+        }
+    }
+
+    /// BCD's raw value for the same layout (BCDHUDLayout).
+    var bcdValue: String {
+        switch self {
+        case .pulse: return "1"
+        case .strip: return "2"
+        case .tune: return "3"
+        case .report: return "4"
+        }
+    }
+
+    static var current: HUDLayout {
+        HUDLayout(rawValue: UserDefaults.standard.string(forKey: SettingsKey.hudLayout) ?? "") ?? .tune
+    }
+}
+
+/// The six places of BCD's HUD (BCDHUDSlot), stored in hudCorner (older values topLeft... still work).
+enum HUDPlace: String, CaseIterable, Identifiable {
+    case topLeft, top, topRight, bottomLeft, bottom, bottomRight
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .topLeft: return "Top Left"
+        case .top: return "Top"
+        case .topRight: return "Top Right"
+        case .bottomLeft: return "Bottom Left"
+        case .bottom: return "Bottom"
+        case .bottomRight: return "Bottom Right"
+        }
+    }
+
+    static var current: HUDPlace {
+        HUDPlace(rawValue: UserDefaults.standard.string(forKey: SettingsKey.hudCorner) ?? "") ?? .topLeft
+    }
 }
 
 /// CPU and memory of NexPlay's own process (web content runs in a separate WebKit process, not counted here).
@@ -71,119 +134,206 @@ enum PerfSampler {
     }
 }
 
+/// The HUD's plate (UIKit, over the game; takes no touches). Call `update` about once a second.
 final class PerformanceHUDView: UIView {
-    private let line1 = UILabel()
-    private let line2 = UILabel()
+    private let labels: [UILabel] = (0..<4).map { _ in UILabel() }
+    private let dot = UIView()
     private let graph = CAShapeLayer()
+    private let graphBase = CAShapeLayer()
     private var samples: [Int] = []
+    private var layoutNow = HUDLayout.tune
+    private var showsGraph = false
+    private var lineCount = 1
+    private var plate = CGSize(width: 60, height: 22)
+    /// The engine and the game's size, for Report ("MV · 816×624").
+    var context: String?
+
     private static let clock: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         return formatter
     }()
 
-    var full: Bool { UserDefaults.standard.string(forKey: SettingsKey.hudDetail) != "compact" }
+    private static func font(_ size: CGFloat, _ weight: UIFont.Weight) -> UIFont {
+        let base = UIFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
+        if let rounded = base.fontDescriptor.withDesign(.rounded) { return UIFont(descriptor: rounded, size: size) }
+        return base
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor(white: 0, alpha: 0.6)
-        layer.cornerRadius = 10
+        backgroundColor = UIColor(white: 0, alpha: 0.55)
+        layer.cornerRadius = 8
+        layer.borderWidth = 1
+        layer.borderColor = UIColor(white: 1, alpha: 0.12).cgColor
         clipsToBounds = true
         isUserInteractionEnabled = false
-        for label in [line1, line2] {
-            label.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        accessibilityElementsHidden = true
+        for label in labels {
             label.textColor = .white
+            label.font = Self.font(11, .semibold)
             addSubview(label)
         }
-        graph.strokeColor = UIColor(red: 0.62, green: 0.48, blue: 1, alpha: 1).cgColor
+        dot.layer.cornerRadius = 3
+        dot.isHidden = true
+        addSubview(dot)
+        graphBase.strokeColor = UIColor(white: 1, alpha: 0.15).cgColor
+        graphBase.lineWidth = 1
+        layer.addSublayer(graphBase)
+        graph.strokeColor = UIColor(NexColor.dark(.accent)).cgColor
         graph.fillColor = UIColor.clear.cgColor
         graph.lineWidth = 1.5
+        graph.lineJoin = .round
         layer.addSublayer(graph)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Called once a second with the page's frame rate (nil when NexPlay can't measure it: Windows games).
-    func update(fps: Int?) {
+    /// Called once a second with the page's frame rate (nil when NexPlay can't measure it) and, when known, the
+    /// longest frame of that second in ms.
+    func update(fps: Int?, worstMs: Double? = nil) {
+        layoutNow = HUDLayout.current
         if let fps {
             samples.append(fps)
-            if samples.count > 60 { samples.removeFirst(samples.count - 60) }
+            if samples.count > 30 { samples.removeFirst(samples.count - 30) }
         }
         let cpu = Int(PerfSampler.cpuPercent().rounded())
         let used = PerfSampler.footprintMB()
-        let rate = fps.map { "\($0) FPS" } ?? "CPU+GPU"
-        line1.text = "\(rate) · CPU \(cpu)% · \(used) MB"
-        if full {
-            let level = UIDevice.current.batteryLevel
-            let battery = level < 0 ? "--" : "\(Int(level * 100))%"
-            line2.text = "\(PerfSampler.thermalText) · \(DeviceInfo.availableMemoryMB) MB free · \(battery) · \(PerformanceHUDView.clock.string(from: Date()))"
-            line2.textColor = PerfSampler.thermalColor
+        let free = DeviceInfo.availableMemoryMB
+        let thermal = ProcessInfo.processInfo.thermalState
+        let window = layoutNow == .report ? 30 : 15
+        let low = fps == nil ? nil : samples.suffix(window).min()
+        let frameMs = fps.flatMap { $0 > 0 ? 1000 / Double($0) : nil }
+        let rate = fps.map { "\($0) FPS" }
+        let memory = "\(used) MB"
+        let freeText = free >= 1024 ? String(format: "%.1f GB free", Double(free) / 1024) : "\(free) MB free"
+        let level = UIDevice.current.batteryLevel
+        let battery = level < 0 ? nil : "\(Int(level * 100))%"
+        let warn = thermal == .serious || thermal == .critical || (fps.map { $0 > 0 && $0 < 24 } ?? false) || free < 300
+
+        var lines: [(String, UIColor)] = []
+        switch layoutNow {
+        case .pulse:
+            lines = [(fps.map { String($0) } ?? "CPU \(cpu)%", .white)]
+        case .strip:
+            let parts = [rate, frameMs.map { String(format: "%.1f ms", $0) }, memory, PerfSampler.thermalText].compactMap { $0 }
+            lines = [(parts.joined(separator: " · "), .white)]
+        case .tune:
+            let first = [rate, low.map { "low \($0)" }, frameMs.map { String(format: "%.1f ms", $0) }].compactMap { $0 }
+            lines = [
+                (first.isEmpty ? "CPU \(cpu)% · \(memory)" : first.joined(separator: " · "), .white),
+                (first.isEmpty ? freeText : "CPU \(cpu)% · \(memory) · \(freeText)", UIColor(white: 1, alpha: 0.85)),
+                (PerfSampler.thermalText, PerfSampler.thermalColor),
+            ]
+        case .report:
+            let first = [rate, low.map { "low \($0)" }, worstMs.map { String(format: "worst %.0f ms", $0) }].compactMap { $0 }
+            let last = [PerfSampler.thermalText, battery, ProcessInfo.processInfo.isLowPowerModeEnabled ? "Low Power" : nil,
+                        Self.clock.string(from: Date())].compactMap { $0 }
+            lines = [(context ?? "NexPlay", UIColor(white: 1, alpha: 0.7))]
+            if !first.isEmpty { lines.append((first.joined(separator: " · "), .white)) }
+            lines.append(("CPU \(cpu)% · \(memory) · \(freeText)", UIColor(white: 1, alpha: 0.85)))
+            lines.append((last.joined(separator: " · "), PerfSampler.thermalColor))
         }
-        line2.isHidden = !full
-        graph.isHidden = !full
+        lineCount = lines.count
+        for (index, label) in labels.enumerated() {
+            if index < lines.count {
+                label.text = lines[index].0
+                label.textColor = lines[index].1
+                label.font = layoutNow == .pulse ? Self.font(13, .bold) : Self.font(11, .semibold)
+                label.isHidden = false
+            } else {
+                label.isHidden = true
+            }
+        }
+        dot.isHidden = !(layoutNow == .pulse && warn)
+        dot.backgroundColor = PerfSampler.thermalColor == .systemGreen ? .systemOrange : PerfSampler.thermalColor
+        showsGraph = (layoutNow == .tune || layoutNow == .report) && samples.count > 1 && fps != nil
+        graph.isHidden = !showsGraph
+        graphBase.isHidden = !showsGraph
+
+        let widest = labels.prefix(lines.count).map { $0.sizeThatFits(CGSize(width: 400, height: 20)).width }.max() ?? 40
+        let lineHeight: CGFloat = layoutNow == .pulse ? 18 : 15
+        var width = ceil(widest) + 14 + (dot.isHidden ? 0 : 10)
+        if showsGraph { width = max(width, 190) }
+        let height = CGFloat(lines.count) * lineHeight + 6 + (showsGraph ? 30 : 0)
+        plate = CGSize(width: width, height: height)
         setNeedsLayout()
     }
 
-    var preferredSize: CGSize {
-        full ? CGSize(width: 250, height: 76) : CGSize(width: 190, height: 22)
-    }
+    var preferredSize: CGSize { plate }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let width = bounds.width - 12
-        line1.frame = CGRect(x: 6, y: 3, width: width, height: 16)
-        line2.frame = CGRect(x: 6, y: 19, width: width, height: 16)
-        guard full, samples.count > 1 else {
+        let lineHeight: CGFloat = layoutNow == .pulse ? 18 : 15
+        let width = bounds.width - 14
+        for (index, label) in labels.enumerated() where index < lineCount {
+            label.frame = CGRect(x: 7, y: 3 + CGFloat(index) * lineHeight, width: width - (dot.isHidden ? 0 : 10), height: lineHeight)
+        }
+        dot.frame = CGRect(x: bounds.width - 13, y: (bounds.height - 6) / 2, width: 6, height: 6)
+        guard showsGraph else {
             graph.path = nil
+            graphBase.path = nil
             return
         }
-        let rect = CGRect(x: 6, y: 38, width: width, height: bounds.height - 42)
-        let top = max(60, samples.max() ?? 60)
+        let window = layoutNow == .report ? 30 : 15
+        let shown = Array(samples.suffix(window))
+        let rect = CGRect(x: 7, y: 6 + CGFloat(lineCount) * lineHeight, width: width, height: 22)
+        let top = CGFloat(max(60, shown.max() ?? 60))
+        let base = UIBezierPath()
+        let sixty = rect.maxY - rect.height * 60 / top
+        base.move(to: CGPoint(x: rect.minX, y: sixty))
+        base.addLine(to: CGPoint(x: rect.maxX, y: sixty))
+        graphBase.path = base.cgPath
         let path = UIBezierPath()
-        for (index, value) in samples.enumerated() {
-            let x = rect.minX + rect.width * CGFloat(index) / CGFloat(max(1, samples.count - 1))
-            let y = rect.maxY - rect.height * CGFloat(value) / CGFloat(top)
+        for (index, value) in shown.enumerated() {
+            let x = rect.minX + rect.width * CGFloat(index) / CGFloat(max(1, window - 1))
+            let y = rect.maxY - rect.height * CGFloat(value) / top
             if index == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
         }
         graph.path = path.cgPath
     }
 
-    /// Puts the HUD in the chosen corner of the safe area.
+    /// Puts the HUD in its place (one of six) in the safe area.
     func place(in bounds: CGRect, insets: UIEdgeInsets) {
         let size = preferredSize
-        let corner = UserDefaults.standard.string(forKey: SettingsKey.hudCorner) ?? "topLeft"
+        let place = HUDPlace.current
         let left = insets.left + 10
         let right = bounds.width - insets.right - 10 - size.width
+        let center = (bounds.width - size.width) / 2
         let top = insets.top + 8
         let bottom = bounds.height - insets.bottom - 8 - size.height
-        let x = corner.hasSuffix("Right") ? right : left
-        let y = corner.hasPrefix("bottom") ? bottom : top
+        let x: CGFloat
+        switch place {
+        case .topLeft, .bottomLeft: x = left
+        case .top, .bottom: x = center
+        case .topRight, .bottomRight: x = right
+        }
+        let y = (place == .bottomLeft || place == .bottom || place == .bottomRight) ? bottom : top
         frame = CGRect(x: x, y: y, width: size.width, height: size.height)
     }
 }
 
-/// Settings > Gameplay & Performance > Performance HUD.
+/// Settings > Gameplay & Performance > Performance HUD (8.3.2: BCD's layouts and places, for every engine).
 struct HUDSettingsSection: View {
     @AppStorage(SettingsKey.hudCorner) private var corner = "topLeft"
-    @AppStorage(SettingsKey.hudDetail) private var detail = "full"
+    @AppStorage(SettingsKey.hudLayout) private var layout = "tune"
 
     var body: some View {
         Section {
-            Picker("Corner", selection: $corner) {
-                Text("Top Left").tag("topLeft")
-                Text("Top Right").tag("topRight")
-                Text("Bottom Left").tag("bottomLeft")
-                Text("Bottom Right").tag("bottomRight")
-            }
-            Picker("Detail", selection: $detail) {
-                Text("Compact").tag("compact")
-                Text("Full").tag("full")
+            Picker("Layout", selection: $layout) {
+                ForEach(HUDLayout.allCases) { item in Text(item.title).tag(item.rawValue) }
             }
             .pickerStyle(.segmented)
+            Text((HUDLayout(rawValue: layout) ?? .tune).summary)
+                .font(NexType.caption)
+                .foregroundStyle(.secondary)
+            Picker("Place", selection: $corner) {
+                ForEach(HUDPlace.allCases) { item in Text(item.title).tag(item.rawValue) }
+            }
         } header: {
             SettingsHeader(title: "Performance HUD", symbol: "speedometer", color: .green)
         } footer: {
-            Text("Turn it on per game with Show Stats (game menu or Game Settings). Full adds a frame-rate graph, temperature, free memory, battery and time. CPU and memory are NexPlay's own process; the game's page runs in WebKit's process.")
+            Text("Turn it on per game with Show Stats (Game Panel > Display, the game menu or Game Settings). The layouts are BCD's. Windows games use BCD's own HUD in the same layout, with the engine's real frame times; in web games CPU and memory are NexPlay's own process (the page runs in WebKit's process).")
         }
     }
 }

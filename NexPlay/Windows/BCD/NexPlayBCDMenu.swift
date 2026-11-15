@@ -216,3 +216,17 @@ struct NexBCDMenuContent: View {
         })
     }
 }
+
+/// 8.3.2: one Performance HUD for every engine. A Windows game shows BCD's own HUD (it reads the engine's frame times,
+/// GPU and JIT pool), switched on and off by NexPlay's Show Stats in NexPlay's chosen layout (Pulse/Strip/Tune/Report =
+/// BCD's layouts 1-4). Done as BCD's in-game menu does it (BCDHUDMenu.choose, BCDHUDState.change).
+@MainActor enum NexBCDHUD {
+    static var isShown: Bool { BCDHUDState.shared.setup.layout.shown }
+
+    static func show(_ on: Bool) {
+        let state = BCDHUDState.shared
+        let value = on ? HUDLayout.current.bcdValue : BCDHUDLayout.off.rawValue
+        let next = BCDHUDMenu.choose(BCDHUDMenu.layoutRow, value, state.setup, screen: .landscape).setup
+        state.change(next, why: "NexPlay's Show Stats")
+    }
+}

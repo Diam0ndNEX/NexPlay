@@ -380,7 +380,7 @@ struct GamePanelView: View {
     @State private var page: String?
     @State private var question: NexMenuQuestion?
     @AppStorage(SettingsKey.hudCorner) private var hudCorner = "topLeft"
-    @AppStorage(SettingsKey.hudDetail) private var hudDetail = "full"
+    @AppStorage(SettingsKey.hudLayout) private var hudLayout = "tune"
 
     private let tabs = [
         NexMenuTab(id: "game", title: "Game"),
@@ -527,17 +527,12 @@ struct GamePanelView: View {
         NexMenuSection("Performance HUD") {
             NexMenuToggleRow(title: "Show Performance HUD", detail: "Frame rate, CPU, memory and temperature over the game",
                              symbol: "speedometer", isOn: model.statsOn) { _ in model.toggleStats() }
-            NexMenuChipsRow(title: "Corner", choices: [
-                NexMenuChoice(value: "topLeft", title: "Top Left"),
-                NexMenuChoice(value: "topRight", title: "Top Right"),
-                NexMenuChoice(value: "bottomLeft", title: "Bottom Left"),
-                NexMenuChoice(value: "bottomRight", title: "Bottom Right"),
-            ], selected: hudCorner) { hudCorner = $0 }
-            NexMenuChipsRow(title: "Detail", choices: [
-                NexMenuChoice(value: "compact", title: "Compact"),
-                NexMenuChoice(value: "full", title: "Full"),
-            ], selected: hudDetail) { hudDetail = $0 }
-            NexMenuNote(text: "Corner and detail apply to every game. CPU and memory are NexPlay's own process; the game's page runs in WebKit's process.")
+            NexMenuChipsRow(title: "Layout", detail: (HUDLayout(rawValue: hudLayout) ?? .tune).summary,
+                            choices: HUDLayout.allCases.map { NexMenuChoice(value: $0.rawValue, title: $0.title) },
+                            selected: hudLayout) { hudLayout = $0 }
+            NexMenuChipsRow(title: "Place", choices: HUDPlace.allCases.map { NexMenuChoice(value: $0.rawValue, title: $0.title) },
+                            selected: hudCorner) { hudCorner = $0 }
+            NexMenuNote(text: "Layout and place apply to every game (Windows games use BCD's HUD in the same layout). CPU and memory are NexPlay's own process; the game's page runs in WebKit's process.")
         }
     }
 

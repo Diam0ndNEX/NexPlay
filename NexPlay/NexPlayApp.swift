@@ -108,7 +108,7 @@ struct NexPlayApp: App {
         SettingsKey.idlePauseMinutes: 10,
         SettingsKey.thermalGuard: true,
         SettingsKey.hudCorner: "topLeft",
-        SettingsKey.hudDetail: "full",
+        SettingsKey.hudLayout: "tune",
     ]
 
     private var colorScheme: ColorScheme? {

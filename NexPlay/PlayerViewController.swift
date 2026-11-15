@@ -57,6 +57,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     private var speed = 1
     private var currentFPS = 0
+    /// 8.3.2: the longest frame of the last second (ms), for the HUD's Report layout.
+    private var worstFrameMs: Double?
     private var statsTimer: Timer?
     private var bannerTimer: Timer?
     private var sessionStart: Date?
@@ -192,6 +194,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             }
         }
         statsReceiver.onFPS = { [weak self] fps in self?.currentFPS = fps }
+        statsReceiver.onWorstFrame = { [weak self] ms in self?.worstFrameMs = ms }
         logReceiver.onLine = { [weak self] line in self?.noteLine(line) }
         exitReceiver.onMessage = { [weak self] _ in
             self?.gameLog.add("the game asked to quit")
@@ -1264,7 +1267,11 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     }()
 
     private func refreshStats() {
-        hud.update(fps: currentFPS)
+        if let webView {
+            let size = webView.bounds.size
+            hud.context = "\(game.engine.badge) · \(Int(size.width))×\(Int(size.height)) pt"
+        }
+        hud.update(fps: currentFPS, worstMs: worstFrameMs)
         hud.place(in: view.bounds, insets: view.safeAreaInsets)
         view.bringSubviewToFront(hud)
     }

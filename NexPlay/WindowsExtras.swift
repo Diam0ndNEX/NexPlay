@@ -297,8 +297,9 @@ struct WindowsPanelView: View {
     }
 
     @ViewBuilder private var displayTab: some View {
-        NexMenuSection("NexPlay HUD") {
-            NexMenuToggleRow(title: "Performance HUD", detail: "CPU, memory, temperature and battery over the game",
+        NexMenuSection("Performance HUD") {
+            NexMenuToggleRow(title: "Show Stats", detail: bcd == nil ? "CPU, memory, temperature and battery over the game"
+                                 : "BCD's HUD in the \(HUDLayout.current.title) layout: the engine's frame rate, load, memory, heat. The rows below fine-tune it.",
                              symbol: "speedometer", isOn: hudShown) { value in
                 onToggleHUD()
                 hud = value

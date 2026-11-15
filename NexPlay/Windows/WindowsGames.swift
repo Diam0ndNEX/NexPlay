@@ -272,6 +272,8 @@ final class WindowsLaunchController: UIViewController {
             })
             applyControlsStyle()
             addPanelButton()
+            // 8.3.2: Show Stats on = BCD's HUD in NexPlay's layout.
+            if currentGame.statsOverlay == true { NexBCDHUD.show(true) }
             view.bringSubviewToFront(hud)
         case .ended:
             AppLog.log("windows: \(game.name): session ended")
@@ -453,7 +455,7 @@ final class WindowsLaunchController: UIViewController {
         guard panelHost == nil else { return }
         var panel = WindowsPanelView(
             gameName: game.name,
-            hudOn: !hud.isHidden,
+            hudOn: hudShown,
             onToggleHUD: { [weak self] in self?.toggleHUD() },
             onRestart: nil,
             onExit: { [weak self] in
@@ -502,16 +504,44 @@ final class WindowsLaunchController: UIViewController {
         host.presentingViewController?.dismiss(animated: true)
     }
 
+    /// 8.3.2: while a game runs with the engine, the HUD is BCD's own (real frame times) in NexPlay's layout.
+    private var hudShown: Bool {
+        #if NEXPLAY_WINDOWS
+        if let session, session.isRunning { return NexBCDHUD.isShown }
+        #endif
+        return !hud.isHidden
+    }
+
     private func toggleHUD() {
-        hud.isHidden.toggle()
+        let on = !hudShown
+        store.mutate(game.id) { $0.statsOverlay = on }
+        #if NEXPLAY_WINDOWS
+        if let session, session.isRunning {
+            showNexHUD(false)
+            NexBCDHUD.show(on)
+            return
+        }
+        #endif
+        showNexHUD(on)
+    }
+
+    /// NexPlay's own plate (no frame rate: NexPlay can't see Wine's frames), before the session runs.
+    private func showNexHUD(_ on: Bool) {
+        hud.isHidden = !on
         hudTimer?.invalidate()
         hudTimer = nil
-        guard !hud.isHidden else { return }
+        guard on else { return }
         UIDevice.current.isBatteryMonitoringEnabled = true
+        hud.context = "PC"
         hud.update(fps: nil)
+        hud.place(in: view.bounds, insets: view.safeAreaInsets)
         view.bringSubviewToFront(hud)
         hudTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.hud.update(fps: nil) }
+            Task { @MainActor in
+                guard let self else { return }
+                self.hud.update(fps: nil)
+                self.hud.place(in: self.view.bounds, insets: self.view.safeAreaInsets)
+            }
         }
     }
 

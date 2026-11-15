@@ -15,7 +15,7 @@ once all steps are done, then pastes build errors (first error first).
 | Fix: NexPlay's JITPairing.swift and Onboarding.swift renamed | 8.2.3 (71) | pushed 2026-11-14 |
 | In-game: shared in-game menu (BCD layout), Game Panel on it | 8.3.0 (72) | built OK 2026-11-14 |
 | In-game: Windows panel on the menu, BCD's menu rows, one-Windows-game cards | 8.3.1 (73) | built OK 2026-11-15 |
-| In-game: Performance HUD in BCD's HUD layout, every engine | 8.3.2 | |
+| In-game: Performance HUD in BCD's HUD layout, every engine | 8.3.2 (74) | pushed 2026-11-15 |
 | Game page | 8.4.0 | |
 | itch.io (other stores hidden) | 8.5.0 | |
 | Settings and extras | 8.6.0 | |
@@ -128,6 +128,14 @@ play" with Close NexPlay (exit(0)) and Back to Library; `WindowsEngine.ranThisLa
 the library context menu say "Restart NexPlay to Play". Not yet: controller navigation inside the panel (BCD's commands
 reach no view now; Back + Start still closes it), BCD's row thumbnails (Windows page) show the symbol instead. The classic
 desk menu (BCDDeskSessionMenu, touch-controls window) still draws BCD's own panel.
+
+8.3.2 notes: one Performance HUD. NexPlay's plate (PerformanceHUD.swift) takes BCD's structure: layouts Pulse, Strip,
+Tune, Report (`HUDLayout`, setting `hudLayout`, replaces hudDetail; BCD's 1-4) and six places (`HUDPlace` in hudCorner:
++ Top, Bottom). Web games: the page's stats script also sends the longest frame of each second (Report's "worst"); low =
+lowest FPS of the graph window (15 s / 30 s), not a true 1 % low. Windows games: Show Stats turns on BCD's own HUD in the
+chosen layout (`NexBCDHUD`, as BCD's menu does it), so the engine's real frame times, GPU and JIT pool show; BCD's HUD rows
+(Custom, place, dimming) stay in the panel's Display tab. Settings, Game Panel > Display and the Windows panel all use the
+same layout and place. Not built: BCD's Custom layout and dragging for web games, BCD's calm dimming for web games.
 
 ## Controls: both systems, one place to choose
 - Every game has **Controls Style**:

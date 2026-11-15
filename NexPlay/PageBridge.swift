@@ -116,18 +116,20 @@ enum PageScripts {
     /// window.__nexStats(true/false) starts or stops frame-rate reporting to the app.
     static let stats = #"""
     (function () {
-        var on = false, frames = 0, last = 0;
+        var on = false, frames = 0, last = 0, prev = 0, worst = 0;
         function loop(t) {
             if (!on) return;
             frames++;
+            if (prev > 0 && t - prev > worst) worst = t - prev;
+            prev = t;
             if (t - last >= 1000) {
-                try { window.webkit.messageHandlers.nexStats.postMessage(Math.round(frames * 1000 / (t - last))); } catch (e) {}
-                frames = 0; last = t;
+                try { window.webkit.messageHandlers.nexStats.postMessage([Math.round(frames * 1000 / (t - last)), Math.round(worst)]); } catch (e) {}
+                frames = 0; last = t; worst = 0;
             }
             requestAnimationFrame(loop);
         }
         window.__nexStats = function (v) {
-            if (v && !on) { on = true; frames = 0; last = performance.now(); requestAnimationFrame(loop); }
+            if (v && !on) { on = true; frames = 0; worst = 0; prev = 0; last = performance.now(); requestAnimationFrame(loop); }
             else if (!v) { on = false; }
         };
     })();
@@ -535,10 +537,15 @@ enum PageScripts {
 /// Receives the frame rate the stats script reports.
 final class StatsReceiver: NSObject, WKScriptMessageHandler {
     var onFPS: ((Int) -> Void)?
+    /// 8.3.2: the longest frame of the last second, in ms.
+    var onWorstFrame: ((Double) -> Void)?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if let number = message.body as? NSNumber {
             onFPS?(number.intValue)
+        } else if let list = message.body as? [NSNumber], let first = list.first {
+            onFPS?(first.intValue)
+            if list.count > 1 { onWorstFrame?(list[1].doubleValue) }
         }
     }
 }
