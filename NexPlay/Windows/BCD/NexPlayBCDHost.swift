@@ -42,6 +42,21 @@ enum NexWindowsHost {
         HardwareInput.shared.start()
     }
 
+    /// 8.7.10: the last lines of the engine's own log (Documents/bcd-log.txt: Wine and the game's output) into NexPlay's
+    /// app log, so Copy Last 200 Log Lines shows why a game closed. Safe to call from any thread.
+    nonisolated static func dumpEngineLog(_ why: String, lines: Int = 60) {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let url = docs.appendingPathComponent("bcd-log.txt")
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 24_000 ? size - 24_000 : 0)
+        guard let data = try? handle.readToEnd(), let text = String(data: data, encoding: .utf8) else { return }
+        let tail = text.split(separator: "\n", omittingEmptySubsequences: true).suffix(lines)
+        AppLog.log("engine log (\(why)), last \(tail.count) lines:")
+        for line in tail { AppLog.log("  | " + String(line.prefix(260))) }
+    }
+
     /// The orientations BCD's session lock allows, or nil when no lock is on (NexPlay's AppDelegate asks).
     static var orientationOverride: UIInterfaceOrientationMask? {
         let lock = BCDOrientationLock.shared

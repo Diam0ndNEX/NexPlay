@@ -339,6 +339,10 @@ final class WindowsLaunchController: UIViewController {
             view.bringSubviewToFront(hud)
         case .ended:
             AppLog.log("windows: \(game.name): session ended")
+            #if NEXPLAY_WINDOWS
+            AppLog.log("windows: exit code \(wine_process_exit_code())")
+            NexWindowsHost.dumpEngineLog("session ended")
+            #endif
             finish()
         case .failed(let message):
             fail(message, retry: true)

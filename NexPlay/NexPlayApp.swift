@@ -56,6 +56,12 @@ struct NexPlayApp: App {
         AppLog.noteLaunch()
         // 7.10.0: a game that was still starting when NexPlay last closed is marked "crashed at start".
         LaunchGuard.checkAtLaunch()
+        #if NEXPLAY_WINDOWS
+        // 8.7.10: after a crash the engine's log still holds what the game did last (before BCD rotates it).
+        if AppLog.shared.text.split(separator: "\n").suffix(4).contains(where: { $0.contains("did not end cleanly") }) {
+            DispatchQueue.global(qos: .utility).async { NexWindowsHost.dumpEngineLog("previous run") }
+        }
+        #endif
         nex_launch_mark("4 app init done")
     }
 
