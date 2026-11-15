@@ -584,7 +584,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         // 8.9.0: a game imported with the wrong main pack (the biggest one) gets the one named like its .exe.
         var entry = game.entry
         if let better = GodotRuntime.betterMainPack(than: pack, root: root) {
-            let rel = String(better.path.dropFirst(root.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let rel = GodotRuntime.relativePath(of: better, in: root)
             if !rel.isEmpty {
                 gameLog.add("godot: main pack is \(rel) (not \(game.entry))")
                 pack = better
@@ -613,7 +613,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             let encoded = entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? entry
             let threads = launch.runtime.major == 4 && launch.runtime.minor < 3
             let companions: [(url: String, name: String)] = launch.companions.map { file in
-                let rel = String(file.path.dropFirst(root.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let rel = GodotRuntime.relativePath(of: file, in: root)
                 return (url: rel.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? rel,
                         name: file.lastPathComponent)
             }

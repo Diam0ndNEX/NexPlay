@@ -289,6 +289,15 @@ enum GodotRuntime {
         return (named.isEmpty ? pool : named).max { $0.1 < $1.1 }?.0
     }
 
+    /// 8.9.2: `file`'s path below `root`, both with symlinks resolved ("/var/..." and "/private/var/..." name the same
+    /// folder on iOS; cutting by character count gave "C5B1C93E/ProjectKat.pck" and a failed load).
+    static func relativePath(of file: URL, in root: URL) -> String {
+        let base = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let path = file.standardizedFileURL.resolvingSymlinksInPath().path
+        guard path.hasPrefix(base) else { return file.lastPathComponent }
+        return String(path.dropFirst(base.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
     /// True when an executable with the pack's name sits beside it ("Game.pck" next to "Game.exe").
     static func isMainPackOfExecutable(_ pack: URL) -> Bool {
         let base = pack.deletingPathExtension().lastPathComponent.lowercased()
