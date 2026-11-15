@@ -342,6 +342,7 @@ final class WindowsLaunchController: UIViewController {
             #if NEXPLAY_WINDOWS
             AppLog.log("windows: exit code \(wine_process_exit_code())")
             NexWindowsHost.dumpEngineLog("session ended")
+            GodotOnWindows.sessionEnded(game)
             #endif
             finish()
         case .failed(let message):
@@ -721,6 +722,13 @@ final class WindowsLaunchController: UIViewController {
 /// does not support OpenGL 3.3". This turns on BCD's desktop OpenGL (gl-backend = zink, Mesa on Metal) for the game and,
 /// for Godot 4, starts it on the OpenGL compatibility renderer (Vulkan first otherwise). Lines the owner set win.
 enum GodotOnWindows {
+    private static func triedKey(_ game: Game) -> String { "godotGLTried.\(game.id.uuidString)" }
+
+    /// 8.7.15: the session ended (the game quit or exited by itself): NexPlay didn't close, so the crash guard is cleared.
+    static func sessionEnded(_ game: Game) {
+        UserDefaults.standard.removeObject(forKey: triedKey(game))
+    }
+
     /// A folder named "Mono" up to three levels down (Godot Mono exports keep data_<name>/Mono).
     private static func hasMonoFolder(_ root: URL) -> Bool {
         guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey],
@@ -737,11 +745,25 @@ enum GodotOnWindows {
     static func prepare(game: Game, windowsPath: String, arguments: String?) -> String? {
         let profile = GameProfile(windowsPath: windowsPath)
         let defaults = UserDefaults.standard
-        let tried = "godotGLTried.\(game.id.uuidString)"
+        // 8.7.15: Godot Mono (C#) games: Mono aborts while the game loads ("Assertion ... mini-trampolines.c:771, condition
+        // mono_thread_is_gc_unsafe_mode", exit code 3; Paper Lily and Project Kat), with JIT and with the interpreter. That
+        // check fails when Mono's thread-state bookkeeping (hybrid suspend) sees a thread in its "safe" state calling
+        // managed code; preemptive suspend skips that bookkeeping. BCD sets the suspend policy for Wine Mono (coop, in
+        // mscoree) but Godot carries its own Mono, which never goes through mscoree. A try, not a known fix. Lines the
+        // owner set win; 8.7.12's interpreter line is taken out again.
+        if hasMonoFolder(Paths.folder(for: game)) {
+            if profile.get("env.MONO_ENV_OPTIONS") == "--interpreter" { profile.set("env.MONO_ENV_OPTIONS", nil) }
+            if profile.get("env.MONO_THREADS_SUSPEND") == nil {
+                profile.set("env.MONO_THREADS_SUSPEND", "preemptive")
+                AppLog.log("windows: \(game.name): Godot Mono game, env.MONO_THREADS_SUSPEND = preemptive")
+            }
+        }
+        let tried = triedKey(game)
         let weSet = "godotGLWeSet.\(game.id.uuidString)"
         // 8.7.10: NexPlay closed within seconds of a start with these settings (Project Kat, twice). The flag below is
-        // set at each start and cleared after 30 s of running; still set at the next start = the last one crashed, so
-        // this game starts without the tweaks (and without the line they wrote) from now on.
+        // set at each start and cleared after 30 s of running or when the session ends (8.7.15: a game that exits by
+        // itself before 30 s didn't crash NexPlay); still set at the next start = the last one closed NexPlay, so this
+        // game starts without the OpenGL line we wrote.
         if defaults.bool(forKey: tried) {
             if defaults.bool(forKey: weSet), BCDOpenGL.word(profile.get(BCDOpenGL.key)) == BCDOpenGL.desktop {
                 profile.set(BCDOpenGL.key, nil)
@@ -756,13 +778,6 @@ enum GodotOnWindows {
             profile.set(BCDOpenGL.key, BCDOpenGL.desktop)
             defaults.set(true, forKey: weSet)
             AppLog.log("windows: \(game.name): Godot game, OpenGL on (\(BCDOpenGL.key) = \(BCDOpenGL.desktop))")
-        }
-        // 8.7.11: a Godot Mono (C#) game: its Mono runtime aborts at "Loading graphics" under the emulator (Paper Lily:
-        // "Assertion ... mini-trampolines.c:771, condition mono_thread_is_gc_unsafe_mode", exit code 3). Mono's interpreter
-        // doesn't use JIT trampolines; a try, not a known fix. Lines the owner set win.
-        if hasMonoFolder(Paths.folder(for: game)), profile.get("env.MONO_ENV_OPTIONS") == nil {
-            profile.set("env.MONO_ENV_OPTIONS", "--interpreter")
-            AppLog.log("windows: \(game.name): Godot Mono game, Mono interpreter on (env.MONO_ENV_OPTIONS = --interpreter)")
         }
         let pack = Paths.folder(for: game).appendingPathComponent(game.entry)
         guard let version = GodotRuntime.packVersion(pack), version.major >= 4 else { return arguments }

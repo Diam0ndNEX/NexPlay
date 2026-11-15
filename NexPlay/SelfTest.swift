@@ -98,6 +98,62 @@ enum SelfTest {
         return try? handle.readToEnd()
     }
 
+    /// Engine log lines that repeat every second and say nothing about a game.
+    private static let noisyMarkers = ["[CB_SUMMARY]", "[CB_COST]", "[cb-sample]", "[iOS-xrem]"].map { Data($0.utf8) }
+
+    /// The last `bytes` of a log file without its noisy lines, read in chunks (the file can be hundreds of MB).
+    private static func filteredTail(of url: URL, bytes: Int) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        var kept = Data()
+        var partial = Data()
+        let newline = Data([0x0A])
+        while true {
+            let chunk = (try? handle.read(upToCount: 4 << 20)) ?? nil
+            guard let chunk, !chunk.isEmpty else { break }
+            partial.append(chunk)
+            guard let last = partial.lastIndex(of: 0x0A) else { continue }
+            let complete = partial[partial.startIndex...last]
+            partial = Data(partial[partial.index(after: last)...])
+            for line in complete.split(separator: 0x0A, omittingEmptySubsequences: true)
+            where !noisyMarkers.contains(where: { line.range(of: $0) != nil }) {
+                kept.append(line)
+                kept.append(newline)
+            }
+            if kept.count > bytes * 3 { kept = Data(kept.suffix(bytes)) }
+        }
+        if !partial.isEmpty { kept.append(partial) }
+        guard !kept.isEmpty else { return nil }
+        return kept.count > bytes ? Data(kept.suffix(bytes)) : kept
+    }
+
+    /// The newest two files of every Windows program's logs/ and mono/mono_logs/ folder under AppData/Roaming (last 300 KB each).
+    private static func gameLogs(docs: URL) -> [(String, Data)] {
+        let fm = FileManager.default
+        let users = docs.appendingPathComponent("wine/drive_c/users", isDirectory: true)
+        var out: [(String, Data)] = []
+        for user in (try? fm.contentsOfDirectory(at: users, includingPropertiesForKeys: nil)) ?? [] {
+            let roaming = user.appendingPathComponent("AppData/Roaming", isDirectory: true)
+            for app in (try? fm.contentsOfDirectory(at: roaming, includingPropertiesForKeys: nil)) ?? [] {
+                for sub in ["logs", "mono/mono_logs"] {
+                    let folder = app.appendingPathComponent(sub, isDirectory: true)
+                    let files = ((try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+                        .sorted {
+                            let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                            let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                            return a > b
+                        }
+                    for file in files.prefix(2) {
+                        if let data = tail(of: file, bytes: 300_000) {
+                            out.append(("game-logs/\(app.lastPathComponent)/\(sub)/\(file.lastPathComponent)", data))
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
     /// A ZIP with the report, the self-test (if run), the app log and the JIT lines of the log.
     static func exportLogsZIP(selfTest: [SelfTestResult]) throws -> URL {
         let stamp = Int(Date().timeIntervalSince1970)
@@ -114,10 +170,15 @@ enum SelfTest {
         // 8.7.14: the Windows engine's own logs (Wine, FEX, DXMT, the graphics set-up), the last 6 MB of each. The app log
         // only gets their last 60 lines, which never show why a game's picture stays black.
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        // 8.7.15: without FEX's per-second counter lines, which filled the whole 6 MB after a session.
         for name in ["bcd-log.txt", "bcd-log.prev.txt"] {
-            if let data = tail(of: docs.appendingPathComponent(name), bytes: 6_000_000) {
+            if let data = filteredTail(of: docs.appendingPathComponent(name), bytes: 6_000_000) {
                 try writer.add(name: name, data: data)
             }
+        }
+        // 8.7.15: the games' own logs in the Windows drive (Godot's logs/ and mono/mono_logs/), the newest two of each.
+        for (name, data) in gameLogs(docs: docs) {
+            try writer.add(name: name, data: data)
         }
         try writer.finish()
         return url
