@@ -83,6 +83,8 @@ struct GameDetailView: View {
     @State private var notice: String?
     @State private var showSetupCenter = false
     @State private var panel: GamePagePanel?
+    /// 8.7.8: how far the panel is being dragged down (closes past 120 pt).
+    @State private var panelDrag: CGFloat = 0
     /// 7.10.0: NexPlay closed while starting this game on this runtime last time.
     @State private var crashedOn: RuntimeKind?
     /// 8.4.0: PC games: the program the game starts, and the installers that came with it.
@@ -683,14 +685,32 @@ struct GameDetailView: View {
     @ViewBuilder private func panelView(_ game: Game, _ page: GamePagePanel, _ m: GamePageMetrics) -> some View {
         if m.upright {
             VStack(spacing: 0) {
-                Spacer(minLength: m.insets.top + 30)
+                // 8.7.8: the panel fills the screen below the status bar (it stopped at 86 % before, which looked
+                // half-open); drag the handle or the tab row down to close it.
+                Spacer(minLength: m.insets.top + 6)
                 VStack(spacing: 0) {
-                    Capsule().fill(NexColor.dark(.stroke)).frame(width: 40, height: 5).padding(.top, 8)
-                    panelHeader(game, page)
+                    VStack(spacing: 0) {
+                        Capsule().fill(NexColor.dark(.stroke)).frame(width: 40, height: 5).padding(.top, 8)
+                        panelHeader(game, page)
+                    }
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 12)
+                            .onChanged { value in panelDrag = max(0, value.translation.height) }
+                            .onEnded { value in
+                                if value.translation.height > 120 || value.predictedEndTranslation.height > 260 {
+                                    panelDrag = 0
+                                    closePanel()
+                                } else {
+                                    withAnimation(NexMotion.pick(NexMotion.snappy)) { panelDrag = 0 }
+                                }
+                            }
+                    )
                     panelContent(game, page)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: (m.size.height + m.insets.bottom) * 0.86)
+                .frame(maxHeight: .infinity)
+                .offset(y: panelDrag)
                 .background {
                     UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous)
                         .fill(ground)

@@ -50,3 +50,9 @@ into its own target (only in builds with the Windows engine, see `NexPlayWindows
   plus the "Modified for NexPlay" line. Its Info.plist (display name "NexPlay Memory") and entitlements (get-task-allow) are
   BCD's too. No file in this folder changed.
 
+
+## 2026-11-15 (NexPlay 8.7.8)
+- `Library.swift`: `LibraryModel.relativeToDrive` also maps a path inside NexPlay's game folder
+  (Application Support/NexPlay/Games/<id>/...) to `NexPlay/<id>/...`. C:\NexPlay\<id> is a symbolic link to that folder,
+  and BCD resolves links before checking that a program is on drive_c, so every NexPlay Windows game was refused with
+  "Pick a program in drive_c".

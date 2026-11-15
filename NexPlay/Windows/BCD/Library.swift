@@ -1,4 +1,4 @@
-// Modified for NexPlay (November 2026, NexPlay 8.0.0): see NEXPLAY-CHANGES.md in this folder.
+// Modified for NexPlay (November 2026, NexPlay 8.0.0, 8.7.8): see NEXPLAY-CHANGES.md in this folder.
 // Portions copyright 2026 alantangok, ft7t8drgwf-wq and Connor Gow: code taken from https://github.com/willfaust/Madeira (pull requests #464, #536 and #551;
 // commits abca30a and facd2cc) under GPL-3.0-or-later and modified for BCD in October and November 2026. See THIRD-PARTY-NOTICES.md.
 // Portions copyright 2026 Russell Barton: code taken from https://github.com/thebcd69/bcd-games (pull request #46 by rbarton124)
@@ -1182,6 +1182,10 @@ final class LibraryModel: ObservableObject {
     static func relativeToDrive(_ url: URL) -> String? {
         let path = url.resolvingSymlinksInPath().standardizedFileURL.path
         if path.hasPrefix(drive.path + "/") { return String(path.dropFirst(drive.path.count + 1)) }
+        // NexPlay: C:\NexPlay\<id> is a link to NexPlay's own game folder (Application Support/NexPlay/Games/<id>), so a
+        // program there resolves outside drive_c. Map it back to its place on the drive.
+        let nexGames = Paths.games.resolvingSymlinksInPath().standardizedFileURL.path
+        if path.hasPrefix(nexGames + "/") { return "NexPlay/" + String(path.dropFirst(nexGames.count + 1)) }
         for root in ExternalDrives.openedRoots {
             if path == root.path { return "External/" + root.name }
             if path.hasPrefix(root.path + "/") {
