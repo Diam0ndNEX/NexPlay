@@ -88,6 +88,16 @@ enum SelfTest {
         return lines.joined(separator: "\n")
     }
 
+    /// The last `bytes` of a file, or nil when it is missing or empty.
+    private static func tail(of url: URL, bytes: UInt64) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        guard size > 0 else { return nil }
+        try? handle.seek(toOffset: size > bytes ? size - bytes : 0)
+        return try? handle.readToEnd()
+    }
+
     /// A ZIP with the report, the self-test (if run), the app log and the JIT lines of the log.
     static func exportLogsZIP(selfTest: [SelfTestResult]) throws -> URL {
         let stamp = Int(Date().timeIntervalSince1970)
@@ -101,6 +111,14 @@ enum SelfTest {
         try writer.add(name: "app.log", data: Data(log.utf8))
         let jitLines = log.split(separator: "\n").filter { $0.contains("jit:") }.joined(separator: "\n")
         try writer.add(name: "jit.log", data: Data(jitLines.utf8))
+        // 8.7.14: the Windows engine's own logs (Wine, FEX, DXMT, the graphics set-up), the last 6 MB of each. The app log
+        // only gets their last 60 lines, which never show why a game's picture stays black.
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        for name in ["bcd-log.txt", "bcd-log.prev.txt"] {
+            if let data = tail(of: docs.appendingPathComponent(name), bytes: 6_000_000) {
+                try writer.add(name: name, data: data)
+            }
+        }
         try writer.finish()
         return url
     }
