@@ -17,7 +17,7 @@ once all steps are done, then pastes build errors (first error first).
 | In-game: Windows panel on the menu, BCD's menu rows, one-Windows-game cards | 8.3.1 (73) | built OK 2026-11-15 |
 | In-game: Performance HUD in BCD's HUD layout, every engine | 8.3.2 (74) | built OK 2026-11-15 |
 | Game page: BCD's layout, sections by capability, Restart and Play | 8.4.0 (75) | built OK 2026-11-15 |
-| Game page: PC sections from BCD (AutoTune, recommendations, graphics, prefix tools, Windows saves) | 8.4.1 | |
+| Game page: PC sections from BCD (AutoTune, recommendations, graphics, prefix tools, Windows saves) | 8.4.1 (76) | pushed 2026-11-15 |
 | itch.io (other stores hidden) | 8.5.0 | |
 | Settings and extras | 8.6.0 | |
 | Polish and cleanup | 8.7.0 | |
@@ -149,6 +149,16 @@ in WindowsGames.swift: setup/vcredist/DirectX/PhysX/redist .exes; runs once in p
 GamePages (titles rounded). No BCD file changed. Not yet: matched card-to-page transition (8.7.0), controller focus on
 the page (8.7.0). 8.4.1: BCD's PC sections (AutoTune, recommendations, GPU cards, prefix tools, BCD's saves) through a
 NexPlay file in Windows/BCD.
+
+8.4.1 notes: PC Setup (game page chip and panel page, PC games with the engine built in):
+`Windows/BCD/NexPlayBCDGamePage.swift` (NexPlay's code) draws BCD's game page data with NexMenu rows: BCDGameDetailSource's
+backend (BCDGamePageLive) gives the sections (Display, Direct3D/GPU cards, Compatibility, Windows/prefix tools, Components
+(redistributables), CPU translation, Where the saves live, Game fixes, Wine desktop, Controls and binds, input extras,
+Launch, Sound/MIDI, Save backups, Help) and does every change (`set`), plus Recommended Settings (use, get the latest list),
+AutoTune (toggle, undo, keep findings; Turn On when off globally) and the game's config text. `NexBCDGamePage.entry` finds
+BCD's library entry for the game's program (made with the drive link when the drive is set up; before the first Windows
+start it says so). Hidden: Steam, DLC, Version, Download, Library, Location (stores hidden; NexPlay's Options do name, cover,
+removal). Not drawn: rows that open BCD's store search, cover/wallpaper pickers or Workshop. No BCD file changed.
 
 ## Controls: both systems, one place to choose
 - Every game has **Controls Style**:

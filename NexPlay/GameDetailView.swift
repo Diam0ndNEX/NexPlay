@@ -4,13 +4,14 @@ import UniformTypeIdentifiers
 /// 8.4.0: what the game page opens over itself (BCD's Options panel: from the right on a phone on its side and an iPad,
 /// from the bottom on an upright phone).
 enum GamePagePanel: String, Identifiable {
-    case options, saves, media, mods
+    case options, pcSetup, saves, media, mods
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .options: return "Options"
+        case .pcSetup: return "PC Setup"
         case .saves: return "Saves"
         case .media: return "Media"
         case .mods: return "Mods"
@@ -20,6 +21,7 @@ enum GamePagePanel: String, Identifiable {
     var symbol: String {
         switch self {
         case .options: return "slider.horizontal.3"
+        case .pcSetup: return "cpu"
         case .saves: return "square.and.arrow.down.on.square.fill"
         case .media: return "photo.on.rectangle.angled"
         case .mods: return "puzzlepiece.extension.fill"
@@ -380,6 +382,9 @@ struct GameDetailView: View {
     /// The buttons beside Play: Options, then the sections this game has.
     private func otherButtons(_ game: Game, _ caps: RuntimeCapabilities) -> [Other] {
         var list: [Other] = [Other(id: "options", title: "Options", symbol: GamePagePanel.options.symbol) { openPanel(.options) }]
+        if caps.pcSetup && WindowsEngine.isBuiltIn {
+            list.append(Other(id: "pc", title: "PC Setup", symbol: GamePagePanel.pcSetup.symbol) { openPanel(.pcSetup) })
+        }
         if caps.fileSaves { list.append(Other(id: "saves", title: "Saves", symbol: GamePagePanel.saves.symbol) { openPanel(.saves) }) }
         list.append(Other(id: "media", title: "Media", symbol: GamePagePanel.media.symbol) { openPanel(.media) })
         if caps.mods { list.append(Other(id: "mods", title: "Mods", symbol: GamePagePanel.mods.symbol) { openPanel(.mods) }) }
@@ -695,6 +700,7 @@ struct GameDetailView: View {
     private func panelHeader(_ game: Game, _ page: GamePagePanel) -> some View {
         let caps = GameRuntimes.capabilities(for: game)
         var pages: [GamePagePanel] = [.options]
+        if caps.pcSetup && WindowsEngine.isBuiltIn { pages.append(.pcSetup) }
         if caps.fileSaves { pages.append(.saves) }
         pages.append(.media)
         if caps.mods { pages.append(.mods) }
@@ -739,6 +745,16 @@ struct GameDetailView: View {
                 panel = nil
                 dismiss()
             }, embedded: true)
+        case .pcSetup:
+            // 8.4.1: BCD's PC sections (graphics, prefix tools, components, AutoTune, recommended settings, save backups).
+            #if NEXPLAY_WINDOWS
+            NexBCDPCSetupView(game: game)
+            #else
+            Text("This build has no Windows engine.")
+                .font(NexType.body)
+                .foregroundStyle(NexColor.dark(.textSoft))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            #endif
         case .saves:
             GameSavesView(gameID: game.id, embedded: true)
         case .media:
