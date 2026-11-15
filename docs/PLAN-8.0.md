@@ -18,7 +18,7 @@ once all steps are done, then pastes build errors (first error first).
 | In-game: Performance HUD in BCD's HUD layout, every engine | 8.3.2 (74) | built OK 2026-11-15 |
 | Game page: BCD's layout, sections by capability, Restart and Play | 8.4.0 (75) | built OK 2026-11-15 |
 | Game page: PC sections from BCD (AutoTune, recommendations, graphics, prefix tools, Windows saves) | 8.4.1 (76) | built OK 2026-11-15 |
-| itch.io (other stores hidden): sign in, library, uploads, install through NexPlay's import | 8.5.0 (77) | built OK 2026-11-15 |
+| itch.io: built as 8.5.0 (77), then removed by the owner (games come from F95zone, imported as files/links) | 8.5.1 (78) | pushed 2026-11-15 |
 | Settings and extras | 8.6.0 | |
 | Polish and cleanup | 8.7.0 | |
 
@@ -42,16 +42,10 @@ Setup Center: `ScrollView` with opaque row groups, `SetupRow` = `NexStatusMark` 
 explicit rounded fonts (readable when opened from the game page). Background theme Plain = "Colour Profile"
 (`ProfileBackdrop`), also used in light mode. Appearance > Colour Profile: profile swatches + Custom Colour.
 
-8.5.0 notes: NexPlay's own itch.io client in `NexPlay/Store/` (compiled in every build, engine or not), not BCD's
-SwiftItch/BCDItch: those keep only Windows games and are engine-only, so they stay compiled, untouched and hidden like the other
-stores. `NexItchClient.swift` (`NexItchAPI` actor: API key sign-in, owned keys = purchases and claimed bundles, collections,
-search, game by page link, uploads, download request; key in the Keychain, service NexPlayItchKey; `NexItchAccount` with a
-cache in Application Support/itch), `NexItchInstall.swift` (`LibraryStore.importFromItch`: download into Staging/itch-<uuid>
-with progress on the import card, Cancel = `downloadTask`, a bare .exe/.msi goes into a folder, then `importItems(_:origin:)`;
-`NexImportOrigin` sets `Game.source = .itch`, `storeID` = itch.io game id, title, developer, cover; an installed game with that
-id and engine is the one Update It replaces), `NexItchViews.swift` (store sheet, game page with uploads, sign-in card,
-Settings › Accounts › itch.io). Upload choice: HTML5, Flash, Windows, unmarked, Linux, macOS, Android; demos after; soundtracks
-and books under Extras. Entry points: + menu, Home card, Library toolbar bag button, empty library. No BCD file changed.
+## Owner's decision of 2026-11-15
+- **No itch.io.** The owner gets games from F95zone and imports them (files, folders, Download from Link). 8.5.0 added an
+  itch.io store; 8.5.1 removes it again (reverted). No store screen, sign-in or Settings row for any store (itch.io, Steam,
+  GOG, Epic, EA, Dock) appears in NexPlay; BCD's store code stays compiled, untouched and hidden (BCD updates stay easy).
 
 ## Owner's decisions of 2026-11-13 (second round)
 - **Other stores stay in the code, hidden** (replaces "Drop Steam, GOG, Epic and EA" below). Reason: BCD updates. An

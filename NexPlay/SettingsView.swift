@@ -184,22 +184,6 @@ struct SettingsView: View {
             }
         }
 
-        // 8.5.0: store accounts. Only itch.io is shown (BCD's other stores stay hidden).
-        NexSectionHeader(title: "Accounts", symbol: "person.crop.circle.fill", tint: .red)
-            .padding(.top, 10)
-        NexRowGroup {
-            NavigationLink {
-                NexItchAccountPage()
-                    .nexClearsTabBar()
-                    .background(AppBackground().ignoresSafeArea())
-                    .navigationTitle("itch.io")
-                    .navigationBarTitleDisplayMode(.inline)
-            } label: {
-                NexItchAccountRow()
-            }
-            .buttonStyle(.plain)
-        }
-
         NexSectionHeader(title: "About", symbol: "info.circle.fill", tint: .teal)
             .padding(.top, 10)
         NexRowGroup {
@@ -868,7 +852,6 @@ struct CreditsView: View {
                 Text("Empo, Copyright (C) 2026 Mateo M., https://github.com/mateo-m/empo-app, and mvmz-apple-mobile, https://github.com/mateo-m/mvmz-apple-mobile (GPL-3.0-only with additional terms): RPG Maker runtime (speed, pause, focus), NW.js shim, game file server, archive extraction with the system libarchive, save rescue and displaced-copy handling, controls model and touch handling ideas, controller bindings, backup retention and import pipeline invariants.")
                 Text("Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games)")
                 Text("BCD (GPL-3.0 with the BCD additional terms and the Madeira Converter Exception) is a fork of Madeira by Will Faust, https://github.com/willfaust/Madeira (GPL-3.0-or-later): entitlement, signing and device checks (Diagnostics), entitlements set; built-in JIT: the helper extension and how it is started, the pairing-file store, the JIT script (madeira-jit.js), the BRK #0xf00d calls and the JIT test page (portions copyright 2026 SirDank, from Madeira).")
-                Text("itch.io (8.5.0): NexPlay's itch.io client (NexPlay/Store) follows the calls of Madeira's SwiftItch as modified by BCD (GPL-3.0-or-later), rewritten to keep every kind of game.")
                 Text("Windows games: BCD's app code (sessions, Wine/FEX/DXMT glue, JIT memory pool, input, game settings, itch.io and the rest), from https://github.com/thebcd69/bcd-games at v0.1.653, compiled into NexPlay (NexPlay/Windows/BCD, GPL headers kept, NexPlay's changes listed in NEXPLAY-CHANGES.md there). Wine (LGPL-2.1+), FEX-Emu (MIT), DXMT (zlib), MoltenVK (Apache-2.0) and the other engine parts are built by NexPlay's tools/windows from BCD's sources; their licence files ship inside the app with the engine.")
             }
             Section("Libraries") {
@@ -915,17 +898,5 @@ struct AppLogView: View {
             }
         }
         .onAppear { text = AppLog.shared.text }
-    }
-}
-
-/// 8.5.0: the itch.io row in Settings › Accounts (signed in or not).
-struct NexItchAccountRow: View {
-    @ObservedObject private var account = NexItchAccount.shared
-
-    var body: some View {
-        NexNavRow(title: "itch.io", subtitle: account.signedIn ? (account.accountName ?? "Signed in") : "Sign in to install your itch.io games",
-                  symbol: "gamecontroller.fill", tint: Color(red: 0.98, green: 0.36, blue: 0.36),
-                  value: account.signedIn ? "Signed In" : nil)
-            .onAppear { account.start() }
     }
 }

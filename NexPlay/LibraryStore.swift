@@ -148,9 +148,7 @@ final class LibraryStore: ObservableObject {
         await importItems(items)
     }
 
-    /// `origin` (8.5.0): a store download (itch.io). The game keeps the store's id, title, author and cover, and an
-    /// installed game with that id is offered as the one to update.
-    func importItems(_ urls: [URL], origin: NexImportOrigin? = nil) async {
+    func importItems(_ urls: [URL]) async {
         guard !urls.isEmpty, !isImporting else { return }
         isImporting = true
         let cancel = ImportCancel()
@@ -181,12 +179,9 @@ final class LibraryStore: ObservableObject {
                 }.value
 
                 var choice = UpdateChoice.addNew
-                let byStore = origin.flatMap { from in
-                    games.first { $0.source == from.source && $0.storeID == from.storeID && $0.engine == staged.found.engine }
-                }
-                let existing = byStore ?? games.first { $0.name.caseInsensitiveCompare(staged.title) == .orderedSame && $0.engine == staged.found.engine }
+                let existing = games.first { $0.name.caseInsensitiveCompare(staged.title) == .orderedSame && $0.engine == staged.found.engine }
                 if let existing {
-                    choice = await askUpdate(title: origin?.title ?? staged.title, existing: existing)
+                    choice = await askUpdate(title: staged.title, existing: existing)
                 }
                 if choice == .cancel || cancel.isCancelled {
                     try? FileManager.default.removeItem(at: staged.folder)
@@ -206,25 +201,14 @@ final class LibraryStore: ObservableObject {
                     mutate(existing.id) { game in
                         game.engine = updated.engine
                         game.entry = updated.entry
-                        // 8.5.0: a Windows update may start from a renamed program.
-                        if updated.engine == .windows { game.exePath = updated.entry }
-                        if let origin {
-                            game.source = origin.source
-                            game.storeID = origin.storeID
-                        }
                     }
-                    if let origin, let current = self.game(id: existing.id) { origin.applyCover(to: current, replace: false) }
                     RenPyRuntime.clearPackage(for: existing)
                     lines.append("Updated \(staged.title). Saves and settings were kept.")
                     AppLog.log("updated \(staged.title) from \(url.lastPathComponent)")
                 } else {
-                    var game = try await Task.detached(priority: .userInitiated) {
+                    let game = try await Task.detached(priority: .userInitiated) {
                         try ImportPipeline.install(staged)
                     }.value
-                    if let origin {
-                        origin.apply(to: &game)
-                        origin.applyCover(to: game, replace: true)
-                    }
                     games.append(game)
                     save()
                     AppLog.log("imported \(game.name) (\(game.engine.badge)) from \(url.lastPathComponent)")
