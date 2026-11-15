@@ -12,9 +12,27 @@ final class GameLog {
         return f
     }()
 
+    /// 8.8.2: every line is also written to a file, so the exported logs ZIP has the game's log (the one for the game
+    /// that ran last and the one before it).
+    static var fileURL: URL { FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("NexPlay-game.log") }
+    static var previousFileURL: URL { FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("NexPlay-game.prev.log") }
+    private var handle: FileHandle?
+
+    init() {
+        let fm = FileManager.default
+        try? fm.removeItem(at: GameLog.previousFileURL)
+        try? fm.moveItem(at: GameLog.fileURL, to: GameLog.previousFileURL)
+        fm.createFile(atPath: GameLog.fileURL.path, contents: nil)
+        handle = try? FileHandle(forWritingTo: GameLog.fileURL)
+    }
+
+    deinit { try? handle?.close() }
+
     func add(_ text: String) {
-        lines.append("\(GameLog.formatter.string(from: Date()))  \(text)")
+        let line = "\(GameLog.formatter.string(from: Date()))  \(text)"
+        lines.append(line)
         if lines.count > limit { lines.removeFirst(lines.count - limit) }
+        if let data = (line + "\n").data(using: .utf8) { try? handle?.write(contentsOf: data) }
     }
 
     var text: String { lines.joined(separator: "\n") }

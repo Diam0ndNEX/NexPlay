@@ -176,6 +176,12 @@ enum SelfTest {
                 try writer.add(name: name, data: data)
             }
         }
+        // 8.8.2: the Game Log of the game that ran last and the one before (native engines: Godot, Ren'Py, RPG Maker, web).
+        for (name, file) in [("game-log.txt", GameLog.fileURL), ("game-log.prev.txt", GameLog.previousFileURL)] {
+            if let data = tail(of: file, bytes: 500_000), !data.isEmpty {
+                try writer.add(name: name, data: data)
+            }
+        }
         // 8.7.15: the games' own logs in the Windows drive (Godot's logs/ and mono/mono_logs/), the newest two of each.
         for (name, data) in gameLogs(docs: docs) {
             try writer.add(name: name, data: data)
