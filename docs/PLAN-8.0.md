@@ -16,7 +16,7 @@ once all steps are done, then pastes build errors (first error first).
 | In-game: shared in-game menu (BCD layout), Game Panel on it | 8.3.0 (72) | built OK 2026-11-14 |
 | In-game: Windows panel on the menu, BCD's menu rows, one-Windows-game cards | 8.3.1 (73) | built OK 2026-11-15 |
 | In-game: Performance HUD in BCD's HUD layout, every engine | 8.3.2 (74) | built OK 2026-11-15 |
-| Game page: BCD's layout, sections by capability, Restart and Play | 8.4.0 (75) | pushed 2026-11-15 |
+| Game page: BCD's layout, sections by capability, Restart and Play | 8.4.0 (75) | built OK 2026-11-15 |
 | Game page: PC sections from BCD (AutoTune, recommendations, graphics, prefix tools, Windows saves) | 8.4.1 | |
 | itch.io (other stores hidden) | 8.5.0 | |
 | Settings and extras | 8.6.0 | |
