@@ -721,6 +721,19 @@ final class WindowsLaunchController: UIViewController {
 /// does not support OpenGL 3.3". This turns on BCD's desktop OpenGL (gl-backend = zink, Mesa on Metal) for the game and,
 /// for Godot 4, starts it on the OpenGL compatibility renderer (Vulkan first otherwise). Lines the owner set win.
 enum GodotOnWindows {
+    /// A folder named "Mono" up to three levels down (Godot Mono exports keep data_<name>/Mono).
+    private static func hasMonoFolder(_ root: URL) -> Bool {
+        guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey],
+                                                          options: [.skipsHiddenFiles]) else { return false }
+        for case let url as URL in walker {
+            if walker.level > 3 { walker.skipDescendants(); continue }
+            if url.lastPathComponent == "Mono", (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                return true
+            }
+        }
+        return false
+    }
+
     static func prepare(game: Game, windowsPath: String, arguments: String?) -> String? {
         let profile = GameProfile(windowsPath: windowsPath)
         let defaults = UserDefaults.standard
@@ -743,6 +756,13 @@ enum GodotOnWindows {
             profile.set(BCDOpenGL.key, BCDOpenGL.desktop)
             defaults.set(true, forKey: weSet)
             AppLog.log("windows: \(game.name): Godot game, OpenGL on (\(BCDOpenGL.key) = \(BCDOpenGL.desktop))")
+        }
+        // 8.7.11: a Godot Mono (C#) game: its Mono runtime aborts at "Loading graphics" under the emulator (Paper Lily:
+        // "Assertion ... mini-trampolines.c:771, condition mono_thread_is_gc_unsafe_mode", exit code 3). Mono's interpreter
+        // doesn't use JIT trampolines; a try, not a known fix. Lines the owner set win.
+        if hasMonoFolder(Paths.folder(for: game)), profile.get("env.MONO_ENV_OPTIONS") == nil {
+            profile.set("env.MONO_ENV_OPTIONS", "--interpreter")
+            AppLog.log("windows: \(game.name): Godot Mono game, Mono interpreter on (env.MONO_ENV_OPTIONS = --interpreter)")
         }
         let pack = Paths.folder(for: game).appendingPathComponent(game.entry)
         guard let version = GodotRuntime.packVersion(pack), version.major >= 4 else { return arguments }
