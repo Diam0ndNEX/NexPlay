@@ -131,11 +131,11 @@ def fetch_mono(version, target):
 
 
 def patch_mono(target, version):
-    """8.10.0: tools/godot/nexshim/ (patched mscorlib + NexShim.dll) replaces the 3.5.3 runtime's mscorlib, also in a cached zip."""
+    """8.10.0: tools/godot/nexshim/ (patched mscorlib + NexShim.dll) replaces the runtime's mscorlib, also in a cached zip."""
     folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "godot", "nexshim")
-    if version != "3.5.3" or not os.path.isdir(folder):
+    if not os.path.isfile(os.path.join(folder, "mscorlib-%s.dll" % version)):
         return
-    mine = {"assemblies/mscorlib.dll": "mscorlib.dll", "assemblies/NexShim.dll": "NexShim.dll"}
+    mine = {"assemblies/mscorlib.dll": "mscorlib-%s.dll" % version, "assemblies/NexShim.dll": "NexShim.dll"}
     temp = target + ".patch"
     with zipfile.ZipFile(target) as src, zipfile.ZipFile(temp, "w", zipfile.ZIP_DEFLATED) as dst:
         for item in src.infolist():

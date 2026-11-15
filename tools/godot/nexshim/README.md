@@ -9,3 +9,5 @@ Rebuild: `mcs -target:library -out:NexShim.dll -r:GodotSharp.dll -r:netstandard.
 `mono Patch.exe <original mscorlib.dll> NexShim.dll mscorlib.dll`.
 
 8.10.3: Task.Delay too. Mono's timer fires from its own callback in the ROOT app domain, whose statics are empty, so the game's code after `await Task.Delay` (Lacie: DrkieUtil.DelaySeconds) ran with Game.Settings == null (NRE every frame in StoryPlayer after New Game). NexShim runs delays from the main loop instead.
+
+8.10.4: one patched mscorlib per C# runtime version (mscorlib-3.5.3.dll, mscorlib-3.6.3.dll); a new Mono runtime needs `mono Patch.exe <its mscorlib.dll> NexShim.dll mscorlib-<v>.dll`. 3.6.3 checked with Kat's pack (same flow as 3.5.3).
