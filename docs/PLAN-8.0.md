@@ -23,7 +23,7 @@ once all steps are done, then pastes build errors (first error first).
 | Settings: Storage and external drives, logs and diagnostics | 8.6.1 (80) | built OK 2026-11-15 |
 | Settings: readiness checks in Setup Center, foldables | 8.6.2 (81) | built OK 2026-11-15 |
 | Settings: sub-pages from Forms to glass rows | 8.6.3 (82) | built OK 2026-11-15 |
-| Settings: optional helper memory (MadeiraMemoryHost): entitlements fit (get-task-allow only) | 8.6.4 (83) | pushed 2026-11-15 |
+| Settings: optional helper memory (MadeiraMemoryHost): entitlements fit (get-task-allow only) | 8.6.4 (83) | built OK 2026-11-15 |
 | Polish and cleanup | 8.7.0 | |
 
 8.0.0 notes: BCD's store (Steam, GOG, Epic, EA), Dock, front-end, update, feedback-upload and JIT-setup files are still
