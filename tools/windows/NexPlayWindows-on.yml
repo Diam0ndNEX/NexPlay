@@ -42,6 +42,10 @@ targets:
           - "$(SRCROOT)/vendor/bcd-engine/fex"
         # DXMT finds the macdrv_* entry points with dlsym(RTLD_DEFAULT): NexPlay's binary exports them.
         EXPORTED_SYMBOLS_FILE: NexPlay/Windows/BCD/madeira-exports.txt
+        # 8.7.6: no debug dylib. In the Debug configuration Xcode splits the app into a stub NexPlay + NexPlay.debug.dylib,
+        # and the stub finds the real main through an exported symbol, which the export list above removes:
+        # the app aborted at launch in abort_could_not_find_entry_point___debug_dylib.
+        ENABLE_DEBUG_DYLIB: NO
         CLANG_CXX_LANGUAGE_STANDARD: gnu++20
         GCC_C_LANGUAGE_STANDARD: gnu17
         # As BCD's Debug configuration, the one its games run with: no optimisation, DEBUG defined.
