@@ -236,8 +236,9 @@ struct GameDetailView: View {
                 art(game)
                     .frame(height: m.artHeight)
                     .overlay {
-                        LinearGradient(stops: [.init(color: ground.opacity(0.25), location: 0),
-                                               .init(color: ground.opacity(0.4), location: 0.5),
+                        // 8.7.9: darker at the top, so the default cover's engine symbol doesn't sit behind Back.
+                        LinearGradient(stops: [.init(color: ground.opacity(0.7), location: 0),
+                                               .init(color: ground.opacity(0.45), location: 0.5),
                                                .init(color: ground, location: 1)],
                                        startPoint: .top, endPoint: .bottom)
                     }
@@ -710,7 +711,6 @@ struct GameDetailView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(maxHeight: .infinity)
-                .offset(y: panelDrag)
                 .background {
                     UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous)
                         .fill(ground)
@@ -721,8 +721,12 @@ struct GameDetailView: View {
                         .ignoresSafeArea(edges: .bottom)
                 }
                 .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous))
+                // 8.7.9: the offset comes after the background, so the whole panel moves while dragged (the ground
+                // stayed behind as an empty black block before).
+                .offset(y: panelDrag)
             }
             .ignoresSafeArea(edges: .bottom)
+            .onDisappear { panelDrag = 0 }
         } else {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)

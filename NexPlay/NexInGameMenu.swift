@@ -187,7 +187,7 @@ struct NexInGameMenu<Content: View>: View {
 
     private func panelHeight(_ size: CGSize, wide: Bool) -> CGFloat {
         if wide { return max(240, size.height - 16) }
-        return min(size.height * (pad ? 0.7 : 0.82), size.height - 16)
+        return min(size.height * (pad ? 0.7 : 0.9), size.height - 16)
     }
 
     private var panel: some View {

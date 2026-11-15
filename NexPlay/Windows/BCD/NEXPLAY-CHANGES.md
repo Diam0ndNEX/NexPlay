@@ -56,3 +56,8 @@ into its own target (only in builds with the Windows engine, see `NexPlayWindows
   (Application Support/NexPlay/Games/<id>/...) to `NexPlay/<id>/...`. C:\NexPlay\<id> is a symbolic link to that folder,
   and BCD resolves links before checking that a program is on drive_c, so every NexPlay Windows game was refused with
   "Pick a program in drive_c".
+
+## 2026-11-15 (NexPlay 8.7.9)
+- `ContentView.swift`: `ControlsWindow.hitTest` returns nil while `NexWindowsHost.panelOpen` (NexPlay's Windows panel is
+  on screen). The window sits above the app window and took every touch while BCD's menu or starting screen was up, so
+  NexPlay's panel showed but none of its buttons worked.

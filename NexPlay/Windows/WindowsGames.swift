@@ -285,7 +285,10 @@ final class WindowsLaunchController: UIViewController {
             return
         }
         let paths = WindowsLibraryLink.paths(for: game, program: program)
-        let arguments = game.runOptions.map { $0.argumentList.joined(separator: " ") }
+        var arguments = game.runOptions.map { $0.argumentList.joined(separator: " ") }
+        if installer == nil, game.isGodotDesktop {
+            arguments = GodotOnWindows.prepare(game: game, windowsPath: paths.windows, arguments: arguments)
+        }
         guard NexWindowsHost.addGame(relativePath: paths.relative, title: game.name, arguments: arguments) else {
             fail("The Windows engine couldn't add this game to its library.", retry: true)
             return
@@ -535,6 +538,9 @@ final class WindowsLaunchController: UIViewController {
             panel.bcd = bridge.part
         }
         #endif
+        #if NEXPLAY_WINDOWS
+        NexWindowsHost.panelOpen = true
+        #endif
         let host = NexMenuHostingController(rootView: panel)
         panelHost = host
         var top: UIViewController = self
@@ -552,6 +558,7 @@ final class WindowsLaunchController: UIViewController {
 
     private func dismissPanel() {
         #if NEXPLAY_WINDOWS
+        NexWindowsHost.panelOpen = false
         menuBridge?.dispose()
         menuBridge = nil
         #endif
@@ -697,3 +704,26 @@ final class WindowsLaunchController: UIViewController {
         loading.showError(what: message, why: nil, actions: actions)
     }
 }
+
+#if NEXPLAY_WINDOWS
+/// 8.7.9: a desktop Godot game started with its Windows .exe (the web runtime only shows a frozen scene for some games,
+/// e.g. Project Kat). BCD gives a game no OpenGL and no Vulkan by default, so Godot stops with "your video card driver
+/// does not support OpenGL 3.3". This turns on BCD's desktop OpenGL (gl-backend = zink, Mesa on Metal) for the game and,
+/// for Godot 4, starts it on the OpenGL compatibility renderer (Vulkan first otherwise). Lines the owner set win.
+enum GodotOnWindows {
+    static func prepare(game: Game, windowsPath: String, arguments: String?) -> String? {
+        let profile = GameProfile(windowsPath: windowsPath)
+        if profile.get(BCDOpenGL.key) == nil {
+            profile.set(BCDOpenGL.key, BCDOpenGL.desktop)
+            AppLog.log("windows: \(game.name): Godot game, OpenGL on (\(BCDOpenGL.key) = \(BCDOpenGL.desktop))")
+        }
+        let pack = Paths.folder(for: game).appendingPathComponent(game.entry)
+        guard let version = GodotRuntime.packVersion(pack), version.major >= 4 else { return arguments }
+        let current = arguments ?? ""
+        if current.contains("--rendering-driver") || current.contains("--rendering-method") { return arguments }
+        let extra = "--rendering-method gl_compatibility --rendering-driver opengl3"
+        AppLog.log("windows: \(game.name): Godot \(version) on OpenGL (\(extra))")
+        return current.isEmpty ? extra : current + " " + extra
+    }
+}
+#endif

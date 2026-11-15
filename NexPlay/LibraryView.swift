@@ -294,7 +294,7 @@ struct NexTabBar: View {
 /// 8.1.1: fades scrolling content out behind the floating tab bar.
 struct NexTabBarEdgeFade: View {
     var body: some View {
-        LinearGradient(colors: [NexColor.ground.opacity(0), NexColor.ground.opacity(0.85), NexColor.ground],
+        LinearGradient(colors: [Color.black.opacity(0), Color.black.opacity(0.3), Color.black.opacity(0.5)],
                        startPoint: .top, endPoint: .bottom)
             .frame(height: 110)
             .frame(maxWidth: .infinity)
