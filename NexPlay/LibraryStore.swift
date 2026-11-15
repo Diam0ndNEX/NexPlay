@@ -11,9 +11,13 @@ final class LibraryStore: ObservableObject {
 
     private let fileURL = Paths.support.appendingPathComponent("library.json")
 
+    /// 8.6.2: the app's library, for screens shown where no environment object reaches (Setup Center's Windows check).
+    static weak var current: LibraryStore?
+
     init() {
         ImportPipeline.sweepStaging()
         load()
+        LibraryStore.current = self
     }
 
     // MARK: - Persistence

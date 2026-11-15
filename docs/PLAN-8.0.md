@@ -21,7 +21,7 @@ once all steps are done, then pastes build errors (first error first).
 | itch.io: built as 8.5.0 (77), then removed by the owner (games come from F95zone, imported as files/links) | 8.5.1 (78) | built OK 2026-11-15 |
 | Settings: Windows Games page (BCD's engine settings with NexPlay rows) | 8.6.0 (79) | built OK 2026-11-15 |
 | Settings: Storage and external drives, logs and diagnostics | 8.6.1 (80) | built OK 2026-11-15 |
-| Settings: readiness checks in Setup Center, foldables | 8.6.2 | |
+| Settings: readiness checks in Setup Center, foldables | 8.6.2 (81) | pushed 2026-11-15 |
 | Settings: sub-pages from Forms to glass rows | 8.6.3 | |
 | Settings: optional helper memory (MadeiraMemoryHost), only if its entitlements fit | 8.6.4 | |
 | Polish and cleanup | 8.7.0 | |
@@ -62,6 +62,13 @@ files with Clear) and Logs & Diagnostics (`NexBCDLogsPage` over BCDLogsLive: sha
 logging, BCD's diagnostics switches, performance trace, AutoTune after a crash, Windows screenshots to Photos). One
 fileImporter with a mode. Left out: sending logs to BCD's server, Add every game / Find games / Steam installs (they add
 to BCD's own library, which NexPlay doesn't show). Not built: playing a NexPlay game from an external drive.
+
+8.6.2 notes: Setup Center (engine builds) gets `NexBCDReadinessSection` (`Windows/BCD/NexPlayBCDReadiness.swift`): Windows
+Components rows (Visual C++ 64-bit, 32-bit MFC, Wine Mono, Wine Gecko; state, progress and Download from the row; MFC and Mono
+turn amber only when a game needs them) and Windows Games Check (BCD's `BCDReadiness.scan`/`evaluate` on each Windows game's
+folder in the background, up to 40 games, games with notes first). `LibraryStore.current` (weak, set in init) gives it the
+library without an environment object. Windows Games › Graphics shows BCD's foldable switch on the foldable iPhone only
+(`NexBCDFoldableRow`); BCD's Duo interface switch is left out (it changes BCD's screens, which NexPlay doesn't show).
 
 ## Owner's decision of 2026-11-15
 - **No itch.io.** The owner gets games from F95zone and imports them (files, folders, Download from Link). 8.5.0 added an

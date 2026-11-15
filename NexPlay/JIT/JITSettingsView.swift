@@ -178,6 +178,10 @@ struct SetupCenterView: View {
                 if windowsReady {
                     footer("Add .exe games to the library like any other game and press Play. Turn JIT on first (above). NexPlay runs one Windows game per app launch.")
                 }
+                #if NEXPLAY_WINDOWS
+                // 8.6.2: Visual C++, MFC, Wine Mono, Wine Gecko and BCD's readiness check for each Windows game.
+                NexBCDReadinessSection()
+                #endif
 
                 // 7.1.1: EasyRPG and its RTP.
                 NexSectionHeader(title: "RPG Maker 2000/2003", symbol: "map", tint: .orange)

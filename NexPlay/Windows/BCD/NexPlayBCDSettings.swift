@@ -331,6 +331,9 @@ struct NexBCDGraphicsPage: View {
                                      symbol: "gauge.with.dots.needle.67percent", isOn: backend.holdMaximumRate) { backend.setHoldMaximumRate($0) }
                 }
             }
+            if BCDFoldableDevice.isThisDevice {
+                NexMenuSection("Foldable iPhone") { NexBCDFoldableRow() }
+            }
             NexMenuSection("OpenGL") {
                 NexBCDInfoRow(title: BCDOpenGL.settingsTitle, note: "A game that draws with OpenGL has its own switch on its page (PC Setup, Direct3D, OpenGL).",
                               value: BCDOpenGL.settingsValue)
@@ -946,4 +949,22 @@ struct NexBCDLogsPage: View {
 private struct NexBCDShareList: Identifiable {
     let id = UUID()
     let urls: [URL]
+}
+
+// MARK: - Foldable iPhone (8.6.2)
+
+/// BCD's experimental foldable switch (BCDFoldable.swift), on the foldable model only; read once per run.
+struct NexBCDFoldableRow: View {
+    @State private var on = BCDFoldableSwitch.resolve(BCDFoldableSwitch.stored)
+
+    var body: some View {
+        NexMenuToggleRow(title: "Foldable iPhone Support (Experimental)",
+                         detail: "While a Windows game runs, the touch controls and the picture follow the screen when the phone is folded or unfolded."
+                            + (on == BCDFoldable.active ? "" : " Applies the next time NexPlay starts."),
+                         symbol: "iphone.gen3", isOn: on) { value in
+            BCDFoldableSwitch.store(value)
+            on = value
+            AppLog.log("windows: foldable support \(value ? "on" : "off")")
+        }
+    }
 }
