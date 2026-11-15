@@ -130,6 +130,23 @@ def fetch_mono(version, target):
     os.replace(temp, target)
 
 
+def patch_mono(target, version):
+    """8.10.0: tools/godot/nexshim/ (patched mscorlib + NexShim.dll) replaces the 3.5.3 runtime's mscorlib, also in a cached zip."""
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "godot", "nexshim")
+    if version != "3.5.3" or not os.path.isdir(folder):
+        return
+    mine = {"assemblies/mscorlib.dll": "mscorlib.dll", "assemblies/NexShim.dll": "NexShim.dll"}
+    temp = target + ".patch"
+    with zipfile.ZipFile(target) as src, zipfile.ZipFile(temp, "w", zipfile.ZIP_DEFLATED) as dst:
+        for item in src.infolist():
+            if item.filename not in mine:
+                dst.writestr(item, src.read(item.filename))
+        for arc, file in mine.items():
+            with open(os.path.join(folder, file), "rb") as handle:
+                dst.writestr(arc, handle.read())
+    os.replace(temp, target)
+
+
 def main():
     if len(sys.argv) < 2:
         print("usage: fetch_godot_runtimes.py <out-dir> [cache-dir]")
@@ -159,6 +176,8 @@ def main():
                     fetch(version, entry, target)
                 if cached:
                     shutil.copyfile(target, cached)
+            if mono:
+                patch_mono(target, version)
             print("Godot %s%s: %d KB" % (version, " C#" if mono else "", os.path.getsize(target) // 1024))
         except Exception as error:  # never break the build over one runtime
             print("warning: Godot %s runtime could not be downloaded (%s)" % (version, error))
