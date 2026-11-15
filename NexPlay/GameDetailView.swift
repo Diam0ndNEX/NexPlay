@@ -90,6 +90,9 @@ struct GameDetailView: View {
     @State private var installers: [String] = []
     @State private var askInstaller = false
     @State private var askClose = false
+    /// 8.7.1: a controller on the game page (NexMenuNavigation.swift): the ring over Play, the chips and the cards' rows;
+    /// A presses, B closes the panel then the page, L1/R1 switch the panel's pages, Menu closes the page.
+    @StateObject private var navigator = NexMenuNavigator()
 
     private var game: Game? { store.game(id: gameID) }
 
@@ -128,9 +131,26 @@ struct GameDetailView: View {
         .foregroundStyle(NexColor.dark(.text))
         .environment(\.colorScheme, .dark)
         .task { await refresh() }
+        .environment(\.nexMenuNavigator, navigator)
+        .onPreferenceChange(NexMenuOrderKey.self) { ids in navigator.order = ids }
         .onAppear {
             withAnimation(NexMotion.pick(NexMotion.hero)) { appeared = true }
+            navigator.autoFocusFirst = true
+            navigator.onBack = {
+                if panel != nil { closePanel() } else { dismiss() }
+            }
+            navigator.onClose = { dismiss() }
+            navigator.onTab = { delta in
+                guard let current = panel, let game else { return }
+                let pages = panelPages(game)
+                guard let index = pages.firstIndex(of: current) else { return }
+                NexHaptics.selection()
+                panel = pages[(index + delta + pages.count) % pages.count]
+            }
+            navigator.capture()
         }
+        .onDisappear { navigator.release() }
+        .onChange(of: panel) { _ in navigator.reset() }
         .alert("New Profile", isPresented: $askingNewProfile) {
             TextField("Name", text: $newProfileName)
             Button("Cancel", role: .cancel) {}
@@ -432,6 +452,7 @@ struct GameDetailView: View {
             Label(item.title, systemImage: item.symbol).lineLimit(1)
         }
         .buttonStyle(NexGlassButtonStyle(fullWidth: false))
+        .nexMenuFocusable("page.chip.\(item.title)") { item.run() }
     }
 
     /// Play, or Set Up when the game needs setup first, or Restart and Play after an installer.
@@ -444,6 +465,7 @@ struct GameDetailView: View {
                 Label("Set Up", systemImage: "wrench.and.screwdriver.fill")
             }
             .buttonStyle(NexPrimaryButtonStyle())
+            .nexMenuFocusable("page.main.setup") { showSetupCenter = true }
         } else if installerRan(game) {
             Button {
                 NexHaptics.press()
@@ -452,6 +474,7 @@ struct GameDetailView: View {
                 Label("Restart and Play", systemImage: "arrow.clockwise")
             }
             .buttonStyle(NexPrimaryButtonStyle())
+            .nexMenuFocusable("page.main.restart") { askClose = true }
         } else {
             let title = WindowsEngine.playTitle(for: game)
             Button {
@@ -462,6 +485,7 @@ struct GameDetailView: View {
                     .minimumScaleFactor(0.7)
             }
             .buttonStyle(NexPrimaryButtonStyle())
+            .nexMenuFocusable("page.main.play") { play(game) }
         }
     }
 
@@ -530,6 +554,7 @@ struct GameDetailView: View {
                                         Label(fix.title, systemImage: fix.symbol).font(NexType.captionStrong)
                                     }
                                     .buttonStyle(NexGlassButtonStyle(fullWidth: false))
+                                    .nexMenuFocusable("page.fix.\(fix.id)") { fix.run() }
                                 }
                             }
                         }
@@ -697,13 +722,19 @@ struct GameDetailView: View {
     }
 
     /// The panel's title, the other pages of this game as chips, and close.
-    private func panelHeader(_ game: Game, _ page: GamePagePanel) -> some View {
+    /// The panel's pages for this game (also L1/R1's order).
+    private func panelPages(_ game: Game) -> [GamePagePanel] {
         let caps = GameRuntimes.capabilities(for: game)
         var pages: [GamePagePanel] = [.options]
         if caps.pcSetup && WindowsEngine.isBuiltIn { pages.append(.pcSetup) }
         if caps.fileSaves { pages.append(.saves) }
         pages.append(.media)
         if caps.mods { pages.append(.mods) }
+        return pages
+    }
+
+    private func panelHeader(_ game: Game, _ page: GamePagePanel) -> some View {
+        let pages = panelPages(game)
         return HStack(spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {

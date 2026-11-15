@@ -83,6 +83,8 @@ struct NexInGameMenu<Content: View>: View {
     let content: () -> Content
 
     @State private var shown = false
+    /// 8.7.1: the controller ring (NexMenuNavigation.swift).
+    @StateObject private var navigator = NexMenuNavigator()
     @Namespace private var tabSpace
     @Environment(\.horizontalSizeClass) private var horizontal
     @Environment(\.verticalSizeClass) private var vertical
@@ -134,8 +136,47 @@ struct NexInGameMenu<Content: View>: View {
         }
         .foregroundStyle(NexColor.text)
         .environment(\.colorScheme, .dark)
+        .environment(\.nexMenuNavigator, navigator)
         .onAppear {
             withAnimation(NexMotion.pick(NexMotion.smooth)) { shown = true }
+            wireNavigator()
+            navigator.capture()
+        }
+        .onDisappear { navigator.release() }
+        // The closures read this menu's current page and question, so they are set again when those change.
+        .onChange(of: tab) { _ in
+            wireNavigator()
+            navigator.reset()
+        }
+        .onChange(of: pageTitle) { _ in
+            wireNavigator()
+            navigator.reset()
+        }
+        .onChange(of: question?.id) { _ in
+            wireNavigator()
+            navigator.reset()
+        }
+        .onChange(of: back == nil) { _ in wireNavigator() }
+    }
+
+    /// B: the question, then the page, then the menu; L1/R1: the tabs; Menu: close.
+    private func wireNavigator() {
+        navigator.onBack = {
+            if question != nil {
+                question = nil
+            } else if let back {
+                back()
+            } else {
+                close()
+            }
+        }
+        navigator.onClose = { close() }
+        navigator.onTab = { delta in
+            guard question == nil, back == nil, tabs.count > 1,
+                  let index = tabs.firstIndex(where: { $0.id == tab }) else { return }
+            let next = (index + delta + tabs.count) % tabs.count
+            NexHaptics.selection()
+            NexMotion.run(NexMotion.snappy) { tab = tabs[next].id }
         }
     }
 
@@ -157,18 +198,25 @@ struct NexInGameMenu<Content: View>: View {
                 tabBar.padding(.horizontal, 14).padding(.bottom, 10)
             }
             Rectangle().fill(NexColor.stroke.opacity(0.8)).frame(height: 1)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if let question {
-                        confirmCard(question)
-                    } else {
-                        content()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let question {
+                            confirmCard(question)
+                        } else {
+                            content()
+                        }
                     }
+                    .padding(14)
+                    .padding(.bottom, 44)
+                    .onPreferenceChange(NexMenuOrderKey.self) { ids in navigator.order = ids }
                 }
-                .padding(14)
-                .padding(.bottom, 44)
+                .scrollIndicators(.hidden)
+                .onChange(of: navigator.focused) { id in
+                    guard let id, navigator.controllerActive else { return }
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
+                }
             }
-            .scrollIndicators(.hidden)
         }
         .background(NexColor.panel.opacity(0.97), in: shape)
         .overlay(alignment: .top) {
@@ -298,6 +346,11 @@ struct NexInGameMenu<Content: View>: View {
                             .background(NexColor.danger.opacity(0.9), in: Capsule())
                     }
                     .buttonStyle(.plain)
+                    .nexMenuFocusable("question.\(answer.title)") {
+                        NexHaptics.warning()
+                        question = nil
+                        answer.action()
+                    }
                 } else {
                     Button {
                         NexHaptics.press()
@@ -307,10 +360,16 @@ struct NexInGameMenu<Content: View>: View {
                         Text(answer.title)
                     }
                     .buttonStyle(NexPrimaryButtonStyle())
+                    .nexMenuFocusable("question.\(answer.title)") {
+                        NexHaptics.press()
+                        question = nil
+                        answer.action()
+                    }
                 }
             }
             Button("Cancel") { question = nil }
                 .buttonStyle(NexGlassButtonStyle())
+                .nexMenuFocusable("question.cancel") { question = nil }
         }
         .padding(16)
         .background(NexColor.surface.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -436,6 +495,10 @@ struct NexMenuRow: View {
         .buttonStyle(NexMenuRowPressStyle())
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.45)
+        .nexMenuFocusable("row.\(title).\(detail ?? "")", enabled: enabled) {
+            NexHaptics.tap()
+            action()
+        }
     }
 }
 
@@ -466,6 +529,10 @@ struct NexMenuToggleRow: View {
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.45)
         .accessibilityValue(isOn ? "On" : "Off")
+        .nexMenuFocusable("toggle.\(title)", token: isOn ? "1" : "0", enabled: enabled) {
+            NexHaptics.selection()
+            NexMotion.run(NexMotion.snappy) { set(!isOn) }
+        }
     }
 }
 
@@ -527,6 +594,10 @@ struct NexMenuChipsRow<Value: Hashable>: View {
                     }
                     .buttonStyle(NexMenuRowPressStyle())
                     .accessibilityAddTraits(on ? .isSelected : [])
+                    .nexMenuFocusable("chip.\(title).\(choice.title)", token: on ? "1" : "0", enabled: enabled) {
+                        NexHaptics.selection()
+                        NexMotion.run(NexMotion.snappy) { choose(choice.value) }
+                    }
                 }
             }
         }
@@ -568,6 +639,12 @@ struct NexMenuSliderRow: View {
             change(next)
             commit()
         }
+        .nexMenuFocusable("slider.\(title)", token: text, step: { delta in
+            let size = step > 0 ? step : (range.upperBound - range.lowerBound) / 10
+            let next = min(range.upperBound, max(range.lowerBound, value + Double(delta) * size))
+            change(next)
+            commit()
+        }) {}
     }
 }
 

@@ -25,7 +25,7 @@ once all steps are done, then pastes build errors (first error first).
 | Settings: sub-pages from Forms to glass rows | 8.6.3 (82) | built OK 2026-11-15 |
 | Settings: optional helper memory (MadeiraMemoryHost): entitlements fit (get-task-allow only) | 8.6.4 (83) | built OK 2026-11-15 |
 | Polish: What's New 8.7, game page again after Close NexPlay, Credits, docs | 8.7.0 (84) | built OK 2026-11-15 |
-| Polish: controller navigation in the in-game menu and on the game page | 8.7.1 | |
+| Polish: controller navigation in the in-game menu and on the game page | 8.7.1 (85) | pushed 2026-11-15 |
 | Polish: card-to-page transition, remove unused BCD front-end files | 8.7.2 | |
 
 8.0.0 notes: BCD's store (Steam, GOG, Epic, EA), Dock, front-end, update, feedback-upload and JIT-setup files are still
@@ -93,6 +93,17 @@ start task opens that game's page if NexPlay is opened again within 30 minutes, 
 8.7 (eight 8.x items, design-system fonts and button). Credits name NexPlay 8's BCD parts and the memory helper. The old
 bridge (BCDBridge, BCDCore.framework, patch script, madeira:// links) was already removed in 8.0.0; only history comments
 mention it; `tools/windows/run_bcd_ci.py` is still the runtime workflow's builder and stays.
+
+8.7.1 notes: `NexPlay/NexMenuNavigation.swift`: `NexMenuNavigator` (rows in draw order through `NexMenuOrderKey`, actions
+and slider steps registered by `.nexMenuFocusable(id, token:, enabled:, step:, action:)`; `capture()` saves every connected
+controller's element handlers and installs its own, `release()` puts them back, so the game (PhysicalControllerManager) and
+the library (LibraryController) get their handlers back when the menu or page closes). D-pad/left stick: up/left back, down/
+right on (left/right step a focused slider), A press, B back (question, page, close), L1/R1 tabs, Menu close; the ring shows
+only after the first controller press. NexInGameMenu (Game Panel, Windows panel) owns one (rows, toggles, chips, sliders,
+question answers focusable; ScrollViewReader keeps the ring in view). GameDetailView owns one with `autoFocusFirst` (Play is
+focused, so A plays as in 7.8.0): main button, chips, note fixes, the cards' rows; B closes the panel then the page; L1/R1
+switch the panel's pages. Not covered: rows inside the panel's Form pages (Options), Windows games' own controller reading
+in the engine (a press can still reach the game while the Windows panel is open).
 
 ## Owner's decision of 2026-11-15
 - **No itch.io.** The owner gets games from F95zone and imports them (files, folders, Download from Link). 8.5.0 added an
