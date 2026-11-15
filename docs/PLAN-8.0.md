@@ -22,7 +22,7 @@ once all steps are done, then pastes build errors (first error first).
 | Settings: Windows Games page (BCD's engine settings with NexPlay rows) | 8.6.0 (79) | built OK 2026-11-15 |
 | Settings: Storage and external drives, logs and diagnostics | 8.6.1 (80) | built OK 2026-11-15 |
 | Settings: readiness checks in Setup Center, foldables | 8.6.2 (81) | built OK 2026-11-15 |
-| Settings: sub-pages from Forms to glass rows | 8.6.3 (82) | pushed 2026-11-15 |
+| Settings: sub-pages from Forms to glass rows | 8.6.3 (82) | built OK 2026-11-15 |
 | Settings: optional helper memory (MadeiraMemoryHost), only if its entitlements fit | 8.6.4 | |
 | Polish and cleanup | 8.7.0 | |
 
