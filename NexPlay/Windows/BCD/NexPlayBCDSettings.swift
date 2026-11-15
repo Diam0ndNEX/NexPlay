@@ -4,10 +4,12 @@
 // The data and every change go through BCD's own live backends (BCDSettingsLive.swift: BCDMemoryLive, BCDGraphicsLive,
 // BCDDotNetLive, BCDVCRuntimeLive, BCDGeckoLive, BCDAllSettingsLive), so no BCD file changes. Left out on purpose:
 // store downloads in the background (no stores in NexPlay), helper memory and its test (MadeiraMemoryHost is not built),
-// accounts, BCD's JIT and Dock. BCD by thebcd69: https://github.com/thebcd69/bcd-games (GPL-3.0-only with BCD's
+// accounts, BCD's JIT and Dock, sending logs to BCD's server, BCD's own library (Add every game, Find games on a drive,
+// Steam installs). 8.6.1 adds Storage & Drives (BCDStorageLive) and Logs & Diagnostics (BCDLogsLive). BCD by thebcd69: https://github.com/thebcd69/bcd-games (GPL-3.0-only with BCD's
 // additional terms). Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games).
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// BCD's words as NexPlay shows them.
 enum NexBCDWords {
@@ -161,6 +163,8 @@ struct NexBCDSettingsView: View {
     @StateObject private var mfc = BCDVCRuntimeLive(runtime: .x86, name: "32-bit MFC")
     @StateObject private var gecko = BCDGeckoLive()
     @StateObject private var all = BCDAllSettingsLive()
+    @StateObject private var storage = BCDStorageLive()
+    @StateObject private var logs = BCDLogsLive()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -188,6 +192,17 @@ struct NexBCDSettingsView: View {
                 NexBCDLinkRow(title: "HTML Engine for Installers (Wine Gecko)", detail: "For installers that show web pages", symbol: "globe",
                               value: NexBCDComponents.geckoText(gecko.state)) {
                     NexBCDComponentsPage(dotNet: dotNet, vcRuntime: vcRuntime, mfc: mfc, gecko: gecko)
+                }
+            }
+            NexMenuSection("Storage") {
+                NexBCDLinkRow(title: "Storage & Drives", detail: "Drive C:, shader caches, every Windows save in one zip, external drives",
+                              symbol: "internaldrive.fill",
+                              value: storage.externalDrives.isEmpty ? nil : "\(storage.externalDrives.count) drive\(storage.externalDrives.count == 1 ? "" : "s")") {
+                    NexBCDStoragePage(backend: storage)
+                }
+                NexBCDLinkRow(title: "Logs & Diagnostics", detail: "Share the engine's logs, extended logging, AutoTune after a crash",
+                              symbol: "doc.text.fill") {
+                    NexBCDLogsPage(backend: logs)
                 }
             }
             NexMenuSection("Advanced") {
@@ -670,4 +685,265 @@ struct NexBCDOptionPage: View {
             }
         }
     }
+}
+
+// MARK: - Storage & drives (8.6.1)
+
+/// What the engine's storage items are called here, by id.
+private let nexStorageWords: [String: (String, String)] = [
+    "capture": ("Captured Frames", "Pictures saved by the performance overlay's capture button."),
+    "logs": ("Older Session Logs", "Earlier Windows games' logs. The engine keeps the newest 40 by itself."),
+    "sc12": ("Direct3D 12 Shader Cache", "Shaders already converted for Metal. After a clear, games convert them again and start slower once."),
+    "sc11": ("Direct3D 11 Shader Cache", "Compiled shaders of Direct3D 9, 10 and 11 games."),
+    "drive": ("Drive C: (Windows)", "Windows' own files, the Windows saves and the links to your Windows games."),
+    "mono": ("Wine Mono", "The .NET runtime. Remove it under Windows Components."),
+]
+
+@MainActor
+struct NexBCDStoragePage: View {
+    @ObservedObject var backend: BCDStorageLive
+
+    /// One file importer for both pickers (two on one view displace each other).
+    private enum Picking { case backup, drive }
+
+    private struct Share: Identifiable {
+        let id = UUID()
+        let urls: [URL]
+    }
+
+    private struct Question: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+        let answers: [(String, Bool, () -> Void)]
+    }
+
+    @State private var picking: Picking = .backup
+    @State private var showPicker = false
+    @State private var share: Share?
+    @State private var question: Question?
+
+    var body: some View {
+        NexBCDPage(title: "Storage & Drives") {
+            room
+            NexMenuSection("Windows Saves") {
+                NexMenuRow(title: backend.savesBusy ? "Working…" : "Back Up Every Windows Save",
+                           detail: backend.savesMessage ?? "One zip of every Windows user's Documents, Saved Games and AppData, without caches. Keep it in Files or iCloud Drive.",
+                           symbol: "externaldrive.badge.icloud", enabled: !backend.savesBusy) {
+                    backend.backupSaves { url in
+                        if let url { share = Share(urls: [url]) }
+                    }
+                }
+                NexMenuRow(title: "Restore from a Backup", detail: "Puts its files back and replaces saves of the same name.",
+                           symbol: "arrow.uturn.backward.circle", enabled: !backend.savesBusy) {
+                    picking = .backup
+                    showPicker = true
+                }
+            }
+            drives
+            NexMenuSection("Shared Files") {
+                ForEach(backend.items) { item in itemRow(item) }
+                NexMenuNote(text: "What each takes on this device" + (backend.measuring ? ", measuring now." : ".")
+                            + " Clearing never touches your games or their saves.")
+            }
+        }
+        .onAppear { backend.refresh() }
+        .sheet(item: $share, onDismiss: nil) { item in
+            ActivityView(items: item.urls)
+                .onDisappear { item.urls.forEach(backend.discardBackup) }
+        }
+        .fileImporter(isPresented: $showPicker, allowedContentTypes: picking == .backup ? [.zip] : [.folder]) { result in
+            let mode = picking
+            switch result {
+            case .success(let url):
+                if mode == .drive {
+                    backend.noteExternalPicker("answered")
+                    backend.addExternalDrive(url)
+                } else {
+                    restore(url)
+                }
+            case .failure(let error):
+                if mode == .drive { backend.noteExternalPicker("failed: \(error.localizedDescription)") }
+            }
+        }
+        .confirmationDialog(question?.title ?? "", isPresented: Binding(get: { question != nil }, set: { if !$0 { question = nil } }),
+                            titleVisibility: .visible) {
+            if let question {
+                ForEach(Array(question.answers.enumerated()), id: \.offset) { _, answer in
+                    Button(answer.0, role: answer.1 ? .destructive : nil) {
+                        self.question = nil
+                        answer.2()
+                    }
+                }
+                Button("Cancel", role: .cancel) { self.question = nil }
+            }
+        } message: {
+            Text(question?.message ?? "")
+        }
+    }
+
+    private var room: some View {
+        NexMenuSection("This Device") {
+            if let free = backend.deviceFree {
+                NexMenuCustomRow {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("\(NexBCDWords.file(free)) free").font(NexType.heading).foregroundStyle(NexColor.text)
+                            Spacer()
+                            if let total = backend.deviceTotal {
+                                Text("of \(NexBCDWords.file(total))").font(NexType.caption).foregroundStyle(NexColor.textSoft)
+                            }
+                        }
+                        if let total = backend.deviceTotal, total > 0 {
+                            ProgressView(value: min(max(1 - Double(free) / Double(total), 0), 1)).tint(NexColor.accent)
+                        }
+                    }
+                }
+            } else {
+                NexMenuNote(text: "Free space unknown.")
+            }
+        }
+    }
+
+    @ViewBuilder private var drives: some View {
+        let list = backend.externalDrives
+        NexMenuSection("External Drives") {
+            ForEach(list) { drive in driveRow(drive) }
+            NexMenuRow(title: list.isEmpty ? "Add a Drive or Folder" : "Add Another Drive or Folder",
+                       detail: backend.externalGamesMessage, symbol: "externaldrive.badge.plus",
+                       enabled: backend.canChangeExternalDrives) {
+                backend.noteExternalPicker("opened")
+                picking = .drive
+                showPicker = true
+            }
+            NexMenuNote(text: "Choose a folder on a USB-C SSD or drive in Files, or the whole drive. Windows games and installers see it as its own drive letter and as C:\\External\\<name>. Use exFAT or APFS (NTFS is read-only on iPhone). Keep the drive connected while playing.")
+        }
+    }
+
+    private func driveRow(_ drive: BCDExternalDrive) -> some View {
+        var note = drive.connected ? "Connected" : "Not connected"
+        if drive.connected, let free = drive.free {
+            note += " · \(NexBCDWords.file(free)) free" + (drive.total.map { " of \(NexBCDWords.file($0))" } ?? "")
+        }
+        return NexMenuRow(title: "\(drive.letter): \(drive.name)", detail: note,
+                          symbol: drive.connected ? "externaldrive.fill.badge.checkmark" : "externaldrive.badge.xmark",
+                          accessory: .chevron, enabled: backend.canChangeExternalDrives) {
+            var answers: [(String, Bool, () -> Void)] = []
+            if !drive.connected {
+                answers.append(("Reconnect", false, {
+                    backend.reconnectExternalDrive(drive.id) {
+                        backend.noteExternalPicker("opened (after reconnect)")
+                        picking = .drive
+                        showPicker = true
+                    }
+                }))
+            }
+            answers.append(("Remove", true, {
+                // A second question once the first one has closed.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    question = Question(title: "Remove \(drive.name)?",
+                                        message: "NexPlay forgets this drive. The files on the drive are kept.",
+                                        answers: [("Remove", true, { backend.removeExternalDrive(drive.id) })])
+                }
+            }))
+            question = Question(title: "\(drive.letter): \(drive.name)",
+                                message: drive.connected ? "Windows sees this drive as \(drive.letter):."
+                                    : "Plug the drive in, then tap Reconnect. If iOS no longer opens it, Files opens: choose the same folder again.",
+                                answers: answers)
+        }
+    }
+
+    private func itemRow(_ item: BCDStorageItem) -> some View {
+        let words = nexStorageWords[item.id] ?? (BCDSettingsText.scrub(item.name), "")
+        let size = item.bytes.map(NexBCDWords.file) ?? "…"
+        return Group {
+            if item.clearable {
+                NexMenuRow(title: words.0, detail: words.1.isEmpty ? nil : words.1, symbol: "trash", accessory: .value(size),
+                           enabled: (item.bytes ?? 0) > 0) {
+                    question = Question(title: "Clear \(words.0)?", message: words.1,
+                                        answers: [("Clear", true, { backend.clear(item.id) })])
+                }
+            } else {
+                NexBCDInfoRow(title: words.0, note: words.1.isEmpty ? nil : words.1, value: size)
+            }
+        }
+    }
+
+    /// The picked zip is copied out first (the picker's address is only open while it is being read), then asked about
+    /// after the picker has closed.
+    private func restore(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("NexPlay-restore-\(UUID().uuidString).zip")
+        do {
+            try FileManager.default.copyItem(at: url, to: copy)
+        } catch {
+            AppLog.log("windows: restore saves: couldn't read \(url.lastPathComponent): \(error.localizedDescription)")
+            return
+        }
+        let name = url.lastPathComponent
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            question = Question(title: "Restore the saves in \(name)?",
+                                message: "Every file in C:\\users with the same name is replaced.",
+                                answers: [("Restore", true, {
+                                    backend.restoreSaves(from: copy)
+                                })])
+        }
+    }
+}
+
+// MARK: - Logs & diagnostics (8.6.1)
+
+@MainActor
+struct NexBCDLogsPage: View {
+    @ObservedObject var backend: BCDLogsLive
+    @State private var share: NexBCDShareList?
+
+    var body: some View {
+        NexBCDPage(title: "Logs & Diagnostics") {
+            NexMenuSection("The Engine's Logs") {
+                NexMenuRow(title: "Share the Windows Engine's Logs", detail: "This run's and the last run's log, for the share sheet.",
+                           symbol: "square.and.arrow.up") {
+                    let urls = backend.exportable()
+                    if !urls.isEmpty { share = NexBCDShareList(urls: urls) }
+                }
+                ForEach(backend.recent.prefix(5)) { log in
+                    NexBCDInfoRow(title: log.name, note: log.hasGame ? nil : "NexPlay's start only",
+                                  value: log.date.formatted(date: .abbreviated, time: .shortened) + " · " + NexBCDWords.file(log.bytes))
+                }
+                NexMenuNote(text: "Settings › Diagnostics has NexPlay's own report and log.")
+            }
+            NexMenuSection("Logging") {
+                NexMenuToggleRow(title: "Extended Logging", detail: "More detail in the engine's log. Logs get bigger.",
+                                 symbol: "text.magnifyingglass", isOn: backend.extendedLogging) { backend.setExtendedLogging($0) }
+                ForEach(BCDDiagnostic.allCases) { item in
+                    NexMenuToggleRow(title: item.title, detail: item.note, isOn: backend.diagnostic(item)) { backend.setDiagnostic(item, $0) }
+                }
+                NexMenuToggleRow(title: "Performance Trace", detail: "A line a second (frame rate, CPU, memory, heat) in the session's log. Off unless turned on.",
+                                 symbol: "waveform.path.ecg", isOn: backend.perfTrace) { backend.setPerfTrace($0) }
+            }
+            NexMenuSection("After a Crash") {
+                NexMenuToggleRow(title: "AutoTune After a Crash",
+                                 detail: backend.crashTuningRunning ? "On this run. Tries other settings at the next start of a game that crashed."
+                                     : "Tries other settings at the next start of a game that crashed. Applies from the next start of NexPlay.",
+                                 symbol: "dial.medium", isOn: backend.crashTuning) { backend.setCrashTuning($0) }
+            }
+            NexMenuSection("Screenshots") {
+                NexMenuToggleRow(title: "Windows Screenshots to Photos", detail: "A screenshot from a Windows game's menu is also added to Photos.",
+                                 symbol: "photo.on.rectangle", isOn: backend.screenshotsToPhotos) { backend.setScreenshotsToPhotos($0) }
+            }
+            if backend.restartNeeded {
+                NexMenuNote(text: NexBCDWords.restart, symbol: "arrow.clockwise", tint: NexColor.warning)
+            }
+        }
+        .onAppear { backend.refresh() }
+        .sheet(item: $share) { item in
+            ActivityView(items: item.urls)
+        }
+    }
+}
+
+private struct NexBCDShareList: Identifiable {
+    let id = UUID()
+    let urls: [URL]
 }

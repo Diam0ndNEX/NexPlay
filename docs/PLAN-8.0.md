@@ -20,7 +20,7 @@ once all steps are done, then pastes build errors (first error first).
 | Game page: PC sections from BCD (AutoTune, recommendations, graphics, prefix tools, Windows saves) | 8.4.1 (76) | built OK 2026-11-15 |
 | itch.io: built as 8.5.0 (77), then removed by the owner (games come from F95zone, imported as files/links) | 8.5.1 (78) | built OK 2026-11-15 |
 | Settings: Windows Games page (BCD's engine settings with NexPlay rows) | 8.6.0 (79) | built OK 2026-11-15 |
-| Settings: Storage and external drives, logs and diagnostics | 8.6.1 | |
+| Settings: Storage and external drives, logs and diagnostics | 8.6.1 (80) | pushed 2026-11-15 |
 | Settings: readiness checks in Setup Center, foldables | 8.6.2 | |
 | Settings: sub-pages from Forms to glass rows | 8.6.3 | |
 | Settings: optional helper memory (MadeiraMemoryHost), only if its entitlements fit | 8.6.4 | |
@@ -54,6 +54,14 @@ refresh rate, OpenGL note), Windows Components (Wine Mono, Visual C++ 64-bit, 32
 All Engine Options (bcd.cfg catalog, search, per-option page). Everything goes through BCD's live backends
 (BCDMemoryLive, BCDGraphicsLive, BCDDotNetLive, BCDVCRuntimeLive, BCDGeckoLive, BCDAllSettingsLive); no BCD file changed.
 Left out: background store downloads, helper memory and its test (8.6.4), BCD's accounts/JIT/Dock sections.
+
+8.6.1 notes: Windows Games › Storage & Drives (`NexBCDStoragePage` over BCDStorageLive: free space, back up every Windows
+save to a zip (share sheet, deleted after) and restore one (copied out of the picker first, asked 0.5 s after it closes),
+external drives (add a folder or drive in Files = a Windows drive letter + C:\External\<name>, reconnect, remove), shared
+files with Clear) and Logs & Diagnostics (`NexBCDLogsPage` over BCDLogsLive: share the engine's logs, recent logs, extended
+logging, BCD's diagnostics switches, performance trace, AutoTune after a crash, Windows screenshots to Photos). One
+fileImporter with a mode. Left out: sending logs to BCD's server, Add every game / Find games / Steam installs (they add
+to BCD's own library, which NexPlay doesn't show). Not built: playing a NexPlay game from an external drive.
 
 ## Owner's decision of 2026-11-15
 - **No itch.io.** The owner gets games from F95zone and imports them (files, folders, Download from Link). 8.5.0 added an
