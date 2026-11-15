@@ -4,6 +4,11 @@
 # Without a release the app is built without Windows games, with a warning.
 # Usage: fetch_engine.sh   (from the repo root; needs GH_TOKEN and GITHUB_REPOSITORY)
 set -euo pipefail
+# 8.7.3: tools/windows/ENGINE_OFF present = build without the Windows engine (launch-crash test: 7.13.6 opens, 8.x closes at once).
+if [ -f tools/windows/ENGINE_OFF ]; then
+  echo "::warning::tools/windows/ENGINE_OFF is present, so this build has no Windows engine (test build)."
+  exit 0
+fi
 REPO="${GITHUB_REPOSITORY:?}"
 DEST=vendor/bcd-engine
 TAG=$(gh release list --repo "$REPO" --limit 100 --json tagName,isDraft \
