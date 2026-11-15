@@ -37,3 +37,9 @@ into its own target (only in builds with the Windows engine, see `NexPlayWindows
 ### 2026-11-13, NexPlay 8.2.1 (layout presets)
 - `NexPlayPCControls.swift` (NexPlay's code) gains `NexPCPresets`: NexPlay's layout presets written as BCD touch
   layouts. No BCD file was changed.
+
+### 2026-11-15, NexPlay 8.3.1 (in-game menu)
+- `BCDSession.swift`: the session layer doesn't draw `BCDInGameMenu` while `NexBCDMenu.replacesBCDMenu` is true (always,
+  in NexPlay); the menu's model and its live source still open and close as before. NexPlay's Windows panel draws the
+  same menu instead: added `NexPlayBCDMenu.swift` (NexPlay's code) shows `BCDLibraryMenuSource`'s tabs, sections, rows,
+  pages and questions in NexPlay's in-game menu, with NexPlay's own sections next to them.

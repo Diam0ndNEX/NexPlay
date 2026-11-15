@@ -188,19 +188,29 @@ struct JITSheetView: View {
     }
 }
 
-/// The panel behind the ⋯ button over a running Windows game (SPEC-7.0 8.4 Windows cards; 8.0.0: in-process engine).
+/// The panel over a running Windows game (⋯ button, BCD's menu button and its controller chord; 8.3.1: NexPlay's
+/// in-game menu). With the engine it shows BCD's in-game menu (`bcd`: BCD's rows in NexPlay's look,
+/// NexPlayBCDMenu.swift) next to NexPlay's own sections: Performance HUD, Controls Style and presets, the log.
 struct WindowsPanelView: View {
-    @Environment(\.dismiss) private var dismiss
     let gameName: String
     let hudOn: Bool
     let onToggleHUD: () -> Void
     /// nil: no Restart Game (8.0.0: the engine runs one Windows game per app run).
     let onRestart: (() -> Void)?
     let onExit: () -> Void
+    /// 8.3.1: closes the panel (and BCD's menu).
+    var onClose: () -> Void = {}
     /// 8.2.0: Controls Style and the touch-control editor (engine builds).
     var controls: Controls? = nil
+    /// 8.3.1: BCD's in-game menu (engine builds, while a game runs).
+    var bcd: BCDPart? = nil
+
     @State private var copied = false
     @State private var styleChoice: ControlsStyle??
+    @State private var hud: Bool?
+    @State private var tab = "game"
+    @State private var pages: [String] = []
+    @State private var question: NexMenuQuestion?
 
     struct Controls {
         let game: Game
@@ -210,92 +220,144 @@ struct WindowsPanelView: View {
         let onPreset: (LayoutPreset) -> Void
     }
 
+    /// What NexPlayBCDMenu.swift gives the panel; this file names no BCD type.
+    struct BCDPart {
+        let subtitle: () -> String
+        let content: (String, Binding<[String]>, Binding<NexMenuQuestion?>) -> AnyView
+        let pageTitle: (String) -> String?
+    }
+
+    private let tabs = [
+        NexMenuTab(id: "game", title: "Game"),
+        NexMenuTab(id: "display", title: "Display"),
+        NexMenuTab(id: "controls", title: "Controls"),
+        NexMenuTab(id: "tools", title: "Tools"),
+    ]
+
+    private static let presetsPage = "nex.presets"
+
     private var windowsLog: [String] {
         AppLog.shared.text.split(separator: "\n").filter { $0.contains("windows") || $0.contains("jit:") }.suffix(80).map(String.init)
     }
 
+    private var hudShown: Bool { hud ?? hudOn }
+
+    private var pageTitle: String? {
+        guard let last = pages.last else { return nil }
+        if last == Self.presetsPage { return "Layout Preset" }
+        return bcd?.pageTitle(last) ?? "Windows"
+    }
+
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    PanelCard("Performance", symbol: "speedometer") {
-                        Toggle("Performance HUD", isOn: Binding(get: { hudOn }, set: { _ in onToggleHUD(); dismiss() }))
-                        Text("CPU, memory, temperature and battery. FPS limit, render scale and BCD's own HUD are in the game's in-game menu.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    PanelCard("Input", symbol: "gamecontroller.fill") {
-                        if let controls {
-                            Text("Controls Style").font(NexType.label)
-                            ControlsStylePicker(game: controls.game, choice: styleChoice ?? controls.game.controlsStyle) { style in
-                                styleChoice = .some(style)
-                                controls.onStyle(style)
-                            }
-                            HStack(spacing: 12) {
-                                Button {
-                                    dismiss()
-                                    controls.onEdit()
-                                } label: {
-                                    Label("Edit Controls", systemImage: "slider.horizontal.below.square.and.square.filled")
-                                        .frame(maxWidth: .infinity)
-                                }
-                                Menu {
-                                    ForEach(LayoutPreset.allCases) { preset in
-                                        Button {
-                                            controls.onPreset(preset)
-                                        } label: {
-                                            Label(preset.title, systemImage: preset.symbol)
-                                        }
-                                    }
-                                } label: {
-                                    Label("Layout Preset", systemImage: "square.on.square")
-                                        .frame(maxWidth: .infinity)
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.white)
-                        }
-                        Text("Controllers reach the game as XInput pads. Extras for Windows games (gyro aim, radial menu, turbo, key bar, magnifier, gestures, Pencil) are BCD's, in the game's in-game menu, with either style.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    PanelCard("Windows", symbol: "pc") {
-                        if let onRestart {
-                            Button {
-                                dismiss()
-                                onRestart()
-                            } label: {
-                                Label("Restart Game", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(PlayButtonStyle())
-                        }
-                        Button {
-                            UIPasteboard.general.string = DeviceInfo.report() + "\n\n" + windowsLog.joined(separator: "\n")
-                            copied = true
-                        } label: {
-                            Label(copied ? "Copied" : "Copy Log for Claude", systemImage: "doc.on.doc")
-                        }
-                        Button(role: .destructive) {
-                            dismiss()
-                            onExit()
-                        } label: {
-                            Label("Quit Game", systemImage: "xmark.circle")
-                        }
-                    }
-                    PanelCard("Log", symbol: "list.bullet.rectangle") {
-                        Text(windowsLog.suffix(30).joined(separator: "\n"))
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+        NexInGameMenu(eyebrow: bcd.map { "PC · " + $0.subtitle() } ?? "PC", title: gameName,
+                      symbol: GameEngine.windows.symbol, tint: GameEngine.windows.accent, tabs: tabs, tab: $tab,
+                      pageTitle: pageTitle, back: pages.isEmpty ? nil : { pages.removeLast() },
+                      question: $question, close: onClose) {
+            if pages.last == Self.presetsPage {
+                presetsPage
+            } else if !pages.isEmpty, let bcd {
+                bcd.content(tab, $pages, $question)
+            } else {
+                switch tab {
+                case "display": displayTab
+                case "controls": controlsTab
+                case "tools": toolsTab
+                default: gameTab
                 }
-                .padding(16)
-            }
-            .background(AppBackground().ignoresSafeArea())
-            .navigationTitle(gameName)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { SheetCloseButton { dismiss() } }
             }
         }
-        .environment(\.colorScheme, .dark)
+    }
+
+    // MARK: Tabs
+
+    @ViewBuilder private var gameTab: some View {
+        if let bcd {
+            bcd.content("game", $pages, $question)
+        } else {
+            Button {
+                onClose()
+            } label: {
+                Label("Back to Game", systemImage: "play.fill")
+            }
+            .buttonStyle(NexPrimaryButtonStyle())
+            NexMenuSection("Game") {
+                NexMenuRow(title: "Quit Game", detail: "Progress you haven't saved is lost.", symbol: "stop.circle",
+                           destructive: true) {
+                    question = NexMenuQuestion(title: "Quit the game?",
+                                               message: "What you haven't saved is lost. NexPlay runs one Windows game per launch: to play another Windows game afterwards, close NexPlay and open it again.",
+                                               answer: "Quit Game", destructive: true) { onExit() }
+                }
+            }
+        }
+        if let onRestart {
+            NexMenuSection {
+                NexMenuRow(title: "Restart Game", symbol: "arrow.clockwise") { onRestart() }
+            }
+        }
+    }
+
+    @ViewBuilder private var displayTab: some View {
+        NexMenuSection("NexPlay HUD") {
+            NexMenuToggleRow(title: "Performance HUD", detail: "CPU, memory, temperature and battery over the game",
+                             symbol: "speedometer", isOn: hudShown) { value in
+                onToggleHUD()
+                hud = value
+            }
+        }
+        if let bcd { bcd.content("display", $pages, $question) }
+    }
+
+    @ViewBuilder private var controlsTab: some View {
+        if let controls {
+            NexMenuSection("Controls Style") {
+                NexMenuCustomRow {
+                    ControlsStylePicker(game: controls.game, choice: styleChoice ?? controls.game.controlsStyle) { style in
+                        styleChoice = .some(style)
+                        controls.onStyle(style)
+                    }
+                }
+                NexMenuRow(title: "Edit Touch Controls", symbol: "slider.horizontal.below.square.and.square.filled",
+                           accessory: .chevron) {
+                    onClose()
+                    controls.onEdit()
+                }
+                NexMenuRow(title: "Layout Preset", detail: "Replaces the touch layout of the game's Controls Style",
+                           symbol: "square.on.square", accessory: .chevron) { pages.append(Self.presetsPage) }
+            }
+        }
+        if let bcd {
+            bcd.content("controls", $pages, $question)
+        } else {
+            NexMenuNote(text: "Controllers reach the game as XInput pads.")
+        }
+    }
+
+    @ViewBuilder private var presetsPage: some View {
+        if let controls {
+            NexMenuSection {
+                ForEach(LayoutPreset.allCases) { preset in
+                    NexMenuRow(title: preset.title, symbol: preset.symbol) {
+                        controls.onPreset(preset)
+                        pages.removeLast()
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var toolsTab: some View {
+        if let bcd { bcd.content("tools", $pages, $question) }
+        NexMenuSection("NexPlay") {
+            NexMenuRow(title: copied ? "Copied" : "Copy Log for Claude", symbol: "doc.on.doc") {
+                UIPasteboard.general.string = DeviceInfo.report() + "\n\n" + windowsLog.joined(separator: "\n")
+                copied = true
+            }
+            NexMenuCustomRow {
+                Text(windowsLog.suffix(30).joined(separator: "\n"))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(NexColor.textSoft)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 }

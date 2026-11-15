@@ -13,14 +13,30 @@ struct NexMenuTab: Identifiable, Hashable {
     let title: String
 }
 
+/// One answer of a question.
+struct NexMenuAnswer: Identifiable {
+    let id = UUID()
+    let title: String
+    var destructive = false
+    let action: () -> Void
+}
+
 /// A question asked inside the panel (instead of an alert over the game).
 struct NexMenuQuestion: Identifiable {
     let id = UUID()
     let title: String
     var message: String = ""
-    let answer: String
-    var destructive = false
-    let action: () -> Void
+    var answers: [NexMenuAnswer]
+
+    init(title: String, message: String = "", answers: [NexMenuAnswer]) {
+        self.title = title
+        self.message = message
+        self.answers = answers
+    }
+
+    init(title: String, message: String = "", answer: String, destructive: Bool = false, action: @escaping () -> Void) {
+        self.init(title: title, message: message, answers: [NexMenuAnswer(title: answer, destructive: destructive, action: action)])
+    }
 }
 
 /// Presents a menu over the game: full screen, transparent, the game's own orientation.
@@ -268,28 +284,30 @@ struct NexInGameMenu<Content: View>: View {
                 Text(ask.message).font(NexType.body).foregroundStyle(NexColor.textSoft)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if ask.destructive {
-                Button {
-                    NexHaptics.warning()
-                    question = nil
-                    ask.action()
-                } label: {
-                    Text(ask.answer)
-                        .font(NexType.label)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .background(NexColor.danger.opacity(0.9), in: Capsule())
+            ForEach(ask.answers) { answer in
+                if answer.destructive {
+                    Button {
+                        NexHaptics.warning()
+                        question = nil
+                        answer.action()
+                    } label: {
+                        Text(answer.title)
+                            .font(NexType.label)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(NexColor.danger.opacity(0.9), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button {
+                        NexHaptics.press()
+                        question = nil
+                        answer.action()
+                    } label: {
+                        Text(answer.title)
+                    }
+                    .buttonStyle(NexPrimaryButtonStyle())
                 }
-                .buttonStyle(.plain)
-            } else {
-                Button {
-                    NexHaptics.press()
-                    question = nil
-                    ask.action()
-                } label: {
-                    Text(ask.answer)
-                }
-                .buttonStyle(NexPrimaryButtonStyle())
             }
             Button("Cancel") { question = nil }
                 .buttonStyle(NexGlassButtonStyle())
@@ -458,22 +476,39 @@ struct NexMenuChoice<Value: Hashable>: Identifiable {
     var id: Value { value }
 }
 
-/// A title over wrapping chips; `selected` nil = buttons with no selection (actions).
+/// A title over wrapping chips; `selected` nil = buttons with no selection (actions); `isOn` for several at once.
 struct NexMenuChipsRow<Value: Hashable>: View {
     let title: String
     var detail: String? = nil
     var symbol: String? = nil
     let choices: [NexMenuChoice<Value>]
-    let selected: Value?
+    let isOn: (Value) -> Bool
     var enabled = true
     let choose: (Value) -> Void
+
+    init(title: String, detail: String? = nil, symbol: String? = nil, choices: [NexMenuChoice<Value>], selected: Value?,
+         enabled: Bool = true, choose: @escaping (Value) -> Void) {
+        self.init(title: title, detail: detail, symbol: symbol, choices: choices, isOn: { $0 == selected },
+                  enabled: enabled, choose: choose)
+    }
+
+    init(title: String, detail: String? = nil, symbol: String? = nil, choices: [NexMenuChoice<Value>],
+         isOn: @escaping (Value) -> Bool, enabled: Bool = true, choose: @escaping (Value) -> Void) {
+        self.title = title
+        self.detail = detail
+        self.symbol = symbol
+        self.choices = choices
+        self.isOn = isOn
+        self.enabled = enabled
+        self.choose = choose
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             NexMenuTitles(title: title, detail: detail, symbol: symbol)
             NexChipFlow(spacing: 7) {
                 ForEach(choices) { choice in
-                    let on = selected == choice.value
+                    let on = isOn(choice.value)
                     Button {
                         NexHaptics.selection()
                         NexMotion.run(NexMotion.snappy) { choose(choice.value) }

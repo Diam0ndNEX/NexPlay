@@ -141,8 +141,12 @@ final class WindowsLaunchController: UIViewController {
     private let pad = GamepadOverlayView()
     private var padReady = false
     private var padDone: UIButton?
+    /// 8.3.1: the Windows panel while it is on screen.
+    private var panelHost: UIViewController?
     #if NEXPLAY_WINDOWS
     private var session: NexWindowsSession?
+    /// 8.3.1: BCD's in-game menu while the panel shows it.
+    private var menuBridge: NexBCDMenuBridge?
     #endif
 
     init(game: Game, store: LibraryStore, onExit: @escaping () -> Void) {
@@ -274,6 +278,10 @@ final class WindowsLaunchController: UIViewController {
             finish()
         case .failed(let message):
             fail(message, retry: true)
+        case .needsRestart(let message):
+            failNeedsRestart(message)
+        case .menu(let open):
+            if open { presentPanel() } else { dismissPanel() }
         }
     }
 
@@ -429,14 +437,31 @@ final class WindowsLaunchController: UIViewController {
         panelButton = button
     }
 
+    /// 8.3.1: while a game runs, the panel is BCD's in-game menu (opened through BCD, so its controller and pause
+    /// handling stay BCD's); NexPlay draws it (`.menu` events). Before that, NexPlay's panel alone.
     private func openPanel() {
+        #if NEXPLAY_WINDOWS
+        if let session, session.isRunning {
+            session.openMenu()
+            return
+        }
+        #endif
+        presentPanel()
+    }
+
+    private func presentPanel() {
+        guard panelHost == nil else { return }
         var panel = WindowsPanelView(
             gameName: game.name,
             hudOn: !hud.isHidden,
             onToggleHUD: { [weak self] in self?.toggleHUD() },
             onRestart: nil,
-            onExit: { [weak self] in self?.quitGame() }
+            onExit: { [weak self] in
+                self?.closePanel()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.quitGame() }
+            }
         )
+        panel.onClose = { [weak self] in self?.closePanel() }
         #if NEXPLAY_WINDOWS
         panel.controls = WindowsPanelView.Controls(
             game: currentGame,
@@ -446,14 +471,35 @@ final class WindowsLaunchController: UIViewController {
             },
             onPreset: { [weak self] preset in self?.applyPreset(preset) }
         )
-        #endif
-        let host = UIHostingController(rootView: panel)
-        host.modalPresentationStyle = .pageSheet
-        if let sheet = host.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = true
+        if let session, session.isRunning {
+            let bridge = NexBCDMenuBridge()
+            menuBridge = bridge
+            panel.bcd = bridge.part
         }
-        present(host, animated: true)
+        #endif
+        let host = NexMenuHostingController(rootView: panel)
+        panelHost = host
+        var top: UIViewController = self
+        while let next = top.presentedViewController { top = next }
+        top.present(host, animated: true)
+    }
+
+    /// X, the dim or Resume: closes BCD's menu too.
+    private func closePanel() {
+        #if NEXPLAY_WINDOWS
+        if menuBridge != nil { session?.closeMenu() }
+        #endif
+        dismissPanel()
+    }
+
+    private func dismissPanel() {
+        #if NEXPLAY_WINDOWS
+        menuBridge?.dispose()
+        menuBridge = nil
+        #endif
+        guard let host = panelHost else { return }
+        panelHost = nil
+        host.presentingViewController?.dismiss(animated: true)
     }
 
     private func toggleHUD() {
@@ -495,6 +541,7 @@ final class WindowsLaunchController: UIViewController {
     private func finish() {
         guard !finished else { return }
         finished = true
+        dismissPanel()
         hudTimer?.invalidate()
         hudTimer = nil
         #if NEXPLAY_WINDOWS
@@ -517,6 +564,26 @@ final class WindowsLaunchController: UIViewController {
         AppLog.noteGame(nil)
         OrientationManager.unlock()
         onExit()
+    }
+
+    /// 8.3.1: a second Windows game this launch. Wine runs once per launch, so only closing NexPlay helps.
+    private func failNeedsRestart(_ message: String) {
+        AppLog.log("windows: \(game.name): needs a restart (a Windows game already ran this launch)")
+        loading.isHidden = false
+        loading.alpha = 1
+        view.bringSubviewToFront(loading)
+        let actions = [
+            LoadingAction("Close NexPlay", symbol: "power", primary: true) {
+                AppLog.log("windows: closing NexPlay for the next Windows game")
+                _ = AppLog.shared.text
+                exit(0)
+            },
+            LoadingAction("Back to Library", symbol: "chevron.backward") { [weak self] in
+                self?.leave()
+            },
+        ]
+        loading.showError(what: "Restart NexPlay to play", why: message + " After closing, open NexPlay again and press Play.",
+                          actions: actions)
     }
 
     private func fail(_ message: String, retry: Bool) {

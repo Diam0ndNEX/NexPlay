@@ -45,6 +45,14 @@ enum WindowsEngine {
         return nil
     }
 
+    /// 8.3.1: a Windows game ran in this app launch. Wine runs once per launch, so another Windows game needs a restart.
+    @MainActor static var ranThisLaunch = false
+
+    /// The Play button's words: "Restart NexPlay to Play" for a Windows game once one ran this launch.
+    @MainActor static func playTitle(for game: Game) -> String {
+        game.engine == .windows && ranThisLaunch ? "Restart NexPlay to Play" : "Play"
+    }
+
     /// One line for Diagnostics and the Setup Center.
     static var summary: String {
         if !isBuiltIn { return "not in this build" }

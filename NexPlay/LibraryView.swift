@@ -1106,7 +1106,7 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func contextMenu(for game: Game) -> some View {
-        Button { playing = game } label: { Label("Play", systemImage: "play.fill") }
+        Button { playing = game } label: { Label(WindowsEngine.playTitle(for: game), systemImage: "play.fill") }
         Button { detail = game } label: { Label("Info & Settings", systemImage: "info.circle") }
         if let link = PlayLink.url(for: game) {
             Button {

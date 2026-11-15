@@ -14,7 +14,7 @@ once all steps are done, then pastes build errors (first error first).
 | Controls: one controller system (hub, players, rumble, tester) | 8.2.2 (70) | failed: file names used twice (first engine build) |
 | Fix: NexPlay's JITPairing.swift and Onboarding.swift renamed | 8.2.3 (71) | pushed 2026-11-14 |
 | In-game: shared in-game menu (BCD layout), Game Panel on it | 8.3.0 (72) | built OK 2026-11-14 |
-| In-game: Windows panel on the menu, BCD's menu rows, one-Windows-game cards | 8.3.1 | |
+| In-game: Windows panel on the menu, BCD's menu rows, one-Windows-game cards | 8.3.1 (73) | pushed 2026-11-15 |
 | In-game: Performance HUD in BCD's HUD layout, every engine | 8.3.2 | |
 | Game page | 8.4.0 | |
 | itch.io (other stores hidden) | 8.5.0 | |
@@ -117,6 +117,17 @@ engine; Display has Power and the Performance HUD toggle/corner/detail). No BCD 
 navigation in the menu (8.7.0). 8.3.1: the Windows panel on NexInGameMenu with BCD's session menu rows
 (BCDSessionMenuSource) in NexPlay's look, the second-Windows-game error card + Close NexPlay, "Restart NexPlay to play",
 Quit Game warning. 8.3.2: BCD's HUD (BCDHUDView/BCDHUDCore) merged with PerformanceHUD for every engine.
+
+8.3.1 notes: one menu for Windows games. BCD's menu still opens and closes as before (menu button, controller chord,
+LibraryModel.menu), but BCDSession.swift no longer draws BCDInGameMenu (hook `NexBCDMenu.replacesBCDMenu`);
+`NexWindowsSession` sends `.menu(open)` and WindowsLaunchController shows `WindowsPanelView` (now on NexInGameMenu) with
+BCD's live source rows (`NexPlayBCDMenu.swift`: every row kind, pages, log page, questions; BCD's touch section and
+touch-look sample are BCD's own views inside a row) plus NexPlay's sections (Performance HUD, Controls Style, Edit, Layout
+Preset, Copy Log). BCD's Quit question adds the one-game-per-launch line. A second Windows game shows "Restart NexPlay to
+play" with Close NexPlay (exit(0)) and Back to Library; `WindowsEngine.ranThisLaunch` makes the game page's Play button and
+the library context menu say "Restart NexPlay to Play". Not yet: controller navigation inside the panel (BCD's commands
+reach no view now; Back + Start still closes it), BCD's row thumbnails (Windows page) show the symbol instead. The classic
+desk menu (BCDDeskSessionMenu, touch-controls window) still draws BCD's own panel.
 
 ## Controls: both systems, one place to choose
 - Every game has **Controls Style**:

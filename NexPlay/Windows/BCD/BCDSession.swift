@@ -1,3 +1,4 @@
+// Modified for NexPlay (November 2026, NexPlay 8.3.1): see NEXPLAY-CHANGES.md in this folder.
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright 2026 thebcd69 (BCD)
 // BCD Material: additional terms under GPL-3.0 section 7 apply; see LICENSE-BCD.md.
@@ -259,7 +260,7 @@ struct BCDSessionLayer: View {
                         BCDMenuButton(dragging: dragging) { actions.openMenu() }
                     }
                 }
-                if let menu = hud.menu {
+                if let menu = hud.menu, !NexBCDMenu.replacesBCDMenu {   // NexPlay 8.3.1: NexPlay's Windows panel draws the menu
                     BCDInGameMenu(model: menu, insets: insets)
                         .transition(.opacity)
                 }

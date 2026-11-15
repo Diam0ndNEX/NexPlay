@@ -509,8 +509,8 @@ struct GameDetailView: View {
                     onPlay(game)
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: "play.fill")
-                        Text("Play").font(.pixel(24))
+                        Image(systemName: WindowsEngine.playTitle(for: game) == "Play" ? "play.fill" : "arrow.clockwise")
+                        Text(WindowsEngine.playTitle(for: game)).font(.pixel(24)).lineLimit(1).minimumScaleFactor(0.5)
                     }
                 }
                 .buttonStyle(PlayButtonStyle())

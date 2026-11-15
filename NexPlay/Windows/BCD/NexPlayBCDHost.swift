@@ -103,6 +103,10 @@ final class NexWindowsSession {
         case started
         case ended
         case failed(String)
+        /// 8.3.1: a second Windows game this launch (Wine runs once per launch).
+        case needsRestart(String)
+        /// 8.3.1: BCD's in-game menu opened (true) or closed: NexPlay's Windows panel shows instead of BCD's.
+        case menu(Bool)
     }
 
     let controller: UIViewController
@@ -138,7 +142,18 @@ final class NexWindowsSession {
                 guard let notice, !notice.isEmpty else { return }
                 Task { @MainActor in
                     LibraryModel.shared.restartNotice = nil
-                    self?.report(notice)
+                    LibraryModel.shared.error = nil
+                    self?.onEvent(.needsRestart(notice))
+                }
+            }
+            .store(in: &watchers)
+        library.$menu
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] open in
+                Task { @MainActor in
+                    guard let self, self.running || !open else { return }
+                    self.onEvent(.menu(open))
                 }
             }
             .store(in: &watchers)
@@ -165,6 +180,15 @@ final class NexWindowsSession {
         LibraryModel.shared.requestQuit()
     }
 
+    /// 8.3.1: opens and closes BCD's in-game menu (NexPlay draws it: `.menu` events).
+    func openMenu() {
+        LibraryModel.shared.showMenu()
+    }
+
+    func closeMenu() {
+        LibraryModel.shared.menu = false
+    }
+
     func stopWatching() {
         watchers.removeAll()
     }
@@ -172,6 +196,7 @@ final class NexWindowsSession {
     private func sessionChanged(_ now: Bool) {
         if now && !running {
             running = true
+            WindowsEngine.ranThisLaunch = true
             onEvent(.started)
         } else if !now && running {
             running = false
@@ -182,6 +207,6 @@ final class NexWindowsSession {
     private func report(_ error: String) {
         guard !running else { return }
         LibraryModel.shared.error = nil
-        onEvent(.failed(error))
+        onEvent(error == LibraryModel.restartMessage ? .needsRestart(error) : .failed(error))
     }
 }
