@@ -86,6 +86,10 @@ enum MIME {
         "mp4": "video/mp4", "m4v": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
         "woff": "font/woff", "woff2": "font/woff2", "ttf": "font/ttf", "otf": "font/otf",
         "wasm": "application/wasm", "rpgmvp": "application/octet-stream",
+        "ogv": "video/ogg", "ogx": "application/ogg", "avif": "image/avif", "mpg": "video/mpeg", "mpeg": "video/mpeg",
+        "mid": "audio/midi", "midi": "audio/midi", "mp2": "audio/mpeg", "weba": "audio/webm", "caf": "audio/x-caf",
+        "csv": "text/csv; charset=utf-8", "map": "application/json; charset=utf-8", "webmanifest": "application/manifest+json",
+        "eot": "application/vnd.ms-fontobject", "ttc": "font/collection", "tif": "image/tiff", "tiff": "image/tiff",
     ]
 
     static func type(for url: URL) -> String {
