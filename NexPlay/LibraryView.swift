@@ -490,6 +490,12 @@ struct LibraryView: View {
         .task {
             try? await Task.sleep(nanoseconds: 700_000_000)
             guard playing == nil && detail == nil else { return }
+            // 8.7.0: back after "Close NexPlay" for a Windows game: its page opens again (Play starts it).
+            if let id = WindowsPendingPlay.take(), let game = store.game(id: id), isVisible(game) {
+                AppLog.log("windows: opening \(game.name)'s page again after the restart")
+                detail = game
+                return
+            }
             if !onboardingSeen {
                 showOnboarding = true
             } else if whatsNewSeen != WhatsNewView.version {

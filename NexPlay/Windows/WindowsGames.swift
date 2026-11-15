@@ -83,6 +83,26 @@ enum WindowsGameFiles {
 /// 8.4.0: installers and redistributables that come with a PC game (setup.exe, vcredist, DirectX, PhysX...). Wine runs once
 /// per app launch, so installing and playing are two launches: Run Installer starts one in place of the game's program,
 /// and the game page then says "Restart and Play".
+/// 8.7.0: the Windows game "Close NexPlay" was pressed for (the error card, Restart and Play). When NexPlay is opened again
+/// within 30 minutes, the library opens that game's page, so the owner presses Play once more.
+enum WindowsPendingPlay {
+    private static let key = "windowsPendingPlay"
+
+    static func note(_ id: UUID) {
+        UserDefaults.standard.set("\(id.uuidString)|\(Date().timeIntervalSince1970)", forKey: key)
+    }
+
+    /// The game to show, once; nil when there is none or the note is older than 30 minutes.
+    static func take() -> UUID? {
+        guard let raw = UserDefaults.standard.string(forKey: key) else { return nil }
+        UserDefaults.standard.removeObject(forKey: key)
+        let parts = raw.split(separator: "|")
+        guard parts.count == 2, let id = UUID(uuidString: String(parts[0])), let time = Double(parts[1]),
+              Date().timeIntervalSince1970 - time < 1800 else { return nil }
+        return id
+    }
+}
+
 enum WindowsInstallers {
     private static let prefixes = ["setup", "install", "vcredist", "vc_redist", "dxsetup", "dxwebsetup", "directx", "dotnet",
                                    "netfx", "ndp4", "oalinst", "physx", "ue4prereq", "ueprereq", "prereq", "redist"]
@@ -641,6 +661,7 @@ final class WindowsLaunchController: UIViewController {
         let actions = [
             LoadingAction("Close NexPlay", symbol: "power", primary: true) {
                 AppLog.log("windows: closing NexPlay for the next Windows game")
+                WindowsPendingPlay.note(self.game.id)
                 _ = AppLog.shared.text
                 exit(0)
             },

@@ -789,6 +789,7 @@ struct GameDetailView: View {
 
     private func closeNexPlay() {
         AppLog.log("windows: closing NexPlay from the game page (restart and play)")
+        WindowsPendingPlay.note(gameID)
         _ = AppLog.shared.text
         exit(0)
     }
