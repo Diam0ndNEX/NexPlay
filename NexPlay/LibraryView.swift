@@ -338,6 +338,9 @@ struct LibraryView: View {
     @State private var gridWidth: CGFloat = 390
     @AppStorage(SettingsKey.onboarding7Seen) private var onboardingSeen = false
     @State private var showSetupCenter = false
+    /// 8.5.0: the itch.io store sheet.
+    @State private var showItch = false
+    @ObservedObject private var itch = NexItchAccount.shared
     @ObservedObject private var jit = JITManager.shared
 
     private var sort: LibrarySortOrder { LibrarySortOrder(rawValue: sortRaw) ?? .playedRecent }
@@ -458,6 +461,13 @@ struct LibraryView: View {
         }
         .sheet(isPresented: $showCollections) {
             CollectionsManagerView().environmentObject(collections)
+        }
+        .sheet(isPresented: $showItch) {
+            NexItchStoreView { game, upload in
+                if tab == .settings { tab = .library }
+                Task { await store.importFromItch(game, upload: upload) }
+            }
+            .environmentObject(store)
         }
         .alert("Download a Game", isPresented: $askingLink) {
             TextField("https://…", text: $linkText)
@@ -635,6 +645,7 @@ struct LibraryView: View {
                 Text(summary).font(NexType.caption).foregroundStyle(NexColor.textSoft)
                 if let game = continueGame { continueCard(game) }
                 if !needsSetup.isEmpty { setupCard }
+                itchCard
                 if !recentlyPlayed.isEmpty { shelf("Recently Played", symbol: "clock.fill", games: recentlyPlayed) }
                 if !favorites.isEmpty { shelf("Favorites", symbol: "heart.fill", games: favorites) }
                 if !recentlyAdded.isEmpty { shelf("Recently Added", symbol: "sparkles", games: recentlyAdded) }
@@ -683,6 +694,36 @@ struct LibraryView: View {
         .buttonStyle(PressScaleStyle())
     }
 
+    /// 8.5.0: opens the itch.io store.
+    private var itchCard: some View {
+        Button {
+            NexHaptics.tap()
+            showItch = true
+        } label: {
+            HStack(spacing: 14) {
+                NexItchBadge(size: 46)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("itch.io").font(NexType.heading).foregroundStyle(NexColor.text)
+                    Text(itchSubtitle)
+                        .font(NexType.caption).foregroundStyle(NexColor.textSoft)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").foregroundStyle(NexColor.textSoft)
+            }
+            .padding(14)
+            .nexGlass(in: RoundedRectangle(cornerRadius: NexMetrics.cornerL, style: .continuous), interactive: true)
+        }
+        .buttonStyle(PressScaleStyle())
+        .accessibilityLabel("itch.io store")
+    }
+
+    private var itchSubtitle: String {
+        let count = store.games.filter { $0.source == .itch }.count
+        if !itch.signedIn { return "Sign in to install the games you own on itch.io." }
+        return count == 0 ? "Your itch.io games: install any of them into NexPlay." : "\(count) installed from itch.io · open your itch.io library"
+    }
+
     private func shelf(_ title: String, symbol: String, games: [Game]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label {
@@ -729,6 +770,7 @@ struct LibraryView: View {
             Button { importFiles() } label: { Label("ZIP, 7z, RAR, HTML or SWF File…", systemImage: "doc.zipper") }
             Button { importFolders() } label: { Label("Game Folder…", systemImage: "folder") }
             Button { importBulk() } label: { Label("Folder of Many Games…", systemImage: "folder.badge.gearshape") }
+            Button { showItch = true } label: { Label("itch.io…", systemImage: "bag.fill") }
             Button {
                 let pasted = UIPasteboard.general.string ?? ""
                 linkText = pasted.lowercased().hasPrefix("http") ? pasted : ""
@@ -1044,6 +1086,8 @@ struct LibraryView: View {
             }
         }
         ToolbarItemGroup(placement: .navigationBarTrailing) {
+            Button { showItch = true } label: { Image(systemName: "bag") }
+                .accessibilityLabel("itch.io store")
             Menu {
                 Picker("Sort", selection: $sortRaw) {
                     ForEach(LibrarySortOrder.allCases) { Text($0.title).tag($0.rawValue) }
@@ -1075,6 +1119,8 @@ struct LibraryView: View {
             Button { importFiles() } label: { Label("Add a Game", systemImage: "plus") }
                 .buttonStyle(NexPrimaryButtonStyle())
             Button { importFolders() } label: { Label("Add a Game Folder", systemImage: "folder") }
+                .buttonStyle(NexGlassButtonStyle())
+            Button { showItch = true } label: { Label("Get Games from itch.io", systemImage: "bag.fill") }
                 .buttonStyle(NexGlassButtonStyle())
         }
         .frame(maxWidth: 420)

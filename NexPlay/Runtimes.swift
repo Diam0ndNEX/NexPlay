@@ -76,6 +76,8 @@ enum CompatStatus: String, Codable, CaseIterable, Identifiable {
 /// Where a game came from.
 enum GameSource: String, Codable, CaseIterable, Identifiable {
     case imported, steam, gog
+    /// 8.5.0: installed from the itch.io store; `Game.storeID` is itch.io's game id.
+    case itch
 
     var id: String { rawValue }
 
@@ -84,6 +86,7 @@ enum GameSource: String, Codable, CaseIterable, Identifiable {
         case .imported: return "Imported"
         case .steam: return "Steam"
         case .gog: return "GOG"
+        case .itch: return "itch.io"
         }
     }
 }

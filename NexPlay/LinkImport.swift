@@ -73,22 +73,33 @@ final class LinkDownloader: NSObject, URLSessionDownloadDelegate {
     private var continuation: CheckedContinuation<URL, Error>?
     private var name: String
     private var result: Result<URL, Error>?
+    /// 8.5.0: where the file goes (nil = a new folder in the temporary directory).
+    private let folder: URL?
 
-    private init(name: String, progress: @escaping (Int64, Int64, String) -> Void) {
+    private init(name: String, folder: URL?, progress: @escaping (Int64, Int64, String) -> Void) {
         self.name = name
+        self.folder = folder
         self.progress = progress
     }
 
     static func download(_ url: URL, progress: @escaping (Int64, Int64, String) -> Void,
                          started: @escaping (URLSessionTask) -> Void) async throws -> URL {
-        let delegate = LinkDownloader(name: url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent, progress: progress)
+        try await download(request: URLRequest(url: url), name: url.lastPathComponent, into: nil,
+                           progress: progress, started: started)
+    }
+
+    /// 8.5.0 (itch.io): a prepared request (its headers are sent), a fallback file name and the target folder.
+    static func download(request: URLRequest, name: String, into folder: URL?,
+                         progress: @escaping (Int64, Int64, String) -> Void,
+                         started: @escaping (URLSessionTask) -> Void) async throws -> URL {
+        let delegate = LinkDownloader(name: name.isEmpty ? "download" : name, folder: folder, progress: progress)
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 60
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
             delegate.continuation = continuation
-            let task = session.downloadTask(with: url)
+            let task = session.downloadTask(with: request)
             started(task)
             task.resume()
         }
@@ -110,11 +121,12 @@ final class LinkDownloader: NSObject, URLSessionDownloadDelegate {
             let ext = (fileName as NSString).pathExtension.lowercased()
             if mime.hasPrefix("text/html") && !["html", "htm"].contains(ext) { throw LinkError.webPage }
             if ext.isEmpty, mime.contains("zip") { fileName += ".zip" }
-            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("LinkImport-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let target = folder.appendingPathComponent(fileName)
-            try FileManager.default.moveItem(at: location, to: target)
-            result = .success(target)
+            let target = (self.folder ?? FileManager.default.temporaryDirectory
+                .appendingPathComponent("LinkImport-\(UUID().uuidString)", isDirectory: true))
+            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            let file = target.appendingPathComponent(fileName)
+            try FileManager.default.moveItem(at: location, to: file)
+            result = .success(file)
         } catch {
             result = .failure(error)
         }
