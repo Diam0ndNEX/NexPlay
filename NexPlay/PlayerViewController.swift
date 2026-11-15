@@ -164,6 +164,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             content.addUserScript(WKUserScript(source: runtime, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         content.addUserScript(WKUserScript(source: PageScripts.noSelect, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        if game.engine == .twine {
+            content.addUserScript(WKUserScript(source: PageScripts.tapFallback, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         for script in ModStore.webScripts(for: game) {
             content.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         }

@@ -59,6 +59,40 @@ enum PageScripts {
     })();
     """#
 
+    /// 8.12.2: a tap that never turned into a click (iOS skips the click when the page changes on hover, or a
+    /// touch handler cancels it) is sent as a click to the element under the finger, once, after 350 ms.
+    static let tapFallback = #"""
+    (function () {
+        var sx = 0, sy = 0, moved = false, lastClick = 0, t0 = 0;
+        document.addEventListener('click', function () { lastClick = Date.now(); }, true);
+        document.addEventListener('touchstart', function (e) {
+            if (e.touches.length !== 1) { moved = true; return; }
+            moved = false; t0 = Date.now();
+            sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+        }, { capture: true, passive: true });
+        document.addEventListener('touchmove', function (e) {
+            var t = e.touches[0];
+            if (t && (Math.abs(t.clientX - sx) > 10 || Math.abs(t.clientY - sy) > 10)) moved = true;
+        }, { capture: true, passive: true });
+        document.addEventListener('touchend', function (e) {
+            if (moved || Date.now() - t0 > 500) return;
+            var t = e.changedTouches[0];
+            if (!t) return;
+            var x = t.clientX, y = t.clientY, stamp = Date.now();
+            setTimeout(function () {
+                if (lastClick >= stamp - 20) return;
+                var el = document.elementFromPoint(x, y);
+                if (!el) return;
+                var tag = (el.tagName || '').toLowerCase();
+                if (tag === 'canvas' || tag === 'video' || tag === 'html' || tag === 'body') return;
+                try {
+                    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }));
+                } catch (err) {}
+            }, 350);
+        }, { capture: true, passive: true });
+    })();
+    """#
+
     /// window.__nexKey(keyCode, key, code, down) lets the on-screen controls press keyboard keys.
     static let keyBridge = #"""
     (function () {
