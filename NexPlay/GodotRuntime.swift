@@ -667,11 +667,12 @@ enum GodotRuntime {
                 let folder = try prepareMono(mono)
                 notes += try GodotMono.prepare(pack: pack, root: root, runtimeFolder: folder, runtime: mono)
                 notes.append("C# game: Godot \(mono) C# web runtime (C# is interpreted and single-threaded here, so it runs slower than on a PC)")
-                var launch = GodotLaunch(version: head.version, runtime: mono, folder: folder, notes: notes, args: args, csharp: true)
-                launch.companions = companionPacks(of: pack)
-                if !launch.companions.isEmpty {
-                    launch.notes.append("packs the game loads itself: " + launch.companions.map { $0.lastPathComponent }.joined(separator: ", "))
+                let companions = companionPacks(of: pack)
+                if !companions.isEmpty {
+                    notes.append("packs the game loads itself: " + companions.map { $0.lastPathComponent }.joined(separator: ", "))
                 }
+                var launch = GodotLaunch(version: head.version, runtime: mono, folder: folder, notes: notes, args: args, csharp: true)
+                launch.companions = companions
                 return launch
             }
             if info.mainScene == nil && cfgScene == nil && !info.scenes.isEmpty {
