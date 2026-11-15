@@ -38,10 +38,37 @@ namespace NexPlayShim {
             Install();
         }
 
+        // Task.Delay: Mono's timer completes tasks from its own callback in the ROOT app domain, where the game's
+        // statics are empty (Game.Settings null); here the timers run from the main loop in the game's domain.
+        sealed class Timer { public ulong At; public TaskCompletionSource<bool> Tcs; public System.Threading.CancellationToken Token; }
+        static readonly List<Timer> timers = new List<Timer>();
+
         public static void Pump() {
+            if (timers.Count > 0) {
+                ulong now = OS.GetTicksMsec();
+                List<Timer> due = null;
+                lock (timers) {
+                    for (int i = timers.Count - 1; i >= 0; i--) {
+                        var t = timers[i];
+                        if (t.Token.IsCancellationRequested || now >= t.At) { (due ?? (due = new List<Timer>())).Add(t); timers.RemoveAt(i); }
+                    }
+                }
+                if (due != null) foreach (var t in due) { if (t.Token.IsCancellationRequested) t.Tcs.TrySetCanceled(); else t.Tcs.TrySetResult(true); }
+            }
             Action[] batch;
             lock (queue) { if (queue.Count == 0) return; batch = queue.ToArray(); queue.Clear(); }
             foreach (var a in batch) a();
+        }
+
+        public static Task Delay(int ms) { return Delay(ms, System.Threading.CancellationToken.None); }
+        public static Task Delay(TimeSpan span) { return Delay((int)span.TotalMilliseconds, System.Threading.CancellationToken.None); }
+        public static Task Delay(TimeSpan span, System.Threading.CancellationToken token) { return Delay((int)span.TotalMilliseconds, token); }
+        public static Task Delay(int ms, System.Threading.CancellationToken token) {
+            var tcs = new TaskCompletionSource<bool>();
+            if (ms < 0) ms = 0;
+            lock (timers) timers.Add(new Timer { At = OS.GetTicksMsec() + (ulong)ms, Tcs = tcs, Token = token });
+            Install();
+            return tcs.Task;
         }
 
         static void Step(Action work, Action<Exception> fail, Action done) {

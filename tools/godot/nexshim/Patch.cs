@@ -7,17 +7,16 @@ class P { static int Main(string[] a) {
   m.AssemblyReferences.Add(shim.Name);
   int n=0;
   var task = m.GetType("System.Threading.Tasks.Task");
-  foreach (var md in task.Methods.Where(x=>x.Name=="Run" && x.IsStatic && x.IsPublic && x.Parameters.Count==1)) {
-    var pt = md.Parameters[0].ParameterType;
-    // find shim overload with identical param shape
+  foreach (var md in task.Methods.Where(x=>(x.Name=="Run"||x.Name=="Delay") && x.IsStatic && x.IsPublic && x.Parameters.Count>=1).ToList()) {
     MethodDefinition target = null;
-    foreach (var s in nex.Methods.Where(x=>x.Name=="Run" && x.Parameters.Count==1 && x.HasGenericParameters==md.HasGenericParameters)) {
-      string A = Sig(pt), B = Sig(s.Parameters[0].ParameterType);
-      if (A==B && Sig(md.ReturnType)==Sig(s.ReturnType)) target=s;
+    foreach (var s in nex.Methods.Where(x=>x.Name==md.Name && x.Parameters.Count==md.Parameters.Count && x.HasGenericParameters==md.HasGenericParameters)) {
+      bool same = Sig(md.ReturnType)==Sig(s.ReturnType);
+      for (int k=0;k<md.Parameters.Count;k++) if (Sig(md.Parameters[k].ParameterType)!=Sig(s.Parameters[k].ParameterType)) same=false;
+      if (same) target=s;
     }
     if (target==null) { Console.WriteLine("skip "+md); continue; }
     var il = md.Body.GetILProcessor(); md.Body.Instructions.Clear(); md.Body.ExceptionHandlers.Clear(); md.Body.Variables.Clear();
-    il.Emit(OpCodes.Ldarg_0);
+    for (int k=0;k<md.Parameters.Count;k++) il.Emit(OpCodes.Ldarg, md.Parameters[k]);
     MethodReference mr = m.ImportReference(target);
     if (md.HasGenericParameters) { var g = new GenericInstanceMethod(mr); g.GenericArguments.Add(md.GenericParameters[0]); mr = g; }
     il.Emit(OpCodes.Call, mr); il.Emit(OpCodes.Ret); n++;
