@@ -4,7 +4,7 @@ import SwiftUI
 
 /// One page of Settings.
 enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
-    case setupCenter, appearance, controls, gameplay, jit, translation, privacy, backup, advanced, diagnostics
+    case setupCenter, appearance, controls, gameplay, jit, windows, translation, privacy, backup, advanced, diagnostics
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .controls: return "Controls"
         case .gameplay: return "Gameplay & Performance"
         case .jit: return "JIT & Performance"
+        case .windows: return "Windows Games"
         case .translation: return "Translation"
         case .privacy: return "Privacy"
         case .backup: return "Import & Backup"
@@ -30,6 +31,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .controls: return "Virtual gamepad, control bar, haptics and physical controllers"
         case .gameplay: return "Power profiles, idle pause, orientation, sound and RPG Maker modes"
         case .jit: return "Built-in JIT: pairing file, LocalDevVPN, status and test"
+        case .windows: return "Windows engine: memory, graphics, .NET and Visual C++, every engine option"
         case .translation: return "In-game text translation"
         case .privacy: return "Hide games and collections behind Face ID, Touch ID or a passcode"
         case .backup: return "Automatic save backups and exports"
@@ -45,6 +47,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .controls: return "gamecontroller.fill"
         case .gameplay: return "bolt.fill"
         case .jit: return "cpu"
+        case .windows: return "pc"
         case .translation: return "character.bubble.fill"
         case .privacy: return "lock.fill"
         case .backup: return "externaldrive.fill"
@@ -60,6 +63,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .controls: return .blue
         case .gameplay: return .orange
         case .jit: return .yellow
+        case .windows: return .cyan
         case .translation: return .teal
         case .privacy: return .green
         case .backup: return .purple
@@ -90,6 +94,10 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .jit:
             return ["JIT", "Enable JIT Now", "Pairing File", "Import Pairing File", "LocalDevVPN", "Check Connection",
                     "Developer Disk Image", "StikDebug", "TXM", "Enable JIT at App Launch", "Enable JIT When a Game Needs It"]
+        case .windows:
+            return ["Memory", "JIT Pool", "Video Memory", "Swap File", "Thread Sync", "Eco Mode", "Background",
+                    "Resolution", "Frame Cap", "MetalFX", "Direct3D 9", "Screen Orientation", "Performance HUD",
+                    "Wine Mono", ".NET", "Visual C++", "MFC", "Wine Gecko", "All Engine Options", "bcd.cfg"]
         case .translation:
             return ["Translate MV/MZ Games", "MTool", "TranslateFile.json"]
         case .privacy:
@@ -333,6 +341,7 @@ struct SettingsPageView: View {
             case .controls: ControlsSettings()
             case .gameplay: GameplaySettings()
             case .jit: JITSettingsView()
+            case .windows: WindowsSettingsPage()
             case .translation: TranslationGlobalSettings()
             case .privacy: PrivacySettings()
             case .backup: BackupSettings()

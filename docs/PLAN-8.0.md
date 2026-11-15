@@ -19,7 +19,11 @@ once all steps are done, then pastes build errors (first error first).
 | Game page: BCD's layout, sections by capability, Restart and Play | 8.4.0 (75) | built OK 2026-11-15 |
 | Game page: PC sections from BCD (AutoTune, recommendations, graphics, prefix tools, Windows saves) | 8.4.1 (76) | built OK 2026-11-15 |
 | itch.io: built as 8.5.0 (77), then removed by the owner (games come from F95zone, imported as files/links) | 8.5.1 (78) | built OK 2026-11-15 |
-| Settings and extras | 8.6.0 | |
+| Settings: Windows Games page (BCD's engine settings with NexPlay rows) | 8.6.0 (79) | pushed 2026-11-15 |
+| Settings: Storage and external drives, logs and diagnostics | 8.6.1 | |
+| Settings: readiness checks in Setup Center, foldables | 8.6.2 | |
+| Settings: sub-pages from Forms to glass rows | 8.6.3 | |
+| Settings: optional helper memory (MadeiraMemoryHost), only if its entitlements fit | 8.6.4 | |
 | Polish and cleanup | 8.7.0 | |
 
 8.0.0 notes: BCD's store (Steam, GOG, Epic, EA), Dock, front-end, update, feedback-upload and JIT-setup files are still
@@ -41,6 +45,15 @@ Settings home and search: custom glass rows (`NexRowGroup`, `NexNavRow`); the Se
 Setup Center: `ScrollView` with opaque row groups, `SetupRow` = `NexStatusMark` + glass fix button, `ProfileBackdrop`,
 explicit rounded fonts (readable when opened from the game page). Background theme Plain = "Colour Profile"
 (`ProfileBackdrop`), also used in light mode. Appearance > Colour Profile: profile swatches + Custom Colour.
+
+8.6.0 notes: 8.6 is split in five pushes (table above). 8.6.0 adds Settings › Windows Games (`NexSettingsPage.windows`,
+`Windows/WindowsSettings.swift`, a note without the engine) = `NexBCDSettingsView` (`Windows/BCD/NexPlayBCDSettings.swift`,
+NexPlay's code): Memory & Performance (status, JIT pool, video memory, swap, what can move, thread sync, eco, keep a game
+running in the background, sound meanwhile), Graphics (resolution, frame cap, MetalFX, Direct3D 9, orientation, HUD, hold
+refresh rate, OpenGL note), Windows Components (Wine Mono, Visual C++ 64-bit, 32-bit MFC, Wine Gecko: download/cancel/remove),
+All Engine Options (bcd.cfg catalog, search, per-option page). Everything goes through BCD's live backends
+(BCDMemoryLive, BCDGraphicsLive, BCDDotNetLive, BCDVCRuntimeLive, BCDGeckoLive, BCDAllSettingsLive); no BCD file changed.
+Left out: background store downloads, helper memory and its test (8.6.4), BCD's accounts/JIT/Dock sections.
 
 ## Owner's decision of 2026-11-15
 - **No itch.io.** The owner gets games from F95zone and imports them (files, folders, Download from Link). 8.5.0 added an
