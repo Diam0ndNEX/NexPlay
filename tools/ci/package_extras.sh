@@ -9,3 +9,13 @@ APP="$1"
 DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 bash "$DIR/tools/windows/merge_engine.sh" "$APP"
 bash "$DIR/tools/easyrpg/fetch_easyrpg.sh" "$APP"
+# 8.6.4: helper memory extension (BCD's MadeiraMemoryHost): get-task-allow only, written like the JIT helper's.
+HOST="$APP/PlugIns/NexPlayMemoryHost.appex"
+if [ -f "$HOST/NexPlayMemoryHost" ]; then
+  ldid -S"$DIR/NexPlayMemoryHost/NexPlayMemoryHost.entitlements" "$HOST/NexPlayMemoryHost"
+  echo "Entitlements in the memory helper:"
+  ldid -e "$HOST/NexPlayMemoryHost"
+else
+  echo "::warning::The memory helper is missing from the app (helper memory won't work)"
+fi
+

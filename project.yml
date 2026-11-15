@@ -11,8 +11,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "8.6.3"
-    CURRENT_PROJECT_VERSION: "82"
+    MARKETING_VERSION: "8.6.4"
+    CURRENT_PROJECT_VERSION: "83"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
     # The XP/VX/Ace core is off by default. The workflow turns it on with
@@ -36,6 +36,8 @@ targets:
       # 6.3.0: built-in JIT. The helper extension runs StikJIT; the app only embeds the framework for it
       # (StikJIT stays out of the app binary). tools/fetch_stikjit.sh puts it in vendor/ in CI.
       - target: NexPlayJITHelper
+      # 8.6.4: BCD's helper memory extension (opt-in: Settings › Windows Games › Memory › Helper Memory).
+      - target: NexPlayMemoryHost
       - framework: vendor/StikJIT/StikJIT.xcframework
         embed: true
         link: false
@@ -106,3 +108,26 @@ targets:
         SKIP_INSTALL: YES
         # StikJIT.framework sits in NexPlay.app/Frameworks (two levels up from the helper's binary).
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+
+  # 8.6.4: helper memory (BCD's MadeiraMemoryHost, GPL-3.0). An app extension on com.apple.ar.viewer, which iOS 27's jetsam
+  # table gives no memory limit: it creates memory objects for the Windows engine's pool (MemoryPool.m, found as
+  # <app id>.MemoryHost), then quits, and memory owned by a quit process doesn't count against NexPlay's limit.
+  # Only get-task-allow (the owner's profile grants it); package_extras.sh writes it with ldid. Off unless Helper Memory is set.
+  NexPlayMemoryHost:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: NexPlayMemoryHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nexplay.app.MemoryHost
+        PRODUCT_NAME: NexPlayMemoryHost
+        INFOPLIST_FILE: NexPlayMemoryHost/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_ENTITLEMENTS: NexPlayMemoryHost/NexPlayMemoryHost.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        CLANG_ENABLE_OBJC_ARC: YES
+

@@ -43,3 +43,10 @@ into its own target (only in builds with the Windows engine, see `NexPlayWindows
   in NexPlay); the menu's model and its live source still open and close as before. NexPlay's Windows panel draws the
   same menu instead: added `NexPlayBCDMenu.swift` (NexPlay's code) shows `BCDLibraryMenuSource`'s tabs, sections, rows,
   pages and questions in NexPlay's in-game menu, with NexPlay's own sections next to them.
+
+## 2026-11-15 (NexPlay 8.6.4)
+- `app/MadeiraMemoryHost/MemoryHost.m` copied to `NexPlayMemoryHost/MemoryHost.m` (outside this folder: it is its own app
+  extension target, NexPlayMemoryHost). Changed: the `#import` path of MemoryHostProtocol.h (now `../NexPlay/Windows/BCD/`),
+  plus the "Modified for NexPlay" line. Its Info.plist (display name "NexPlay Memory") and entitlements (get-task-allow) are
+  BCD's too. No file in this folder changed.
+

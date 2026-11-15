@@ -3,7 +3,7 @@
 // Visual C++ runtime and 32-bit MFC, Wine Gecko, All settings) drawn with NexPlay's menu rows inside NexPlay's Settings.
 // The data and every change go through BCD's own live backends (BCDSettingsLive.swift: BCDMemoryLive, BCDGraphicsLive,
 // BCDDotNetLive, BCDVCRuntimeLive, BCDGeckoLive, BCDAllSettingsLive), so no BCD file changes. Left out on purpose:
-// store downloads in the background (no stores in NexPlay), helper memory and its test (MadeiraMemoryHost is not built),
+// store downloads in the background (no stores in NexPlay), (until 8.6.4) helper memory and its test,
 // accounts, BCD's JIT and Dock, sending logs to BCD's server, BCD's own library (Add every game, Find games on a drive,
 // Steam installs). 8.6.1 adds Storage & Drives (BCDStorageLive) and Logs & Diagnostics (BCDLogsLive). BCD by thebcd69: https://github.com/thebcd69/bcd-games (GPL-3.0-only with BCD's
 // additional terms). Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games).
@@ -245,14 +245,21 @@ struct NexBCDMemoryPage: View {
                               value: status.extendedAddressing ? "On" : "Off",
                               tint: status.extendedAddressing ? NexColor.success : NexColor.warning)
                 NexBCDInfoRow(title: "Memory in this device", value: NexBCDWords.memory(status.deviceBytes))
+                if let poolMB = Int64(backend.value(.memoryPool)), poolMB > 0 {
+                    NexBCDInfoRow(title: "Helper memory adds",
+                                  note: "A game's data can also sit outside the limit above, up to this much, while the device has memory to spare. Graphics memory always counts against the limit.",
+                                  value: "Up to " + NexBCDWords.memory(poolMB << 20))
+                }
             }
             if backend.switchesShown {
                 NexMenuSection("Memory for Games") {
                     row(.pool, "JIT Pool", "Set aside when a game starts, for the x86 code the engine has translated. Below 512 MB, big games can run out of room.")
                     row(.videoMemory, "Video Memory", "The graphics memory games are told they have. Automatic decides from what is free at the start.")
                     row(.swap, "Swap File", "When memory runs short, game data moves into a file on this device, up to this size. It costs some speed.")
-                    row(.swapCoverage, "What Can Move", "Which of a game's allocations may move into the swap file. The wider, the more memory it saves and the more it can slow a game.",
-                        enabled: backend.value(.swap) != "")
+                    row(.swapCoverage, "What Can Move", "Which of a game's allocations may move into helper memory or the swap file. The wider, the more memory it saves and the more it can slow a game.",
+                        enabled: backend.value(.swap) != "" || backend.value(.memoryPool) != "")
+                    // 8.6.4: BCD's helper memory (the NexPlayMemoryHost extension). Off unless chosen.
+                    row(.memoryPool, "Helper Memory", "Memory from NexPlay's helper extension, outside NexPlay's own limit, used first while the device has some to spare. Works without the swap file. On a device with 8 GB or less, keep it to a quarter of its memory. Not available inside LiveContainer. Experimental.")
                 }
                 NexMenuSection("Speed and Power") {
                     row(.syncEngine, "Thread Sync", "How a game's threads wait for each other. Fastsync, the standard, does it inside the game; Madsync is the earlier engine of that kind; Wine's own uses neither.")
@@ -271,6 +278,14 @@ struct NexBCDMemoryPage: View {
                 NexMenuToggleRow(title: "Hear the Game Meanwhile", detail: "Off: the game is muted in the background and other apps' audio plays normally.",
                                  symbol: "speaker.wave.2.fill", isOn: backend.backgroundSound, enabled: backend.backgroundGame != "") {
                     backend.setBackgroundSound($0)
+                }
+            }
+            if backend.extensionTestAvailable {
+                NexMenuSection("Experiments") {
+                    NexMenuRow(title: backend.extensionTestRunning ? "Testing the Helper's Memory…" : "Test the Helper's Memory",
+                               detail: backend.extensionTestLine.map(NexBCDWords.nexplay)
+                                   ?? "Checks whether memory made by NexPlay's helper extension stays outside NexPlay's own limit. The result goes to the engine's log.",
+                               symbol: "memorychip", enabled: !backend.extensionTestRunning) { backend.runExtensionTest() }
                 }
             }
             if backend.restartNeeded {

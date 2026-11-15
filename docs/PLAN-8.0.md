@@ -23,7 +23,7 @@ once all steps are done, then pastes build errors (first error first).
 | Settings: Storage and external drives, logs and diagnostics | 8.6.1 (80) | built OK 2026-11-15 |
 | Settings: readiness checks in Setup Center, foldables | 8.6.2 (81) | built OK 2026-11-15 |
 | Settings: sub-pages from Forms to glass rows | 8.6.3 (82) | built OK 2026-11-15 |
-| Settings: optional helper memory (MadeiraMemoryHost), only if its entitlements fit | 8.6.4 | |
+| Settings: optional helper memory (MadeiraMemoryHost): entitlements fit (get-task-allow only) | 8.6.4 (83) | pushed 2026-11-15 |
 | Polish and cleanup | 8.7.0 | |
 
 8.0.0 notes: BCD's store (Steam, GOG, Epic, EA), Dock, front-end, update, feedback-upload and JIT-setup files are still
@@ -76,6 +76,14 @@ every row). Every Settings sub-page Form (Appearance, Controls, Gameplay, JIT, T
 Advanced, Diagnostics, Engines, controller mapping), Storage and Credits, plus Game Settings and Edit Button use them.
 `SettingsHeader` = the design system's small-capitals title; `SettingLabel`/`ValueSlider` use NexType/NexColor. Controls
 are unchanged (same toggles, pickers and links), so no setting moved.
+
+8.6.4 notes: BCD's MadeiraMemoryHost (v0.1.653: Info.plist on com.apple.ar.viewer, entitlements = get-task-allow only, which
+the owner's profile grants) is the app extension target `NexPlayMemoryHost` (`NexPlayMemoryHost/`: BCD's MemoryHost.m with the
+header path changed, Info.plist "NexPlay Memory", entitlements), bundle id com.nexplay.app.MemoryHost (BCD's MemoryPool.m finds
+`<app id>.MemoryHost`), embedded in every build; `tools/ci/package_extras.sh` writes its entitlements with ldid (no workflow
+change). Windows Games › Memory & Performance shows Helper Memory (mempool-mb, off by default; per game through the game's
+config) and Test the Helper's Memory. If the signing app drops the extension, the test says "No extension" and helper memory
+stays off.
 
 ## Owner's decision of 2026-11-15
 - **No itch.io.** The owner gets games from F95zone and imports them (files, folders, Download from Link). 8.5.0 added an
