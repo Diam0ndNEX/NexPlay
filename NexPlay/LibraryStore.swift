@@ -66,6 +66,10 @@ final class LibraryStore: ObservableObject {
     /// so re-importing the same game can put them back.
     func delete(_ game: Game) async {
         let target = game
+        // 8.7.10: the card leaves the list first, so nothing on screen (card, zoom source, game page) points at a game
+        // whose files are being removed underneath it.
+        games.removeAll { $0.id == game.id }
+        save()
         _ = await Task.detached(priority: .userInitiated) { SaveArchive.rescue(target) }.value
         await DataStores.wipe(for: game)
         WindowsLibraryLink.remove(for: game)
@@ -83,8 +87,6 @@ final class LibraryStore: ObservableObject {
             try? FileManager.default.moveItem(at: parkedProfiles, to: target)
         }
         CoverCache.forget(game)
-        games.removeAll { $0.id == game.id }
-        save()
         AppLog.log("deleted \(game.name)")
     }
 

@@ -434,7 +434,7 @@ struct LibraryView: View {
                 libraryStack
             }
             if !selecting {
-                NexTabBarEdgeFade()
+                // 8.7.10: no edge fade: it painted a dark band over the bottom of every screen.
                 NexTabBar(tab: $tab)
                     .padding(.bottom, 4)
             }

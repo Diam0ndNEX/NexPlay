@@ -2981,7 +2981,7 @@ final class ControlsWindow: UIWindow {
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // NexPlay 8.7.9: NexPlay's Windows panel is in the app window, under this one; while it shows, every touch is its.
-        if NexWindowsHost.panelOpen { return nil }
+        if NexWindowsHost.panelOpen || !NexWindowsHost.sessionOnScreen { return nil }
         let sessionModel = LibraryModel.shared
         if sessionModel.desktopHome || (BCDDuoFeatures.active && sessionModel.current == nil) { return nil }
         let m = TouchControlsModel.shared

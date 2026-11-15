@@ -688,7 +688,8 @@ struct GameDetailView: View {
             VStack(spacing: 0) {
                 // 8.7.8: the panel fills the screen below the status bar (it stopped at 86 % before, which looked
                 // half-open); drag the handle or the tab row down to close it.
-                Spacer(minLength: m.insets.top + 6)
+                // 8.7.10: a fixed gap. A Spacer shared the free height with the panel and left it half open.
+                Color.clear.frame(height: m.insets.top + 6)
                 VStack(spacing: 0) {
                     VStack(spacing: 0) {
                         Capsule().fill(NexColor.dark(.stroke)).frame(width: 40, height: 5).padding(.top, 8)

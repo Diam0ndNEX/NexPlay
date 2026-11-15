@@ -239,6 +239,9 @@ final class WindowsLaunchController: UIViewController {
         super.viewDidAppear(animated)
         guard !started else { return }
         started = true
+        #if NEXPLAY_WINDOWS
+        NexWindowsHost.sessionOnScreen = true
+        #endif
         OrientationManager.lock(.auto)
         // 7.12.0: the JIT sheet first when JIT is off (Settings > JIT & Performance > JIT for Games). Without it the
         // engine asks NexPlay's JIT itself when the game starts.
@@ -634,6 +637,9 @@ final class WindowsLaunchController: UIViewController {
     private func finish() {
         guard !finished else { return }
         finished = true
+        #if NEXPLAY_WINDOWS
+        NexWindowsHost.sessionOnScreen = false
+        #endif
         dismissPanel()
         hudTimer?.invalidate()
         hudTimer = nil
@@ -713,8 +719,25 @@ final class WindowsLaunchController: UIViewController {
 enum GodotOnWindows {
     static func prepare(game: Game, windowsPath: String, arguments: String?) -> String? {
         let profile = GameProfile(windowsPath: windowsPath)
+        let defaults = UserDefaults.standard
+        let tried = "godotGLTried.\(game.id.uuidString)"
+        let weSet = "godotGLWeSet.\(game.id.uuidString)"
+        // 8.7.10: NexPlay closed within seconds of a start with these settings (Project Kat, twice). The flag below is
+        // set at each start and cleared after 30 s of running; still set at the next start = the last one crashed, so
+        // this game starts without the tweaks (and without the line they wrote) from now on.
+        if defaults.bool(forKey: tried) {
+            if defaults.bool(forKey: weSet), BCDOpenGL.word(profile.get(BCDOpenGL.key)) == BCDOpenGL.desktop {
+                profile.set(BCDOpenGL.key, nil)
+            }
+            defaults.set(false, forKey: weSet)
+            AppLog.log("windows: \(game.name): the last start with OpenGL closed NexPlay; starting without the OpenGL settings")
+            return arguments
+        }
+        defaults.set(true, forKey: tried)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { defaults.removeObject(forKey: tried) }
         if profile.get(BCDOpenGL.key) == nil {
             profile.set(BCDOpenGL.key, BCDOpenGL.desktop)
+            defaults.set(true, forKey: weSet)
             AppLog.log("windows: \(game.name): Godot game, OpenGL on (\(BCDOpenGL.key) = \(BCDOpenGL.desktop))")
         }
         let pack = Paths.folder(for: game).appendingPathComponent(game.entry)

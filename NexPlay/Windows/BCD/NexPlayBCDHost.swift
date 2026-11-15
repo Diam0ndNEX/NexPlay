@@ -18,6 +18,9 @@ enum NexWindowsHost {
     /// 8.7.9: NexPlay's Windows panel is on screen. BCD's touch-controls window (+101) took every touch while BCD's menu or
     /// starting screen was up, so the panel under it showed but its buttons did nothing (ContentView.ControlsWindow).
     nonisolated(unsafe) static var panelOpen = false
+    /// 8.7.10: NexPlay's Windows game screen is up. BCD's touch-controls window (+101) lives on after a session and, with
+    /// this false, passes every touch on (it took the library's Back, Play and menu buttons before).
+    nonisolated(unsafe) static var sessionOnScreen = false
 
     /// MadeiraApp's init and its WindowGroup's onAppear, once per app run, at the first Windows game. Not at NexPlay's
     /// launch: BCD's controller services take over GameController's handlers, which NexPlay's library uses.

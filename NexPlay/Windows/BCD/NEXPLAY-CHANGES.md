@@ -61,3 +61,7 @@ into its own target (only in builds with the Windows engine, see `NexPlayWindows
 - `ContentView.swift`: `ControlsWindow.hitTest` returns nil while `NexWindowsHost.panelOpen` (NexPlay's Windows panel is
   on screen). The window sits above the app window and took every touch while BCD's menu or starting screen was up, so
   NexPlay's panel showed but none of its buttons worked.
+
+## 2026-11-15 (NexPlay 8.7.10)
+- `ContentView.swift`: `ControlsWindow.hitTest` also returns nil unless `NexWindowsHost.sessionOnScreen` (NexPlay's Windows
+  game screen is up). The window stays above the app after a session and swallowed the library's Back, Play and menu touches.

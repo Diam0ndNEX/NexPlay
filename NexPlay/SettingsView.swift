@@ -162,7 +162,8 @@ struct SettingsView: View {
             .nexClearsTabBar()
             .background(AppBackground().ignoresSafeArea())
             .navigationTitle("Settings")
-            .searchable(text: $search, prompt: "Search settings")
+            // 8.7.10: under the title (the iOS 26 default is a bottom bar, which sat behind the tab bar).
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search settings")
             .navigationDestination(for: NexSettingsPage.self) { page in
                 SettingsPageView(page: page)
             }
