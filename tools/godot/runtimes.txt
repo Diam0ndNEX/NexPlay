@@ -3,6 +3,9 @@
 # else the next newer minor of the same major. 4.3+ use the single-threaded build (no SharedArrayBuffer needed).
 3.5.3 templates/webassembly_release.zip
 3.6.3 templates/webassembly_release.zip
+# 8.7.16: Godot 3 C# (Mono) web runtimes, "<version> mono" (godotmono-<version>.zip, see fetch_godot_runtimes.py).
+3.5.3 mono
+3.6.3 mono
 4.1.4 templates/web_release.zip
 4.2.2 templates/web_release.zip
 4.3 templates/web_nothreads_release.zip

@@ -45,6 +45,8 @@ struct GodotLaunch {
     /// Extra command-line arguments for the engine (a main scene the project only names for some platforms).
     /// May hold `GodotRuntime.overrideMarker` entries, which the launcher page turns into preloaded files.
     let args: [String]
+    /// 8.7.16: a Godot 3 C# game on the C# (Mono) web runtime.
+    var csharp = false
 }
 
 enum GodotRuntime {
@@ -320,6 +322,25 @@ enum GodotRuntime {
         return sameMajor.filter { $0.minor > pack.minor }.min()
     }
 
+    /// 8.7.16: Godot 3 C# (Mono) web runtimes bundled in the app, from NexPlay.app/GodotRuntimes/godotmono-<version>.zip.
+    static var bundledMono: [GodotVersion] {
+        guard let folder = Bundle.main.resourceURL?.appendingPathComponent("GodotRuntimes"),
+              let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return [] }
+        return names.compactMap { name -> GodotVersion? in
+            guard name.hasPrefix("godotmono-"), name.hasSuffix(".zip") else { return nil }
+            return GodotVersion(String(name.dropFirst(10).dropLast(4)))
+        }
+        .sorted()
+    }
+
+    /// The C# runtime for a Godot 3 C# pack: same minor (newest patch), else the oldest newer minor of Godot 3.
+    static func monoRuntime(for pack: GodotVersion) -> GodotVersion? {
+        guard pack.major == 3 else { return nil }
+        let have = bundledMono
+        if let exact = have.filter({ $0.minor == pack.minor }).max() { return exact }
+        return have.filter { $0.minor > pack.minor }.min()
+    }
+
     /// Runtimes that can load a pack of this version (same major, same or newer minor), for Game Settings.
     static func compatible(with pack: GodotVersion) -> [GodotVersion] {
         bundled.filter { $0.major == pack.major && $0.minor >= pack.minor }
@@ -509,11 +530,21 @@ enum GodotRuntime {
     /// Unpacks a bundled runtime into Application Support/NexPlay/GodotRuntimes/<version>/ once, and returns the
     /// folder (godot.js, godot.wasm, worklets).
     static func prepare(_ version: GodotVersion) throws -> URL {
+        try unpack(zipName: "godot-\(version).zip", folderName: "\(version)", version: version.description)
+    }
+
+    /// 8.7.16: the C# runtime, unpacked into Application Support/NexPlay/GodotRuntimes/mono-<version>/ (web files at
+    /// the top, assemblies/ beside them).
+    static func prepareMono(_ version: GodotVersion) throws -> URL {
+        try unpack(zipName: "godotmono-\(version).zip", folderName: "mono-\(version)", version: "\(version) C#")
+    }
+
+    private static func unpack(zipName: String, folderName: String, version: String) throws -> URL {
         let fm = FileManager.default
-        let folder = Paths.support.appendingPathComponent("GodotRuntimes/\(version)", isDirectory: true)
+        let folder = Paths.support.appendingPathComponent("GodotRuntimes/\(folderName)", isDirectory: true)
         if fm.fileExists(atPath: folder.appendingPathComponent("godot.wasm").path) { return folder }
-        guard let zip = Bundle.main.resourceURL?.appendingPathComponent("GodotRuntimes/godot-\(version).zip"),
-              fm.fileExists(atPath: zip.path) else { throw RuntimeError.missing(version.description) }
+        guard let zip = Bundle.main.resourceURL?.appendingPathComponent("GodotRuntimes/\(zipName)"),
+              fm.fileExists(atPath: zip.path) else { throw RuntimeError.missing(version) }
         let temp = folder.deletingLastPathComponent().appendingPathComponent("unpack-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: temp, withIntermediateDirectories: true)
         try fm.unzipItem(at: zip, to: temp)
@@ -524,7 +555,8 @@ enum GodotRuntime {
 
     /// Everything needed to start a desktop game: repairs an old extracted pack, reads its header, picks and
     /// unpacks the runtime. Synchronous file work: call it from a background task.
-    static func launch(pack: URL, override chosen: String? = nil) throws -> GodotLaunch {
+    /// `root` is the game folder (8.7.16: a C# game's Assemblies folder is looked for there too).
+    static func launch(pack: URL, override chosen: String? = nil, root: URL? = nil) throws -> GodotLaunch {
         guard FileManager.default.fileExists(atPath: pack.path) else { throw RuntimeError.noPack }
         var notes: [String] = []
         if let note = repairIfExtracted(pack) { notes.append(note) }
@@ -562,7 +594,15 @@ enum GodotRuntime {
             notes.append(line)
             if info.needsDotNet {
                 notes.append("pack holds \(info.csharpScripts) C# scripts (\(info.csharpSamples.joined(separator: ", "))) and \(info.gdScripts) GDScript files: a Godot .NET game")
-                throw RuntimeError.dotNet(head.version.description)
+                // 8.7.16: Godot 3 C# games run on Godot 3's C# web runtime once their C# files are in the pack.
+                guard head.version.major == 3, head.format <= 1 else { throw RuntimeError.dotNet(head.version.description) }
+                guard let mono = monoRuntime(for: head.version) else {
+                    throw RuntimeError.noMonoRuntime(head.version.description, bundledMono.map { $0.description })
+                }
+                let folder = try prepareMono(mono)
+                notes += try GodotMono.prepare(pack: pack, root: root, runtimeFolder: folder, runtime: mono)
+                notes.append("C# game: Godot \(mono) C# web runtime (C# is interpreted and single-threaded here, so it runs slower than on a PC)")
+                return GodotLaunch(version: head.version, runtime: mono, folder: folder, notes: notes, args: args, csharp: true)
             }
             if info.mainScene == nil && cfgScene == nil && !info.scenes.isEmpty {
                 let top = info.scenes.sorted { (depth($0), $0) < (depth($1), $1) }.prefix(15)
@@ -584,6 +624,7 @@ enum GodotRuntime {
         case encrypted
         case noRuntime(String, [String])
         case dotNet(String)
+        case noMonoRuntime(String, [String])
 
         var errorDescription: String? {
             switch self {
@@ -596,7 +637,10 @@ enum GodotRuntime {
             case .encrypted:
                 return "This Godot game is encrypted with its developer's key, so the Godot runtime can't read it."
             case .dotNet(let version):
-                return "This game is written in C# (Godot \(version) .NET edition). Godot's web runtime can only run GDScript, so this game can't run in NexPlay: no runtime choice will fix it. It needs the Windows/Mac/Linux build of Godot."
+                return "This game is written in C# (Godot \(version) .NET edition). NexPlay runs Godot 3 C# games on Godot 3's C# web runtime, but Godot 4 C# games can't run on the web (Godot doesn't support it), so this one can't run in NexPlay."
+            case .noMonoRuntime(let version, let have):
+                let list = have.isEmpty ? "none" : have.joined(separator: ", ")
+                return "This game is written in C# with Godot \(version). This build of NexPlay has Godot 3 C# runtimes for: \(list). Packs from a newer Godot than the newest runtime can't load."
             case .noRuntime(let version, let have):
                 return "This game was made with Godot \(version), and this build of NexPlay has runtimes for \(have.joined(separator: ", ")). Packs from a newer Godot than the newest runtime can't load."
             }
@@ -712,7 +756,7 @@ enum GodotRuntime {
 }
 
 /// Reads little-endian numbers from a file through a 1 MB window (pack directories can hold thousands of entries).
-private final class PackReader {
+final class PackReader {
     private let handle: FileHandle
     private let size: UInt64
     private var buffer = Data()

@@ -529,7 +529,12 @@ enum ImportPipeline {
                 }
             }
             if GodotRuntime.usesDotNet(root) || (GodotRuntime.inspect(pack)?.needsDotNet ?? false) {
-                notes.append(GodotRuntime.RuntimeError.dotNet((GodotRuntime.header(pack)?.version.description) ?? "").errorDescription ?? "")
+                // 8.7.16: Godot 3 C# games run on the C# web runtime (GodotMono.swift).
+                if let head = GodotRuntime.header(pack), head.version.major == 3, let mono = GodotRuntime.monoRuntime(for: head.version) {
+                    notes.append("Written in C# (Godot \(head.version) Mono): it runs on the bundled Godot \(mono) C# web runtime (experimental, slower than on a PC). The first start copies its C# files into the game's .pck.")
+                } else {
+                    notes.append(GodotRuntime.RuntimeError.dotNet((GodotRuntime.header(pack)?.version.description) ?? "").errorDescription ?? "")
+                }
             }
         case .godot:
             if !names.contains(where: { $0.hasSuffix(".pck") }) {

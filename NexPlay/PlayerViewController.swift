@@ -580,9 +580,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private func prepareGodotRuntime(on server: LocalGameServer) async -> Bool {
         let pack = Paths.folder(for: game).appendingPathComponent(game.entry)
         let chosen = game.runtimeVersion
+        let root = Paths.folder(for: game)
         let result = await Task.detached(priority: .userInitiated) { () -> Result<GodotLaunch, Error> in
             do {
-                return .success(try GodotRuntime.launch(pack: pack, override: chosen))
+                return .success(try GodotRuntime.launch(pack: pack, override: chosen, root: root))
             } catch {
                 return .failure(error)
             }
@@ -592,7 +593,10 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             for note in launch.notes { gameLog.add("godot: \(note)") }
             let names = (try? FileManager.default.contentsOfDirectory(atPath: launch.folder.path)) ?? []
             for name in names {
-                server.virtualFiles["__godot/" + name] = launch.folder.appendingPathComponent(name).path
+                let file = launch.folder.appendingPathComponent(name)
+                // 8.7.16: the C# runtime's assemblies/ folder stays out (its files went into the pack).
+                if (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { continue }
+                server.virtualFiles["__godot/" + name] = file.path
             }
             let encoded = game.entry.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? game.entry
             let threads = launch.runtime.major == 4 && launch.runtime.minor < 3
@@ -600,7 +604,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                                                                                     threads: threads, args: launch.args + (game.runOptions?.argumentList ?? []))
             launchPath = "__nexplay/godot.html"
             activeRuntime = launch.runtime.description
-            gameLog.add("Godot \(launch.version) game on the Godot \(launch.runtime) web runtime")
+            gameLog.add("Godot \(launch.version) game on the Godot \(launch.runtime)\(launch.csharp ? " C#" : "") web runtime")
             return true
         case .failure(let error):
             gameLog.add("Godot runtime: \(error.localizedDescription)")

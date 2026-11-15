@@ -5,6 +5,11 @@ The official export templates (godotengine/godot-builds releases, MIT license) a
 web template inside each is needed, so the ZIP is read over HTTP range requests (central directory, then that one
 entry) and nothing else is downloaded. Output: <out>/godot-<version>.zip (the web template ZIP as Godot ships it).
 
+A line "<version> mono" (8.7.16) bundles Godot 3's C# web runtime instead: godotmono-<version>.zip holds the web
+template from the Mono export templates, plus assemblies/ = the web .NET class libraries (templates/bcl/wasm, Facades
+flattened, as Godot's exporter copies them) and GodotSharp.dll from the same version's Mono editor (its Api/Release).
+NexPlay writes these and the game's own C# files into the game's .pck (GodotMono.swift).
+
 Usage: fetch_godot_runtimes.py <out-dir> [cache-dir]
 Failures are reported as Xcode warnings and never stop the build; the app then says the runtime is missing.
 """
@@ -17,6 +22,8 @@ import time
 import zipfile
 
 URL = "https://github.com/godotengine/godot-builds/releases/download/{v}-stable/Godot_v{v}-stable_export_templates.tpz"
+MONO_URL = "https://github.com/godotengine/godot-builds/releases/download/{v}-stable/Godot_v{v}-stable_mono_export_templates.tpz"
+MONO_EDITOR_URL = "https://github.com/godotengine/godot-builds/releases/download/{v}-stable/Godot_v{v}-stable_mono_x11_64.zip"
 
 
 class RangeFile(io.RawIOBase):
@@ -84,6 +91,45 @@ def fetch(version, entry, target):
     os.replace(temp, target)
 
 
+def remote_zip(url):
+    return zipfile.ZipFile(io.BufferedReader(RangeFile(url), buffer_size=4 << 20))
+
+
+def fetch_mono(version, target):
+    """godotmono-<version>.zip: the C# web template's files at the top, assemblies/ beside them."""
+    out = io.BytesIO()
+    count = 0
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as result:
+        with remote_zip(MONO_URL.format(v=version)) as tpz:
+            web = zipfile.ZipFile(io.BytesIO(tpz.read("templates/webassembly_release.zip")))
+            for name in web.namelist():
+                if not name.endswith("/"):
+                    result.writestr(os.path.basename(name), web.read(name))
+            seen = set()
+            for name in tpz.namelist():
+                if not name.startswith("templates/bcl/wasm/") or not name.lower().endswith(".dll"):
+                    continue
+                base = os.path.basename(name)
+                if base.lower() in seen:
+                    continue
+                seen.add(base.lower())
+                result.writestr("assemblies/" + base, tpz.read(name))
+                count += 1
+        with remote_zip(MONO_EDITOR_URL.format(v=version)) as editor:
+            api = [n for n in editor.namelist() if n.endswith("GodotSharp/Api/Release/GodotSharp.dll")]
+            if not api:
+                raise IOError("no GodotSharp.dll in the Mono editor")
+            result.writestr("assemblies/GodotSharp.dll", editor.read(api[0]))
+    if count < 20:
+        raise IOError("only %d class libraries found" % count)
+    data = out.getvalue()
+    zipfile.ZipFile(io.BytesIO(data)).testzip()
+    temp = target + ".part"
+    with open(temp, "wb") as handle:
+        handle.write(data)
+    os.replace(temp, target)
+
+
 def main():
     if len(sys.argv) < 2:
         print("usage: fetch_godot_runtimes.py <out-dir> [cache-dir]")
@@ -99,17 +145,21 @@ def main():
         if not line or line.startswith("#"):
             continue
         version, entry = line.split()[:2]
-        name = "godot-%s.zip" % version
+        mono = entry == "mono"
+        name = ("godotmono-%s.zip" if mono else "godot-%s.zip") % version
         target = os.path.join(out, name)
         cached = os.path.join(cache, name) if cache else None
         try:
             if cached and os.path.exists(cached):
                 shutil.copyfile(cached, target)
             else:
-                fetch(version, entry, target)
+                if mono:
+                    fetch_mono(version, target)
+                else:
+                    fetch(version, entry, target)
                 if cached:
                     shutil.copyfile(target, cached)
-            print("Godot %s: %d KB" % (version, os.path.getsize(target) // 1024))
+            print("Godot %s%s: %d KB" % (version, " C#" if mono else "", os.path.getsize(target) // 1024))
         except Exception as error:  # never break the build over one runtime
             print("warning: Godot %s runtime could not be downloaded (%s)" % (version, error))
     return 0
