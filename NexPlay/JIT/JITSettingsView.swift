@@ -123,6 +123,7 @@ struct SetupCenterView: View {
     @ObservedObject private var jit = JITManager.shared
 
     @State private var rtpMessage: String?
+    @State private var mkxpRTPMessage: String?
 
     private var windowsReady: Bool { WindowsEngine.unavailableReason == nil }
 
@@ -201,6 +202,19 @@ struct SetupCenterView: View {
                              actionTitle: "Import Folder", action: { importRTP("2003") })
                 }
                 footer(rtpMessage ?? "Pick the installed RTP folder (it holds Backdrop, CharSet, Music and the other folders).")
+
+                // 8.13.1: RTP for RPG Maker XP, VX and VX Ace games (the mkxp core reads these).
+                NexSectionHeader(title: "RPG Maker XP/VX/VX Ace", symbol: "map.fill", tint: .red)
+                    .padding(.top, 10)
+                NexRowGroup(glass: false) {
+                    ForEach(Array(MkxpRTP.kinds.enumerated()), id: \.offset) { index, kind in
+                        if index > 0 { NexRowDivider() }
+                        SetupRow(title: MkxpRTP.title(kind), ok: MkxpRTP.has(kind),
+                                 why: "Only games shipped without the standard graphics and sounds need it.",
+                                 actionTitle: "Import Folder", action: { importMkxpRTP(kind) })
+                    }
+                }
+                footer(mkxpRTPMessage ?? "Pick the installed RTP folder itself (it holds Graphics and Audio).")
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -222,6 +236,18 @@ struct SetupCenterView: View {
             .foregroundStyle(color)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 6)
+    }
+
+    private func importMkxpRTP(_ kind: String) {
+        ImportPicker.pickFolders { urls in
+            guard let url = urls.first else { return }
+            do {
+                try MkxpRTP.importFolder(from: url, kind: kind)
+                mkxpRTPMessage = "\(MkxpRTP.title(kind)) imported."
+            } catch {
+                mkxpRTPMessage = error.localizedDescription
+            }
+        }
     }
 
     private func importRTP(_ version: String) {
