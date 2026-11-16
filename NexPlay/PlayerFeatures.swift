@@ -75,7 +75,10 @@ enum PlayerFeatures {
     static func make(context: PlayerContext) -> [PlayerFeature] {
         let panel = GamePanelFeature(context: context, assist: PlayAssistFeature(context: context),
                                      tools: WebToolsFeature(context: context), power: PowerFeature(context: context))
-        return [panel, PluginsFeature(context: context), CheatsFeature(context: context),
+        // 8.13.0: the Ren'Py cheat engine; the Game Panel's Ren'Py card opens it.
+        let renpyCheats = RenPyCheatsFeature(context: context)
+        panel.renpyCheats = renpyCheats
+        return [panel, PluginsFeature(context: context), CheatsFeature(context: context), renpyCheats,
                 TranslationFeature(context: context), RenPySavesFeature(context: context), RumbleFeature(context: context)]
     }
 

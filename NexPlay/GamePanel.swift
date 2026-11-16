@@ -11,6 +11,8 @@ final class GamePanelFeature: PlayerFeature {
     let assist: PlayAssistFeature
     let tools: WebToolsFeature
     let power: PowerFeature
+    /// 8.13.0: opened from the Ren'Py card (set by `PlayerFeatures.make`).
+    weak var renpyCheats: RenPyCheatsFeature?
 
     init(context: PlayerContext, assist: PlayAssistFeature, tools: WebToolsFeature, power: PowerFeature) {
         self.assist = assist
@@ -326,6 +328,13 @@ final class GamePanelModel: ObservableObject {
         let context = panel?.context
         shouldClose = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { context?.restartGame() }
+    }
+
+    /// Closes the panel, then opens the Ren'Py cheat engine.
+    func openRenPyCheats() {
+        let feature = panel?.renpyCheats
+        shouldClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { feature?.openEngine() }
     }
 
     func showGameLogAfterClose() {
@@ -730,6 +739,8 @@ struct GamePanelView: View {
         }
         if model.game.engine == .renpy {
             NexMenuSection("Ren'Py") {
+                NexMenuRow(title: "Cheat Engine", detail: "Variables, saved flags, unlocks, jump to a label, Python console",
+                           symbol: "wand.and.stars", accessory: .chevron) { model.openRenPyCheats() }
                 NexMenuRow(title: "Quick Save", detail: "Load screen, page Q", symbol: "bolt.circle") {
                     model.renpy("renpy.run(renpy.store.QuickSave())", done: "Quick saved (Load screen, page Q)")
                 }
