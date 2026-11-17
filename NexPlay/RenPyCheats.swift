@@ -743,7 +743,9 @@ final class RenPyCheatModel: ObservableObject {
     }
 
     func add(_ row: RenPyRow, _ delta: Double) async {
-X, "path": row.p, "delta": number], write: true)
+        let number: Any
+        if delta == delta.rounded() { number = Int(delta) } else { number = delta }
+        _ = await request(["op": "add", "path": row.p, "delta": number], write: true)
     }
 
     func setLock(_ row: RenPyRow, on: Bool) async {
