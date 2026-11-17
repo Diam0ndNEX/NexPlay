@@ -17,6 +17,39 @@ enum WebTools {
         "window.__nexStartVolume = \(volume);\n" + audioBody
     }
 
+    /// Logs every AudioContext (state, sample rate) and resumes a suspended one on the first touch, click or key.
+    static let audioProbe = #"""
+    (function () {
+        if (window.__nexAudioProbe) return;
+        window.__nexAudioProbe = true;
+        var Native = window.AudioContext || window.webkitAudioContext;
+        if (!Native) { console.log('audio: this web view has no AudioContext'); return; }
+        var made = [];
+        function Probe() {
+            var ctx = new (Function.prototype.bind.apply(Native, [null].concat(Array.prototype.slice.call(arguments))))();
+            made.push(ctx);
+            console.log('audio: context created, state ' + ctx.state + ', ' + ctx.sampleRate + ' Hz');
+            ctx.addEventListener('statechange', function () { console.log('audio: context state ' + ctx.state); });
+            return ctx;
+        }
+        Probe.prototype = Native.prototype;
+        window.AudioContext = Probe;
+        window.webkitAudioContext = Probe;
+        function wake() {
+            for (var i = 0; i < made.length; i++) {
+                try { if (made[i].state !== 'running') { var p = made[i].resume(); if (p && p.catch) p.catch(function () {}); } } catch (e) {}
+            }
+        }
+        ['touchend', 'click', 'keydown', 'pointerup'].forEach(function (name) {
+            window.addEventListener(name, wake, true);
+        });
+        setTimeout(function () {
+            var states = made.map(function (c) { return c.state; }).join(',');
+            console.log('audio: ' + made.length + ' context(s) after 15 s: ' + (states || 'none'));
+        }, 15000);
+    })();
+    """#
+
     private static let audioBody = #"""
     (function () {
         var W = window.__nexWeb = window.__nexWeb || {};
@@ -274,7 +307,10 @@ final class WebToolsFeature: PlayerFeature {
 
     override func userScripts(for game: Game) -> [WKUserScript] {
         let volume = AssistOptions.load(for: game.id).volume
-        var scripts = [WKUserScript(source: WebTools.audioScript(volume: volume), injectionTime: .atDocumentStart, forMainFrameOnly: true)]
+        // 8.13.3: Ren'Py (SDL audio through a script processor) lost its sound behind the master-gain hook, so it
+        // only gets a probe that logs the audio context state and resumes it on the first touch.
+        let audioSource = game.engine == .renpy ? WebTools.audioProbe : WebTools.audioScript(volume: volume)
+        var scripts = [WKUserScript(source: audioSource, injectionTime: .atDocumentStart, forMainFrameOnly: true)]
         if game.engine.isWebGame {
             scripts.append(WKUserScript(source: WebTools.timeScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
