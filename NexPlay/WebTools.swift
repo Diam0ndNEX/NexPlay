@@ -43,6 +43,62 @@ enum WebTools {
         ['touchend', 'click', 'keydown', 'pointerup'].forEach(function (name) {
             window.addEventListener(name, wake, true);
         });
+        // Level meter: copies whatever is connected to a context's output into an analyser.
+        var meters = [];
+        try {
+            var proto = Native.prototype;
+            var nativeConnect = AudioNode.prototype.connect;
+            AudioNode.prototype.connect = function (target) {
+                var r = nativeConnect.apply(this, arguments);
+                try {
+                    if (target && target instanceof AudioDestinationNode && this.context) {
+                        var ctx = this.context;
+                        if (!ctx.__nexMeter) {
+                            ctx.__nexMeter = ctx.createAnalyser();
+                            ctx.__nexMeter.fftSize = 256;
+                            meters.push(ctx.__nexMeter);
+                            console.log('audio: something is connected to the output');
+                        }
+                        nativeConnect.call(this, ctx.__nexMeter);
+                    }
+                } catch (e) {}
+                return r;
+            };
+        } catch (e) {}
+        var loud = false, quietTicks = 0;
+        setInterval(function () {
+            var peak = 0;
+            for (var i = 0; i < meters.length; i++) {
+                try {
+                    var buf = new Float32Array(meters[i].fftSize);
+                    meters[i].getFloatTimeDomainData(buf);
+                    for (var j = 0; j < buf.length; j++) { var a = Math.abs(buf[j]); if (a > peak) peak = a; }
+                } catch (e) {}
+            }
+            var now = peak > 0.001;
+            if (now !== loud) { loud = now; console.log('audio: output ' + (now ? 'has sound (peak ' + peak.toFixed(3) + ')' : 'went silent')); }
+        }, 1000);
+        // Audio files that fail to load.
+        try {
+            var nativeFetch = window.fetch;
+            window.fetch = function (input) {
+                var url = (typeof input === 'string') ? input : (input && input.url) || '';
+                var p = nativeFetch.apply(this, arguments);
+                if (/\.(ogg|opus|mp3|wav|flac|m4a|oga|mp2)(\?|$)/i.test(url)) {
+                    p.then(function (r) { if (!r.ok) console.log('audio: file failed ' + r.status + ' ' + url); },
+                           function (e) { console.log('audio: file failed ' + url); });
+                }
+                return p;
+            };
+            var nativeOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function (m, url) {
+                var u = String(url || '');
+                if (/\.(ogg|opus|mp3|wav|flac|m4a|oga|mp2)(\?|$)/i.test(u)) {
+                    this.addEventListener('loadend', function () { if (this.status >= 400 || this.status === 0) console.log('audio: file failed ' + this.status + ' ' + u); });
+                }
+                return nativeOpen.apply(this, arguments);
+            };
+        } catch (e) {}
         setTimeout(function () {
             var states = made.map(function (c) { return c.state; }).join(',');
             console.log('audio: ' + made.length + ' context(s) after 15 s: ' + (states || 'none'));
