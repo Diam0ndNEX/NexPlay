@@ -226,6 +226,9 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         put("rubyVersion", ruby)
         put("postloadScripts", "1")
         put("networkEnabled", "1")
+        // Games that call the Windows API (Win32API, DL) fail on iOS with "undefined method" errors. Many have a
+        // phone-friendly path when they see $joiplay = true, so it is on for every game (LonaRPG needs it).
+        put("joiplayCompat", "1")
 
         // RTP folders NexPlay has, passed as mkxp's "RTP" list. The ones the game needs but we lack are noted.
         var rtpPaths: [String] = []
