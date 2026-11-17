@@ -278,6 +278,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        configureAudio()
         if !didCountPlay {
             didCountPlay = true
             update { $0.playCount += 1; $0.lastPlayed = Date() }
