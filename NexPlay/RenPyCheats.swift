@@ -603,6 +603,7 @@ final class RenPyCheatsFeature: PlayerFeature {
     /// Opens the cheat engine sheet. The game keeps running behind it (Ren'Py has to run for the Python to answer).
     func openEngine() {
         guard context.game().engine == .renpy else { return }
+        context.gameLog.add("ren'py cheats: opening the cheat engine")
         let model = RenPyCheatModel(feature: self)
         let host = UIHostingController(rootView: RenPyCheatView(model: model))
         host.modalPresentationStyle = .pageSheet

@@ -334,7 +334,7 @@ final class GamePanelModel: ObservableObject {
     func openRenPyCheats() {
         let feature = panel?.renpyCheats
         shouldClose = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { feature?.openEngine() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { feature?.openEngine() }
     }
 
     func showGameLogAfterClose() {

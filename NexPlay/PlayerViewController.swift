@@ -459,7 +459,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         controlBar.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         // The bubble shows NexPlay's own icon in every game (the grid symbol if it can't be found).
         controlBar.configure(prefs: prefs, showFastForward: game.engine.isRPGMaker && prefs.showFastForward,
-                             showCheats: game.engine.isRPGMaker && prefs.showCheats, icon: AppIconImage.image)
+                             showCheats: (game.engine.isRPGMaker || game.engine == .renpy) && prefs.showCheats, icon: AppIconImage.image)
         controlBar.menuProvider = { [weak self] in self?.buildMenuItems() ?? [] }
         controlBar.onItem = { [weak self] item in self?.barItem(item) }
         view.addSubview(controlBar)
@@ -1129,6 +1129,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         case .cheats:
             for feature in features {
                 if let cheats = feature as? CheatsFeature { cheats.openEngine() }
+                if let renpyCheats = feature as? RenPyCheatsFeature { renpyCheats.openEngine() }
             }
         }
     }
