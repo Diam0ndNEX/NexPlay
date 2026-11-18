@@ -47,8 +47,17 @@ enum NexWindowsHost {
     nonisolated static func dumpEngineLog(_ why: String, lines: Int = 60) {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let url = docs.appendingPathComponent("bcd-log.txt")
+        // 8.13.8: the same old log was dumped after every unclean launch (even crashes outside Windows games):
+        // skip it when the file has not changed since it was last dumped.
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let stamp = modified.map { String($0.timeIntervalSince1970) } ?? ""
+        if !stamp.isEmpty, UserDefaults.standard.string(forKey: "engineLogDumpedStamp") == stamp {
+            AppLog.log("engine log (\(why)): unchanged since it was last shown, not repeated")
+            return
+        }
         guard let handle = try? FileHandle(forReadingFrom: url) else { return }
         defer { try? handle.close() }
+        UserDefaults.standard.set(stamp, forKey: "engineLogDumpedStamp")
         let size = (try? handle.seekToEnd()) ?? 0
         try? handle.seek(toOffset: size > 24_000 ? size - 24_000 : 0)
         guard let data = try? handle.readToEnd(), let text = String(data: data, encoding: .utf8) else { return }

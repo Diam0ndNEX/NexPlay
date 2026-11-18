@@ -320,6 +320,17 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
                 ? "The game ended. To play another XP/VX/VX Ace game, close NexPlay from the app switcher and open it again."
                 : "The game stopped before it ended on its own. See the App Log for the reason. To start again, close NexPlay from the app switcher and open it again.",
             preferredStyle: .alert)
+        // 8.13.8: games whose own scripts need Windows (Win32API/DL, LonaRPG) can't be fixed in mkxp; offer the
+        // Windows engine when the game ships a program for it. Applies on the next start.
+        if !clean, game.runtime != .windows, GameRuntimes.choices(for: game).contains(.windows) {
+            alert.message = (alert.message ?? "") + "\n\nThis game also has a Windows program. Use Windows Next Time sets Runs On to Windows (Game Settings > Runtime)."
+            let gameID = game.id
+            alert.addAction(UIAlertAction(title: "Use Windows Next Time", style: .default) { [weak self] _ in
+                LibraryStore.current?.mutate(gameID) { $0.runtime = .windows }
+                AppLog.log("mkxp core: Runs On set to Windows for the next start")
+                self?.onExit()
+            })
+        }
         alert.addAction(UIAlertAction(title: "Back to Library", style: .default) { [weak self] _ in self?.onExit() })
         present(alert: alert)
     }
