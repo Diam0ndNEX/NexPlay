@@ -194,6 +194,52 @@ begin
   end
 rescue StandardError, NameError
 end
+
+# Windows opens a file in text mode by default: "\r\n" is read as "\n". Games written on Windows rely on it (a JSON
+# or text file saved with Windows line endings, read by a hand-written parser that only knows "\n"). Everywhere else a
+# plain read keeps the "\r", and such a parser then sees an unknown character. So a file opened for reading without
+# "b" (binary) is opened in text mode here, as on Windows; "rb" and every write mode are untouched.
+begin
+  module NexTextMode
+    def self.mode_for(mode)
+      return 'rt' if mode.nil?
+      return mode unless mode.is_a?(String)
+      return mode unless mode =~ /\Ar(?![^:]*[bt+])/
+      mode.sub(/\Ar/, 'rt')
+    end
+
+    def self.options_ok?(opts)
+      !(opts.key?(:mode) || opts.key?(:binmode) || opts.key?(:textmode) || opts.key?(:newline) ||
+        opts.key?(:universal_newline) || opts.key?(:crlf_newline))
+    end
+
+    module FileInit
+      def initialize(path, *rest, **opts, &block)
+        if !path.is_a?(Integer) && NexTextMode.options_ok?(opts) && rest.length <= 2
+          mode = rest[0]
+          if mode.nil? || mode.is_a?(String)
+            rest[0] = NexTextMode.mode_for(mode)
+          end
+        end
+        super(path, *rest, **opts, &block)
+      end
+    end
+
+    module ReadHelpers
+      def read(path, *rest, **opts)
+        opts = { mode: 'rt' }.merge(opts) if NexTextMode.options_ok?(opts) && !path.is_a?(Integer)
+        super(path, *rest, **opts)
+      end
+    end
+  end
+
+  unless File.ancestors.include?(NexTextMode::FileInit)
+    File.send(:prepend, NexTextMode::FileInit)
+    File.singleton_class.send(:prepend, NexTextMode::ReadHelpers)
+    IO.singleton_class.send(:prepend, NexTextMode::ReadHelpers)
+  end
+rescue StandardError, NameError, ArgumentError
+end
 """#
 
     /// 8.13.12: the call-depth trace, only for a game that ended with a stack error (see MkxpRunner.coreMessage).

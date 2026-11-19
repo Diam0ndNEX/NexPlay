@@ -76,4 +76,22 @@ nex_runaway(0)
 set_trace_func(nil)
 check 'trace shows the JSON text', $out.any? { |m| m.include?('JSON text around the index') }
 check 'trace reports the runaway method', $out.any? { |m| m.include?('nex_runaway') } && $out.any? { |m| m.include?('last calls') }
+
+# Windows-style text mode: "\r\n" is read as "\n" unless the file is opened binary.
+require 'tmpdir'
+tmp = File.join(Dir.tmpdir, 'nex_crlf_test.json')
+File.open(tmp, 'wb') { |f| f.write("[\r\n1,\r\n2\r\n]") }
+check 'plain File.open read drops \\r', File.open(tmp).read == "[\n1,\n2\n]"
+check 'Kernel#open read drops \\r', open(tmp).read == "[\n1,\n2\n]"
+check 'File.read drops \\r', File.read(tmp) == "[\n1,\n2\n]"
+check 'File.open "r" drops \\r', File.open(tmp, 'r').read == "[\n1,\n2\n]"
+check 'File.open with block drops \\r', File.open(tmp) { |f| f.read } == "[\n1,\n2\n]"
+check 'File.open "rb" keeps \\r', File.open(tmp, 'rb').read == "[\r\n1,\r\n2\r\n]"
+check 'File.binread keeps \\r', File.binread(tmp) == "[\r\n1,\r\n2\r\n]"
+check 'readlines drops \\r', File.open(tmp).readlines.first == "[\n"
+File.open(tmp, 'wb') { |f| f.write(Marshal.dump([1, "a\r\nb"])) }
+check 'Marshal through "rb" is intact', Marshal.load(File.open(tmp, 'rb')) == [1, "a\r\nb"]
+File.open(tmp, 'w') { |f| f.write("x\ny") }
+check 'writing still works', File.read(tmp) == "x\ny"
+File.delete(tmp)
 exit($failed ? 1 : 0)
