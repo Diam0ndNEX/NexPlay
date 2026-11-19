@@ -259,7 +259,10 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         if let setLog = core.setDebugLogPath {
             let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             let log = caches.appendingPathComponent("mkxp-session.log").path
-            try? FileManager.default.removeItem(atPath: log)
+            // 8.15.6: the last run's log is kept as mkxp-session.prev.log (Export Logs has both).
+            let prev = caches.appendingPathComponent("mkxp-session.prev.log").path
+            try? FileManager.default.removeItem(atPath: prev)
+            try? FileManager.default.moveItem(atPath: log, toPath: prev)
             log.withCString { setLog($0) }
         }
 

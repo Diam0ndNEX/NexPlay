@@ -164,7 +164,10 @@ enum SelfTest {
         if !selfTest.isEmpty {
             try writer.add(name: "self-test.txt", data: Data(text(selfTest).utf8))
         }
-        try writer.add(name: "app.log", data: Data(log.utf8))
+        // 8.15.6: the whole log file (several sessions, up to 8 MB), not only the lines in memory (the run before this
+        // launch was cut to its last 200 lines).
+        let full = tail(of: AppLog.shared.fileURL, bytes: 8_000_000) ?? Data(log.utf8)
+        try writer.add(name: "app.log", data: full)
         let jitLines = log.split(separator: "\n").filter { $0.contains("jit:") }.joined(separator: "\n")
         try writer.add(name: "jit.log", data: Data(jitLines.utf8))
         // 8.7.14: the Windows engine's own logs (Wine, FEX, DXMT, the graphics set-up), the last 6 MB of each. The app log
@@ -184,8 +187,10 @@ enum SelfTest {
         }
         // 8.13.11: the mkxp core's own debug log (script loading, rescued Ruby errors with their backtraces).
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        if let data = tail(of: caches.appendingPathComponent("mkxp-session.log"), bytes: 1_000_000), !data.isEmpty {
-            try writer.add(name: "mkxp-session.log", data: data)
+        for name in ["mkxp-session.log", "mkxp-session.prev.log"] {
+            if let data = tail(of: caches.appendingPathComponent(name), bytes: 3_000_000), !data.isEmpty {
+                try writer.add(name: name, data: data)
+            }
         }
         // 8.7.15: the games' own logs in the Windows drive (Godot's logs/ and mono/mono_logs/), the newest two of each.
         for (name, data) in gameLogs(docs: docs) {

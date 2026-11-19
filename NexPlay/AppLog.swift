@@ -9,7 +9,7 @@ final class AppLog {
     private let queue = DispatchQueue(label: "nexplay.applog")
     private var lines: [String] = []
     private let limit = 1000
-    private let maxFileBytes: UInt64 = 512 * 1024
+    private let maxFileBytes: UInt64 = 8 * 1024 * 1024
     let fileURL: URL
     private let formatter: DateFormatter
 
@@ -21,9 +21,9 @@ final class AppLog {
         // Keep the file small: start over when it grows too large.
         let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.uint64Value ?? 0
         if size > maxFileBytes {
-            // 8.15.5: keep the newest quarter (the run before this launch, e.g. a frozen game) instead of deleting it all.
+            // 8.15.6: 8 MB cap, keeps the newest half (several sessions). 8.15.5: keep the newest part (the run before this launch, e.g. a frozen game) instead of deleting it all.
             if let data = try? Data(contentsOf: fileURL) {
-                let tail = data.suffix(Int(maxFileBytes / 4))
+                let tail = data.suffix(Int(maxFileBytes / 2))
                 let start = tail.firstIndex(of: 10).map { tail.index(after: $0) } ?? tail.startIndex
                 try? Data(tail[start...]).write(to: fileURL, options: .atomic)
             } else {
