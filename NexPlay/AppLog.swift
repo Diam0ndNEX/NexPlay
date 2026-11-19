@@ -21,7 +21,14 @@ final class AppLog {
         // Keep the file small: start over when it grows too large.
         let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.uint64Value ?? 0
         if size > maxFileBytes {
-            try? FileManager.default.removeItem(at: fileURL)
+            // 8.15.5: keep the newest quarter (the run before this launch, e.g. a frozen game) instead of deleting it all.
+            if let data = try? Data(contentsOf: fileURL) {
+                let tail = data.suffix(Int(maxFileBytes / 4))
+                let start = tail.firstIndex(of: 10).map { tail.index(after: $0) } ?? tail.startIndex
+                try? Data(tail[start...]).write(to: fileURL, options: .atomic)
+            } else {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
         }
         if let old = try? String(contentsOf: fileURL, encoding: .utf8) {
             lines = Array(old.split(separator: "\n").suffix(200).map(String.init))

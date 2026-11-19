@@ -342,7 +342,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         // 8.15.2: a heartbeat in the App Log every 5 s (time since start, the core's frame rate, paused or not). No line
         // = the main thread is stuck inside the core; fps 0 with lines = the game is not drawing.
         let startedAt = Date()
-        let beat = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+        let beat = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             guard let self = self, !self.ended else { return }
             let fps = self.core.averageFPS.map { Int($0().rounded()) } ?? -1
             AppLog.log("mkxp: alive \(Int(Date().timeIntervalSince(startedAt))) s, fps \(fps), paused \(self.paused), panel \(self.panelController != nil), editing \(self.overlay?.isEditing == true)")
@@ -358,8 +358,10 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
             DispatchQueue.main.async { mainSeen.set(Date()) }
             guard let self = self else { return }
             let stuck = Date().timeIntervalSince(mainSeen.get())
-            if stuck > 3 {
-                AppLog.log("mkxp: the main thread has not served UIKit for \(Int(stuck)) s (the core holds it)")
+            // 8.15.5: one line at 4 s, then one every 30 s while it lasts (not every 2 s).
+            let seconds = Int(stuck)
+            if stuck > 3, seconds < 6 || seconds % 30 < 2 {
+                AppLog.log("mkxp: the main thread has not served UIKit for \(seconds) s (the core holds it)")
             }
         }
         mainSeen.set(Date())
