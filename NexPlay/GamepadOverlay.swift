@@ -633,7 +633,7 @@ final class GamepadOverlayView: UIView {
             }
         }
         let main: [UIMenuElement] = [
-            entry("Button", "circle.fill", .key, 13, "Btn"),
+            entry("Button", "circle.fill", .key, 13),
             entry("Joystick", "circle.circle", .joystick),
             entry("D-Pad", "dpad", .dpad),
         ]

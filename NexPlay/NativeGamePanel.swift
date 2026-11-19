@@ -328,19 +328,36 @@ enum NativePad {
         return top
     }
 
+    /// 8.14.2: RPG Maker and Ruby games only read the arrow keys, so a stick or D-pad set to W A S D (the keyboard
+    /// presets) did nothing there. The directions go back to the arrows for those engines.
+    static func arrowsOnly(_ profile: LayoutProfile, _ game: Game) -> LayoutProfile {
+        guard game.engine.isRPGMaker || game.engine.isRuby else { return profile }
+        func fix(_ items: [ControlItem]) -> [ControlItem] {
+            items.map { item in
+                var item = item
+                if item.action.isDirectional { item.wasd = nil }
+                return item
+            }
+        }
+        var result = profile
+        result.portrait = fix(profile.portrait)
+        result.landscape = fix(profile.landscape)
+        return result
+    }
+
     /// Wires the overlay like the web player does: the layout (with the global size and opacity), saving, reset,
     /// presets and the Edit Button page. `presenter` gives the controller the pages are shown on.
     static func wire(_ pad: GamepadOverlayView, game: Game, presenter: @escaping () -> UIViewController?) {
         let prefs = ControlPrefs.current()
         let gameID = game.id
         let current = game
-        pad.setProfile(prefs.display(LayoutStore.load(for: current)))
+        pad.setProfile(prefs.display(arrowsOnly(LayoutStore.load(for: current), current)))
         pad.onSave = { profile in LayoutStore.save(prefs.stored(profile), for: gameID) }
         pad.onReset = {
             LayoutStore.reset(gameID)
-            return prefs.display(LayoutStore.load(for: current))
+            return prefs.display(arrowsOnly(LayoutStore.load(for: current), current))
         }
-        pad.onPreset = { preset in prefs.display(preset.profile) }
+        pad.onPreset = { preset in prefs.display(arrowsOnly(preset.profile, current)) }
         pad.onEditItem = { item, done in
             let editor = ControlEditorView(item: item) { result in done(result) }
             let host = UIHostingController(rootView: editor)

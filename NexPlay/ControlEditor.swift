@@ -69,7 +69,7 @@ struct ControlEditorView: View {
                     Button("Save") {
                         var result = item
                         let trimmed = name.trimmingCharacters(in: .whitespaces)
-                        result.label = trimmed.isEmpty ? nil : String(trimmed.prefix(10))
+                        result.label = (trimmed.isEmpty || trimmed == "Btn") ? nil : String(trimmed.prefix(10))
                         onDone(result)
                         dismiss()
                     }
@@ -143,15 +143,26 @@ struct ControlEditorView: View {
         .accessibilityLabel(tint?.rawValue.capitalized ?? "Default")
     }
 
+    /// 8.14.2: a name left over from the old key ("Btn", or the old key's own name) is dropped when the key changes,
+    /// so the button shows its new key. A name the player typed stays.
+    private func dropAutoName() {
+        let typed = name.trimmingCharacters(in: .whitespaces)
+        if typed.isEmpty || typed == "Btn" || typed == original.displayLabel || typed == item.displayLabel {
+            name = ""
+        }
+    }
+
     private var mappingSection: some View {
         Section {
             NavigationLink {
                 KeySelectView(selection: KeyChoice(item)) { choice in
                     switch choice {
                     case .action(let action):
+                        dropAutoName()
                         item.action = action
                         item.keyCode = nil
                     case .key(let code):
+                        dropAutoName()
                         item.action = .key
                         item.keyCode = code
                     }
