@@ -182,6 +182,11 @@ enum SelfTest {
                 try writer.add(name: name, data: data)
             }
         }
+        // 8.13.11: the mkxp core's own debug log (script loading, rescued Ruby errors with their backtraces).
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        if let data = tail(of: caches.appendingPathComponent("mkxp-session.log"), bytes: 1_000_000), !data.isEmpty {
+            try writer.add(name: "mkxp-session.log", data: data)
+        }
         // 8.7.15: the games' own logs in the Windows drive (Godot's logs/ and mono/mono_logs/), the newest two of each.
         for (name, data) in gameLogs(docs: docs) {
             try writer.add(name: name, data: data)
