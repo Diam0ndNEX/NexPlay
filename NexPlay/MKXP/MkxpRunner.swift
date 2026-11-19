@@ -244,7 +244,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         // 8.13.27: RPG Maker's own player stretches the game screen with smoothing (bilinear). The core's default is
         // nearest-neighbour, which at a phone's non-whole-number scale (640x360 shown about 3.3x) gives uneven, harsh
         // pixels that shimmer while the screen scrolls. Bilinear for upscaling, as on Windows.
-        overlay["smoothScaling"] = 1
+        overlay["smoothScaling"] = MkxpScaling.current(for: game.id).rawValue  // Game Panel > Picture
         let compatScripts = MkxpCompat.installedPaths(for: game.id)
         if !compatScripts.isEmpty { overlay["preloadScript"] = compatScripts }
         if compatScripts.count > 1 {
