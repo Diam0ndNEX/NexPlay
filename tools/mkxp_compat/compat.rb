@@ -172,6 +172,8 @@ Fiddle = DL unless defined?(Fiddle)
 # (GetKeyboardState fills the buffer by index) can write into it.
 begin
   Win32API.class_eval do
+    # Guard: loading this file twice must not alias the wrapper to itself (endless recursion).
+    next if method_defined?(:nex_call_before_dl)
     alias_method :nex_call_before_dl, :call
     def call(*args)
       args = args.map do |arg|

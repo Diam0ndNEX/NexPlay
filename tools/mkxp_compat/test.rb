@@ -64,4 +64,14 @@ check 'extern function call', MyUser32.GetKeyboardState(state3.to_i) == 1 && sta
 DL.dlopen('kernel32')['Nope'].call(1)
 check 'unknown function tolerated', $out.any? { |m| m.include?('kernel32:Nope') }
 check 'Fiddle alias', Fiddle::CPtr == DL::CPtr
+# 7. loading compat.rb twice must not recurse
+load File.join(File.dirname(__FILE__), 'compat.rb')
+check 'second load is harmless', Win32API.new('user32.dll', 'GetKeyboardState', 'I', 'I').call(DL::CPtr.malloc(256).to_i) == 1
+# 8. the call-depth trace names the recursing methods
+$out.clear
+load File.join(File.dirname(__FILE__), 'trace.rb')
+def nex_runaway(n); nex_runaway(n + 1) if n < 3500; end
+nex_runaway(0)
+set_trace_func(nil)
+check 'trace reports the runaway method', $out.any? { |m| m.include?('nex_runaway') } && $out.any? { |m| m.include?('last calls') }
 exit($failed ? 1 : 0)

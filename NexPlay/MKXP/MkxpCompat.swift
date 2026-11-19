@@ -181,6 +181,8 @@ Fiddle = DL unless defined?(Fiddle)
 # (GetKeyboardState fills the buffer by index) can write into it.
 begin
   Win32API.class_eval do
+    # Guard: loading this file twice must not alias the wrapper to itself (endless recursion).
+    next if method_defined?(:nex_call_before_dl)
     alias_method :nex_call_before_dl, :call
     def call(*args)
       args = args.map do |arg|
@@ -194,19 +196,78 @@ rescue StandardError, NameError
 end
 """#
 
-    /// Writes the script and returns its path for mkxp.json's "preloadScript".
-    static func installedPath() -> String? {
-        let url = Paths.support.appendingPathComponent("mkxp-compat.rb")
-        do {
-            try FileManager.default.createDirectory(at: Paths.support, withIntermediateDirectories: true)
-            if (try? String(contentsOf: url, encoding: .utf8)) != source {
-                try source.write(to: url, atomically: true, encoding: .utf8)
+    /// 8.13.12: the call-depth trace, only for a game that ended with a stack error (see MkxpRunner.coreMessage).
+    static let traceSource = #"""
+# NexPlay diagnostic: finds what recurses when a game ends with "SystemStackError: stack level too deep".
+# Ruby cuts the backtrace of that error to one frame, so nothing says which methods call each other. This keeps the
+# last method calls in a ring buffer and, when the call depth passes a limit, writes them to the debug log once
+# (mkxp-session.log in Export Logs). It slows the game down a lot, so NexPlay only turns it on for a game after
+# that game has ended with a stack error. Plain Ruby 1.8/1.9 syntax.
+unless defined?(NexDeepTrace)
+  module NexDeepTrace
+    LIMIT = 3000
+    KEEP = 60
+    @depth = 0
+    @ring = []
+    @busy = false
+    @done = false
+
+    class << self
+      def event(kind, file, line, id, klass)
+        return if @busy || @done
+        @busy = true
+        if kind == 'call' || kind == 'c-call'
+          @depth += 1
+          @ring << (klass.to_s + '#' + id.to_s + ' ' + file.to_s + ':' + line.to_s + ' d' + @depth.to_s)
+          @ring.shift if @ring.size > KEEP
+          dump if @depth >= LIMIT
+        elsif (kind == 'return' || kind == 'c-return') && @depth > 0
+          @depth -= 1
+        end
+        @busy = false
+      end
+
+      def dump
+        @done = true
+        begin
+          System.puts('[NexPlay trace] call depth reached ' + @depth.to_s + '; the last calls were:')
+          @ring.each { |entry| System.puts('[NexPlay trace]   ' + entry) }
+        rescue StandardError, NameError
+        end
+        set_trace_func(nil)
+      end
+    end
+  end
+
+  set_trace_func(proc { |kind, file, line, id, binding, klass| NexDeepTrace.event(kind, file, line, id, klass) })
+  begin
+    System.puts('[NexPlay trace] call-depth trace is on for this run')
+  rescue StandardError, NameError
+  end
+end
+"""#
+
+    /// UserDefaults key: the next run of this game turns the trace on.
+    static func traceKey(_ id: UUID) -> String { "mkxpDeepTrace.\(id.uuidString)" }
+
+    /// Writes the scripts and returns their paths for mkxp.json's "preloadScript".
+    static func installedPaths(for gameID: UUID) -> [String] {
+        var files = [("mkxp-compat.rb", source)]
+        if UserDefaults.standard.bool(forKey: traceKey(gameID)) { files.append(("mkxp-trace.rb", traceSource)) }
+        var paths: [String] = []
+        for (name, text) in files {
+            let url = Paths.support.appendingPathComponent(name)
+            do {
+                try FileManager.default.createDirectory(at: Paths.support, withIntermediateDirectories: true)
+                if (try? String(contentsOf: url, encoding: .utf8)) != text {
+                    try text.write(to: url, atomically: true, encoding: .utf8)
+                }
+                paths.append(url.path)
+            } catch {
+                AppLog.log("mkxp compat: could not write \(name) (\(error.localizedDescription))")
             }
-            return url.path
-        } catch {
-            AppLog.log("mkxp compat: could not write the stand-in script (\(error.localizedDescription))")
-            return nil
         }
+        return paths
     }
 }
 #endif

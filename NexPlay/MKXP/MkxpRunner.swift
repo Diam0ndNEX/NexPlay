@@ -238,7 +238,13 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         }
         var overlay: [String: Any] = [:]
         if !rtpPaths.isEmpty { overlay["RTP"] = rtpPaths }
-        if let compat = MkxpCompat.installedPath() { overlay["preloadScript"] = [compat] }
+        let compatScripts = MkxpCompat.installedPaths(for: game.id)
+        if !compatScripts.isEmpty { overlay["preloadScript"] = compatScripts }
+        if compatScripts.count > 1 {
+            AppLog.log("mkxp compat: call-depth trace is on for this run (the last run ended in a stack error)")
+            // One run only: a stack error in this run switches it on again for the next, otherwise it stays off.
+            UserDefaults.standard.removeObject(forKey: MkxpCompat.traceKey(game.id))
+        }
         if !overlay.isEmpty,
            let data = try? JSONSerialization.data(withJSONObject: overlay),
            let json = String(data: data, encoding: .utf8) {
@@ -294,6 +300,11 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
     /// The core can wait for the person to close the alert, so OK must always call the signal.
     fileprivate func coreMessage(_ text: String, isError: Bool) {
         AppLog.log("mkxp core \(isError ? "error" : "info"): \(text)")
+        // 8.13.12: Ruby cuts a stack error's backtrace to one frame. The next run of this game records its call depth
+        // (NexDeepTrace) so Export Logs names what recurses; a run without the error turns it off again.
+        if isError, text.contains("SystemStackError") {
+            UserDefaults.standard.set(true, forKey: MkxpCompat.traceKey(game.id))
+        }
         var body = text
         if isError, !missingRTP.isEmpty {
             let names = missingRTP.map { MkxpRTP.title($0) }.joined(separator: ", ")
