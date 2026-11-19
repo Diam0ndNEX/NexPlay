@@ -1183,11 +1183,21 @@ unless defined?(NexDeepTrace)
     @ring = []
     @busy = false
     @done = false
+    @started = Time.now
+    @count = 0
 
     class << self
       def event(kind, file, line, id, klass)
         return if @busy || @done
         @busy = true
+        # The trace makes the game very slow: it switches itself off after 45 seconds, long before a normal game is played.
+        @count += 1
+        if @count % 2000 == 0 && Time.now - @started > 45
+          @done = true
+          set_trace_func(nil)
+          @busy = false
+          return
+        end
         if kind == 'call' || kind == 'c-call'
           @depth += 1
           @ring << (klass.to_s + '#' + id.to_s + ' ' + file.to_s + ':' + line.to_s + ' d' + @depth.to_s)
