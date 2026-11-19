@@ -95,6 +95,8 @@ check 'File.open with block drops \\r', File.open(tmp) { |f| f.read } == "[\n1,\
 check 'gets drops \\r', File.open(tmp).gets == "[\n"
 check 'readlines drops \\r', File.open(tmp).readlines == ["[\n", "1,\n", "2\n", "]"]
 check 'clean() removes \\r\\n', NexTextMode.clean("a\r\nb") == "a\nb" && NexTextMode.clean(nil).nil?
+check 'File.readlines drops \\r', File.readlines(tmp) == ["[\n", "1,\n", "2\n", "]"]
+check 'File.foreach drops \\r', (a = []; File.foreach(tmp) { |l| a << l }; a == ["[\n", "1,\n", "2\n", "]"])
 check 'File.open "rb" keeps \\r', File.open(tmp, 'rb').read == "[\r\n1,\r\n2\r\n]"
 check 'File.binread keeps \\r', File.binread(tmp) == "[\r\n1,\r\n2\r\n]"
 check 'readlines drops \\r', File.open(tmp).readlines.first == "[\n"

@@ -301,6 +301,39 @@ begin
     end
   end
 
+  # The core's windows_fs.rb gives File its own read/readlines/foreach (they call the C originals directly, so the
+  # IO.read patch below is bypassed for File.read) and its universal-newline help only works on Ruby >= 3.1.
+  # Clean the results of the bare forms (File.read(path), File.readlines(path), File.foreach(path)) here too.
+  [IO, File].each do |nex_k|
+    begin
+      next if nex_k.singleton_class.method_defined?(:nex_whole_read_before)
+      nex_k.singleton_class.class_eval do
+        alias_method :nex_whole_read_before, :read
+        alias_method :nex_whole_readlines_before, :readlines
+        alias_method :nex_whole_foreach_before, :foreach
+        def read(*args)
+          text = nex_whole_read_before(*args)
+          args.length == 1 ? NexTextMode.clean(text) : text
+        end
+        def readlines(*args)
+          lines = nex_whole_readlines_before(*args)
+          args.length == 1 ? lines.map { |l| NexTextMode.clean(l) } : lines
+        end
+        def foreach(*args, &block)
+          return nex_whole_foreach_before(*args) unless block && args.length == 1
+          nex_whole_foreach_before(*args) { |l| block.call(NexTextMode.clean(l)) }
+        end
+        if respond_to?(:ruby2_keywords, true)
+          ruby2_keywords :read
+          ruby2_keywords :readlines
+          ruby2_keywords :foreach
+        end
+      end
+    rescue Exception => e
+      DL.nex_log('text clean for ' + nex_k.to_s + ' failed: ' + e.message)
+    end
+  end
+
   unless IO.respond_to?(:nex_read_before_text)
     class << IO
       alias_method :nex_read_before_text, :read
