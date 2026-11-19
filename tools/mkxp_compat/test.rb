@@ -189,4 +189,7 @@ check 'vertical shadow at the far edge', vertical.log.include?([:clear_rect, 99,
 check 'unknown KGL function is tolerated', kgl('kglSoftShadows', 1) == 0
 check 'other libraries are not taken over', Win32API.new('user32', 'Whatever', '', 'i').call == 0
 
+
+ok = (5[0] == 1 && 5[0, 8] == 5 && 0b1100[2, 2] == 3 && 0b1100[2..3] == 3)
+$stderr.puts('Integer#[] check') ; $failed = true unless ok
 exit($failed ? 1 : 0)
