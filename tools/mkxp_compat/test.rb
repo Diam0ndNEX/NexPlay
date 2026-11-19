@@ -70,8 +70,10 @@ check 'second load is harmless', Win32API.new('user32.dll', 'GetKeyboardState', 
 # 8. the call-depth trace names the recursing methods
 $out.clear
 load File.join(File.dirname(__FILE__), 'trace.rb')
+module JSON; @json = '[[[[ hello ]]]]'; @index = 4; end
 def nex_runaway(n); nex_runaway(n + 1) if n < 3500; end
 nex_runaway(0)
 set_trace_func(nil)
+check 'trace shows the JSON text', $out.any? { |m| m.include?('JSON text around the index') }
 check 'trace reports the runaway method', $out.any? { |m| m.include?('nex_runaway') } && $out.any? { |m| m.include?('last calls') }
 exit($failed ? 1 : 0)

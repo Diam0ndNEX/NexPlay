@@ -34,7 +34,27 @@ unless defined?(NexDeepTrace)
           @ring.each { |entry| System.puts('[NexPlay trace]   ' + entry) }
         rescue StandardError, NameError
         end
+        extras
         set_trace_func(nil)
+      end
+
+      # A game's own JSON reader (class methods keeping @json / @index, like the common "JSON Encoder/Decoder" script)
+      # is the usual deep recursion: say what it is reading and how far it got.
+      def extras
+        return unless defined?(::JSON)
+        json = ::JSON.instance_variable_get(:@json)
+        index = ::JSON.instance_variable_get(:@index)
+        return unless json.respond_to?(:length)
+        System.puts('[NexPlay trace] JSON text length ' + json.length.to_s + ', index ' + index.to_s)
+        System.puts('[NexPlay trace] JSON text start: ' + json[0, 300].to_s.inspect)
+        from = index.to_i - 150
+        from = 0 if from < 0
+        System.puts('[NexPlay trace] JSON text around the index: ' + json[from, 300].to_s.inspect)
+        begin
+          System.puts('[NexPlay trace] JSON.parse is defined at ' + ::JSON.method(:parse).source_location.inspect)
+        rescue StandardError, NameError
+        end
+      rescue StandardError, NameError
       end
     end
   end
