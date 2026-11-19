@@ -522,7 +522,19 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         setup.exit = { exit(0) }
         let controller = NexMenuHostingController(rootView: NativeGamePanel(setup: setup))
         panelController = controller
-        host.present(controller, animated: true)
+        // 8.15.1: the panel is shown over whatever is on top (a core alert would make host.present fail silently and
+        // leave the game paused for good = 0 fps, nothing answering). If it did not appear, the pause is undone.
+        let wasPaused = panelKeepPaused
+        AppLog.log("mkxp: panel opening (paused=\(paused))")
+        (NativePad.top(host) ?? host).present(controller, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self, weak controller] in
+            guard let self = self, self.panelController != nil || controller != nil else { return }
+            if controller?.presentingViewController == nil && controller?.view.window == nil {
+                AppLog.log("mkxp: the panel did not appear; resuming the game")
+                self.panelController = nil
+                if self.canPause, self.paused != wasPaused { self.togglePause() }
+            }
+        }
     }
 
     private func closePanel(then action: (() -> Void)? = nil) {
@@ -712,6 +724,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
 
     private func togglePause() {
         paused.toggle()
+        AppLog.log("mkxp: \(paused ? "pause" : "resume")")
         if paused { core.requestPause?() } else { core.requestResume?() }
     }
 
