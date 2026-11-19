@@ -11,7 +11,9 @@ import UIKit
 /// How the picture of a native engine is stretched to the screen. For mkxp it is the core's `smoothScaling`
 /// (read when the core starts); EasyRPG uses Sharp or Smooth at once.
 enum NativeScaling: Int, CaseIterable, Identifiable {
-    case sharp = 0, smooth = 1, bicubic = 2, pixelArt = 4
+    // 8.15.7: no Pixel Art (xBRZ, mkxp value 4): at a phone's 2868x1320 it made every frame take seconds, so the main
+    // thread (touches, menu, HUD) starved. A saved 4 now falls back to Smooth.
+    case sharp = 0, smooth = 1, bicubic = 2
 
     var id: Int { rawValue }
 
@@ -33,7 +35,6 @@ enum NativeScaling: Int, CaseIterable, Identifiable {
         case .sharp: return "Sharp"
         case .smooth: return "Smooth"
         case .bicubic: return "Smoother"
-        case .pixelArt: return "Pixel Art"
         }
     }
 
@@ -42,7 +43,6 @@ enum NativeScaling: Int, CaseIterable, Identifiable {
         case .sharp: return "Hard pixels, the fastest; uneven at a phone's scale."
         case .smooth: return "A soft stretch, like RPG Maker's own player."
         case .bicubic: return "Softer edges, a little sharper than Smooth."
-        case .pixelArt: return "Redraws pixel art with clean edges (xBRZ); the heaviest."
         }
     }
 }
