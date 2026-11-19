@@ -18,6 +18,66 @@ final class LibraryStore: ObservableObject {
         ImportPipeline.sweepStaging()
         load()
         LibraryStore.current = self
+        // 8.14.1: a delete the app did not finish (it closed or crashed after the game left the list) is finished now.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await self?.finishPendingDeletes()
+        }
+    }
+
+    // MARK: - Pending deletes (8.14.1)
+
+    /// PendingDeletes/<uuid>.json: the game being deleted, written before it leaves the list, removed when every step
+    /// is done. The owner saw the app close while deleting, with the game gone from the list on the next start but its
+    /// files, saves and web data possibly still there.
+    private static let pendingFolder: URL = {
+        let dir = Paths.support.appendingPathComponent("PendingDeletes", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private static func pendingURL(_ id: UUID) -> URL {
+        pendingFolder.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    private func notePending(_ game: Game) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(game) {
+            try? data.write(to: Self.pendingURL(game.id), options: .atomic)
+        }
+    }
+
+    private func finishPendingDeletes() async {
+        let urls = (try? FileManager.default.contentsOfDirectory(at: Self.pendingFolder, includingPropertiesForKeys: nil)) ?? []
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        for url in urls where url.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: url), let game = try? decoder.decode(Game.self, from: data) else {
+                try? FileManager.default.removeItem(at: url)
+                continue
+            }
+            // A game that is in the library again (re-imported with the same id) is not touched.
+            if self.game(id: game.id) != nil {
+                try? FileManager.default.removeItem(at: url)
+                continue
+            }
+            // If the same step closes the app again, it must not do so at every start: after two tries the web data
+            // step is skipped, after three the record is dropped.
+            let key = "pendingDeleteTries.\(game.id.uuidString)"
+            let tries = UserDefaults.standard.integer(forKey: key) + 1
+            UserDefaults.standard.set(tries, forKey: key)
+            if tries > 3 {
+                AppLog.log("delete: gave up finishing the delete of \(game.name)")
+                try? FileManager.default.removeItem(at: url)
+                UserDefaults.standard.removeObject(forKey: key)
+                continue
+            }
+            AppLog.log("delete: finishing the delete of \(game.name) that did not complete last time (try \(tries))")
+            _ = AppLog.shared.text
+            await removeFiles(of: game, skipWebData: tries >= 2)
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     // MARK: - Persistence
@@ -70,12 +130,24 @@ final class LibraryStore: ObservableObject {
         // whose files are being removed underneath it.
         // 8.14.0: each step is logged first, so a crash while deleting names its step in the next launch's log.
         AppLog.log("delete: \(game.name): removing from the library")
+        notePending(game)
         games.removeAll { $0.id == game.id }
         save()
+        await removeFiles(of: target)
+    }
+
+    /// Every step after the game left the list. Safe to run again: each step skips what is already gone.
+    private func removeFiles(of game: Game, skipWebData: Bool = false) async {
+        let target = game
         AppLog.log("delete: rescuing saves")
         _ = await Task.detached(priority: .userInitiated) { SaveArchive.rescue(target) }.value
-        AppLog.log("delete: web data")
-        await DataStores.wipe(for: game)
+        if skipWebData {
+            AppLog.log("delete: web data skipped")
+        } else {
+            AppLog.log("delete: web data")
+            _ = AppLog.shared.text
+            await DataStores.wipe(for: game)
+        }
         AppLog.log("delete: files")
         WindowsLibraryLink.remove(for: game)
         try? FileManager.default.removeItem(at: Paths.folder(for: game))
@@ -92,6 +164,7 @@ final class LibraryStore: ObservableObject {
             try? FileManager.default.moveItem(at: parkedProfiles, to: target)
         }
         CoverCache.forget(game)
+        try? FileManager.default.removeItem(at: Self.pendingURL(game.id))
         AppLog.log("deleted \(game.name)")
     }
 
