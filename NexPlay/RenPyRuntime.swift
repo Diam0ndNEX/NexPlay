@@ -398,7 +398,7 @@ enum RenPyRuntime {
         var folders = Set<String>()
         for file in files {
             var parts = file.relative.split(separator: "/").map(String.init)
-            parts.removeLast()
+            if !parts.isEmpty { parts.removeLast() }
             while !parts.isEmpty {
                 folders.insert(parts.joined(separator: "/"))
                 parts.removeLast()
