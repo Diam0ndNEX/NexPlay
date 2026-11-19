@@ -1414,7 +1414,20 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         presentOnTop(alert)
     }
 
+    private var exiting = false
+
     private func exitGame() {
+        guard !exiting else { return }
+        if let panel = gamePanel, PlayAssist.supports(game), !isShutDown {
+            // 8.15.0: an auto state first (up to 3 s), so the game can be continued where it was left.
+            exiting = true
+            Task { @MainActor [weak self] in
+                await panel.assist.saveOnExit()
+                self?.shutdown()
+                self?.onExit()
+            }
+            return
+        }
         shutdown()
         onExit()
     }

@@ -547,6 +547,19 @@ final class PlayAssistFeature: PlayerFeature {
         }
     }
 
+    /// 8.15.0: leaving the game (Back / Exit) keeps an auto state first, so "Continue Where You Left Off" in the
+    /// Game Panel picks the game up again. Gives up after 3 seconds.
+    func saveOnExit() async {
+        guard supported, context.webView != nil, options.autoStateMinutes > 0,
+              Date().timeIntervalSince(lastAuto) >= 15 else { return }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in _ = await self.capture(kind: .auto) }
+            group.addTask { try? await Task.sleep(nanoseconds: 3_000_000_000) }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+
     // MARK: States
 
     /// Captures the running game into a stored state. Returns an error text, or nil when it worked.

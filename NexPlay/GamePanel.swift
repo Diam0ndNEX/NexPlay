@@ -245,6 +245,30 @@ final class GamePanelModel: ObservableObject {
         }
     }
 
+    /// 8.15.0: the newest auto state (made on a timer, when the app goes to the background and when the game is left).
+    var lastAuto: SaveStateInfo? {
+        SaveStateStore.list(for: game.id).filter { $0.kind == .auto }.max { $0.date < $1.date }
+    }
+
+    func loadAuto(_ info: SaveStateInfo) {
+        guard let assist = panel?.assist else { return }
+        Task { @MainActor in
+            working = true
+            let error = await assist.load(info)
+            working = false
+            if let error {
+                say(error)
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                shouldClose = true
+            }
+        }
+    }
+
+    func reportProblem() {
+        say(ProblemReport.share() ?? "Logs ready to share")
+    }
+
     func quickLoad() {
         guard let assist = panel?.assist else { return }
         guard let quick = SaveStateStore.list(for: game.id).first(where: { $0.kind == .quick }) else {
@@ -445,6 +469,8 @@ struct GamePanelView: View {
     @State private var tab = "game"
     @State private var page: String?
     @State private var question: NexMenuQuestion?
+    @State private var showTest = false
+    @State private var showCopy = false
     @AppStorage(SettingsKey.hudCorner) private var hudCorner = "topLeft"
     @AppStorage(SettingsKey.hudLayout) private var hudLayout = "tune"
 
@@ -473,6 +499,8 @@ struct GamePanelView: View {
                 }
             }
         }
+        .sheet(isPresented: $showTest) { ControlsTestView(game: model.game) }
+        .sheet(isPresented: $showCopy) { LayoutCopyView(source: model.game) }
         .task { await model.refresh() }
         .onChange(of: model.shouldClose) { _, close in
             if close { model.close() }
@@ -495,6 +523,10 @@ struct GamePanelView: View {
                 NexMenuRow(title: "Quick Save", symbol: "bolt.circle", enabled: !model.working) { model.quickSave() }
                 NexMenuRow(title: "Quick Load", detail: model.hasQuick ? nil : "No quick save yet",
                            symbol: "bolt.horizontal.circle", enabled: model.hasQuick && !model.working) { model.quickLoad() }
+                if let auto = model.lastAuto {
+                    NexMenuRow(title: "Continue Where You Left Off", detail: "Saved \(SaveStatesView.ago(Int(-auto.date.timeIntervalSinceNow)))",
+                               symbol: "clock.arrow.circlepath", enabled: !model.working) { model.loadAuto(auto) }
+                }
                 NexMenuRow(title: "Save States", detail: "Every state with its picture", symbol: "square.stack.3d.down.right",
                            accessory: .chevron) { model.openStates() }
                 if model.isRPG {
@@ -684,6 +716,10 @@ struct GamePanelView: View {
             NexMenuRow(title: "Extras", detail: "Key bar, radial menu, turbo, gyro, aim zone, gestures, magnifier, Pencil",
                        symbol: "sparkles", accessory: .chevron) { model.openExtras() }
             NexMenuRow(title: "PC Keyboard", symbol: "keyboard") { model.showKeyboard() }
+            NexMenuRow(title: "What Each Button Does", detail: "The key behind every on-screen button",
+                       symbol: "list.bullet.rectangle", accessory: .chevron) { showTest = true }
+            NexMenuRow(title: "Copy Layout to Other Games", detail: "Use this game's buttons in other games",
+                       symbol: "square.on.square", accessory: .chevron) { showCopy = true }
         }
         NexMenuSection("Mouse") {
             NexMenuChipsRow(title: "Mouse Mode", detail: model.mouseMode.detail, symbol: "cursorarrow",
@@ -707,6 +743,10 @@ struct GamePanelView: View {
     // MARK: Tools
 
     @ViewBuilder private var toolsTab: some View {
+        NexMenuSection("Support") {
+            NexMenuRow(title: "Report a Problem", detail: "Makes the logs ZIP and opens the share sheet",
+                       symbol: "ladybug") { model.reportProblem() }
+        }
         if model.isRPG {
             NexMenuSection("Messages") {
                 NexMenuToggleRow(title: "Instant Text", symbol: "text.badge.checkmark", isOn: model.options.instantText) { value in

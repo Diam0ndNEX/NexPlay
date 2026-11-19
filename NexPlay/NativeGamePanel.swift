@@ -97,6 +97,8 @@ struct NativeGamePanel: View {
     @State private var copied = false
     @State private var showControllerMap = false
     @State private var status: String?
+    @State private var showTest = false
+    @State private var showCopy = false
 
     init(setup: NativePanelSetup) {
         self.setup = setup
@@ -129,6 +131,8 @@ struct NativeGamePanel: View {
         .sheet(isPresented: $showControllerMap) {
             ControllerMapView(gameID: setup.game.id, gameName: setup.game.name)
         }
+        .sheet(isPresented: $showTest) { ControlsTestView(game: setup.game) }
+        .sheet(isPresented: $showCopy) { LayoutCopyView(source: setup.game) }
     }
 
     // MARK: Game
@@ -249,6 +253,12 @@ struct NativeGamePanel: View {
                 }
             }
         }
+        NexMenuSection("Layouts") {
+            NexMenuRow(title: "What Each Button Does", detail: "The key behind every on-screen button",
+                       symbol: "list.bullet.rectangle", accessory: .chevron) { showTest = true }
+            NexMenuRow(title: "Copy Layout to Other Games", detail: "Use this game's buttons in other games",
+                       symbol: "square.on.square", accessory: .chevron) { showCopy = true }
+        }
         NexMenuSection("Layout Preset") {
             ForEach(LayoutPreset.allCases) { preset in
                 NexMenuRow(title: preset.title, symbol: preset.symbol) {
@@ -301,6 +311,12 @@ struct NativeGamePanel: View {
     // MARK: Tools
 
     @ViewBuilder private var toolsTab: some View {
+        NexMenuSection("Support") {
+            NexMenuRow(title: "Report a Problem", detail: "Makes the logs ZIP and opens the share sheet",
+                       symbol: "ladybug") {
+                status = ProblemReport.share() ?? "Logs ready to share"
+            }
+        }
         NexMenuSection("NexPlay") {
             NexMenuRow(title: copied ? "Copied" : "Copy Log for Claude", detail: "The device report and the app log",
                        symbol: "doc.on.doc") {
