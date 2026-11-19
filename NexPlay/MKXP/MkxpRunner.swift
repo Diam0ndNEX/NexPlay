@@ -322,6 +322,15 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         }, box)
 
         folder.withCString { core.setGamePath($0) }
+        // 8.15.2: a heartbeat in the App Log every 5 s (time since start, the core's frame rate, paused or not). No line
+        // = the main thread is stuck inside the core; fps 0 with lines = the game is not drawing.
+        let startedAt = Date()
+        let beat = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            guard let self = self, !self.ended else { return }
+            let fps = self.core.averageFPS.map { Int($0().rounded()) } ?? -1
+            AppLog.log("mkxp: alive \(Int(Date().timeIntervalSince(startedAt))) s, fps \(fps), paused \(self.paused), panel \(self.panelController != nil), editing \(self.overlay?.isEditing == true)")
+        }
+        RunLoop.main.add(beat, forMode: .common)
         // argv[0] of the real process, like Empo passes.
         var argv: [UnsafeMutablePointer<CChar>?] = [CommandLine.unsafeArgv[0], nil]
         let result = argv.withUnsafeMutableBufferPointer { buffer in
