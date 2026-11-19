@@ -317,30 +317,38 @@ end
 # with sprites: the framebuffer keeps the ambient colour (kglClear), and every light is an ADD-blended sprite just
 # below the darkness sprite, as strong as the darkness sprite is opaque. Shadows (kglShadowShaderH/V/W) erase the
 # part of a light's own bitmap that lies behind a wall as seen from the light's centre. Soft shadows are not done.
-# Ruby 1.9 only knows Integer#[](bit). Newer Ruby (2.7+) also takes (start, len) and a Range, and
-# game mods written for it call e.g. `5[0, 8]` on a value that is not always a String.
-class Integer
-  unless instance_methods.map { |m| m.to_s }.include?('nex_bit_ref_orig')
-    alias_method :nex_bit_ref_orig, :[]
-    def [](*args)
-      if args.length == 1 && !args[0].is_a?(Range)
-        return nex_bit_ref_orig(args[0])
+# Ruby 1.9 only knows Integer#[](bit) and defines it on Fixnum/Bignum (not Integer). Newer Ruby (2.7+)
+# also takes (start, len) and a Range, and mods written for it call e.g. `5[0, 8]`.
+%w(Integer Fixnum Bignum).each do |nex_cname|
+  begin
+    next unless Object.const_defined?(nex_cname)
+    nex_klass = Object.const_get(nex_cname)
+    next unless nex_klass.instance_methods(false).map { |m| m.to_s }.include?('[]')
+    next if nex_klass.method_defined?(:nex_bit_ref_orig)
+    nex_klass.class_eval do
+      alias_method :nex_bit_ref_orig, :[]
+      def [](*args)
+        if args.length == 1 && !args[0].is_a?(Range)
+          return nex_bit_ref_orig(args[0])
+        end
+        if args.length == 2
+          pos = args[0].to_i
+          len = args[1].to_i
+          return (self >> pos) & ((1 << len) - 1)
+        end
+        if args.length == 1
+          r = args[0]
+          pos = r.first.to_i
+          last = r.last
+          return (self >> pos) if last.nil?
+          len = last.to_i - pos + (r.exclude_end? ? 0 : 1)
+          return (self >> pos) & ((1 << len) - 1)
+        end
+        raise ArgumentError, 'wrong number of arguments (' + args.length.to_s + ' for 1..2)'
       end
-      if args.length == 2
-        pos = args[0].to_i
-        len = args[1].to_i
-        return (self >> pos) & ((1 << len) - 1)
-      end
-      if args.length == 1
-        r = args[0]
-        pos = r.first.to_i
-        last = r.last
-        return (self >> pos) if last.nil?
-        len = last.to_i - pos + (r.exclude_end? ? 0 : 1)
-        return (self >> pos) & ((1 << len) - 1)
-      end
-      raise ArgumentError, 'wrong number of arguments (' + args.length.to_s + ' for 1..2)'
     end
+  rescue Exception => e
+    DL.nex_log('Integer#[] shim failed: ' + e.message)
   end
 end
 
