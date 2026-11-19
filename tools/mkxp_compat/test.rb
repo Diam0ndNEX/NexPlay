@@ -18,6 +18,7 @@ class Win32API   # same lookup and tolerance as the core's
   def initialize(dll, func, *a)
     @dll = dll; @func = func
     d = dll.sub(/\.dll\z/i, '').capitalize
+    d = 'Nolib' unless d =~ /\A[A-Z]\w*\z/   # a path such as System/KGL2.klib is no constant name (the core tolerates it)
     @impl = Win32API_Impl.const_defined?(d) && Win32API_Impl.const_get(d).const_defined?(func) ? Win32API_Impl.const_get(d).const_get(func).new : nil
   end
   def call(*args)
@@ -115,4 +116,77 @@ check 'binary default encoding raised to UTF-8', Encoding.default_external == En
 load File.join(File.dirname(__FILE__), 'compat.rb')
 sprite.visible = 5
 check 'second load keeps the wrapper working', sprite.visible == true
+
+# Khas Graphics Library done with sprites.
+class Rect; attr_reader :x, :y, :width, :height; def initialize(x, y, w, h); @x, @y, @width, @height = x, y, w, h; end; end
+class Color
+  attr_reader :red, :green, :blue, :alpha
+  def initialize(r = 0, g = 0, b = 0, a = 255); @red, @green, @blue, @alpha = r, g, b, a; end
+end
+class Bitmap
+  attr_reader :width, :height, :log
+  def initialize(w, h); @width = w; @height = h; @log = []; @disposed = false; end
+  def rect; Rect.new(0, 0, @width, @height); end
+  def clear; @log << [:clear]; end
+  def fill_rect(r, c); @log << [:fill, c.red, c.green, c.blue, c.alpha]; end
+  def clear_rect(x, y, w, h); @log << [:clear_rect, x, y, w, h]; end
+  def blt(x, y, src, r); @log << [:blt, x, y, src.object_id]; end
+  def get_pixel(x, y); Color.new(255, 240, 200, 128); end
+  def dispose; @disposed = true; end
+  def disposed?; @disposed; end
+end
+class Sprite
+  attr_accessor :bitmap, :blend_type, :x, :y, :z, :opacity
+  def dispose; @gone = true; end
+  def disposed?; @gone ? true : false; end
+end
+module Graphics
+  @updates = 0
+  def self.update; @updates += 1; end
+  def self.updates; @updates; end
+end
+class ShadowsMock; def opacity; 128; end; end
+class MapMock; def shadows; ShadowsMock.new; end; end
+$game_map = MapMock.new
+def kgl(name, *args); Win32API.new('System/KGL2.klib', name, '', 'i').call(*args); end
+
+framebuffer = Bitmap.new(544, 416)
+kgl('kglClear', framebuffer.__id__, 30 | (60 << 8) | (90 << 16) | (255 << 24))
+check 'kglClear fills the ambient colour (r g b a)', framebuffer.log == [[:clear], [:fill, 90, 60, 30, 255]]
+check 'kglVersion is 2.0', kgl('kglVersion') == 200
+
+light = Bitmap.new(100, 100)
+kgl('kglLightShader', light.__id__, 10, 20, 255)
+sprites = ObjectSpace.each_object(Sprite).select { |sp| sp.bitmap.equal?(light) }
+check 'a light becomes one add-blended sprite', sprites.length == 1 && sprites[0].blend_type == 1
+check 'light sprite position', sprites[0].x == 10 && sprites[0].y == 20
+check 'light sprite strength follows the darkness opacity', sprites[0].opacity == 128
+check 'light sprite sits just below the darkness sprite', sprites[0].z == 1069
+check 'light image format is logged', $out.any? { |m| m.include?('KGL light 100x100 centre rgba [255, 240, 200, 128]') }
+kgl('kglLightShader', light.__id__, 15, 25, 200)
+check 'the same light reuses its sprite', ObjectSpace.each_object(Sprite).select { |sp| sp.bitmap.equal?(light) }.length == 1
+Graphics.update
+check 'screen update runs the original update', Graphics.updates == 1
+check 'a light drawn this frame stays visible', sprites[0].instance_variable_get(:@visible) == true
+Graphics.update
+check 'a light not drawn this frame is hidden', sprites[0].instance_variable_get(:@visible) == false
+light.dispose
+Graphics.update
+check 'the sprite of a disposed light bitmap is disposed', sprites[0].disposed?
+
+shadow_target = Bitmap.new(100, 100)
+kgl('kglBindShadowbuffer', shadow_target.__id__)
+kgl('kglShadowShaderH', 40, 60, 30)
+rects = shadow_target.log.select { |e| e[0] == :clear_rect }
+check 'wall above the light: shadow rows are above the wall', rects.all? { |e| e[2] < 30 } && rects.length == 30
+check 'shadow widens away from the light', rects.first[3] == 50 && rects.first[1] == 25 && rects.last[3] == 22
+kgl('kglUnbindShadowbuffer')
+vertical = Bitmap.new(100, 100)
+kgl('kglBindShadowbuffer', vertical.__id__)
+kgl('kglShadowShaderV', 40, 60, 70)
+check 'wall right of the light: shadow columns are right of the wall', vertical.log.select { |e| e[0] == :clear_rect }.all? { |e| e[1] >= 70 }
+check 'vertical shadow at the far edge', vertical.log.include?([:clear_rect, 99, 25, 1, 50])
+check 'unknown KGL function is tolerated', kgl('kglSoftShadows', 1) == 0
+check 'other libraries are not taken over', Win32API.new('user32', 'Whatever', '', 'i').call == 0
+
 exit($failed ? 1 : 0)

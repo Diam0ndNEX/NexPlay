@@ -176,6 +176,9 @@ begin
     next if method_defined?(:nex_call_before_dl)
     alias_method :nex_call_before_dl, :call
     def call(*args)
+      if @dll.to_s =~ /kgl2\.klib\z/i
+        return NexKGL.call(@func.to_s, args)
+      end
       args = args.map do |arg|
         pointer = (arg.is_a?(Integer) && arg >= DL::NEX_BASE) ? DL.nex_pointer(arg) : nil
         pointer || arg
@@ -296,4 +299,221 @@ begin
   end
   DL.nex_log('encodings: external ' + Encoding.default_external.to_s + ', internal ' + Encoding.default_internal.inspect)
 rescue StandardError, NameError
+end
+
+# Khas Graphics Library (System/KGL2.klib), the Windows DLL behind Khas Ultra Lighting (used by LonaRPG and others).
+# The DLL draws into a bitmap's pixel memory through the bitmap's object address, which cannot be done here, so its
+# few functions are done with the player's own drawing instead. The game keeps its darkness in a "framebuffer" bitmap
+# shown by a sprite with SUBTRACT blending; the DLL's light shader takes each light away from that darkness. Same result
+# with sprites: the framebuffer keeps the ambient colour (kglClear), and every light is an ADD-blended sprite just
+# below the darkness sprite, as strong as the darkness sprite is opaque. Shadows (kglShadowShaderH/V/W) erase the
+# part of a light's own bitmap that lies behind a wall as seen from the light's centre. Soft shadows are not done.
+module NexKGL
+  @lights = {}
+  @frame = 0
+  @fb = nil
+  @sb = nil
+  @hooked = false
+
+  class << self
+    def call(name, args)
+      hook_graphics
+      case name
+      when 'kglVersion' then 200
+      when 'kglLoad' then 1
+      when 'kglClear' then clear(args[0], args[1])
+      when 'kglBlank' then blank(args[0])
+      when 'kglClone' then clone_bitmap(args[0], args[1])
+      when 'kglBindFramebuffer' then @fb = bitmap_for(args[0]); 0
+      when 'kglUnbindFramebuffer' then @fb = nil; 0
+      when 'kglBindShadowbuffer' then @sb = bitmap_for(args[0]); 0
+      when 'kglUnbindShadowbuffer' then @sb = nil; 0
+      when 'kglLightShader' then light_shader(args[0], args[1], args[2], args[3])
+      when 'kglShadowShaderH' then shadow_h(args[0], args[1], args[2])
+      when 'kglShadowShaderV', 'kglShadowShaderW' then shadow_v(args[0], args[1], args[2])
+      else 0
+      end
+    rescue StandardError, NameError => e
+      DL.nex_log('KGL ' + name.to_s + ' failed: ' + e.class.to_s + ' ' + e.message.to_s[0, 100])
+      0
+    end
+
+    def bitmap_for(id)
+      object = ObjectSpace._id2ref(id.to_i)
+      (object.is_a?(Bitmap) && !object.disposed?) ? object : nil
+    rescue RangeError, StandardError
+      nil
+    end
+
+    # kglClear(bitmap, colour): colour is b | g << 8 | r << 16 | a << 24.
+    def clear(id, color)
+      bitmap = bitmap_for(id)
+      return 0 unless bitmap
+      value = color.to_i & 0xFFFFFFFF
+      bitmap.clear
+      bitmap.fill_rect(bitmap.rect, Color.new((value >> 16) & 255, (value >> 8) & 255, value & 255, (value >> 24) & 255))
+      0
+    end
+
+    def blank(id)
+      bitmap = bitmap_for(id)
+      bitmap.clear if bitmap
+      0
+    end
+
+    def clone_bitmap(target_id, source_id)
+      target = bitmap_for(target_id)
+      source = bitmap_for(source_id)
+      return 0 unless target && source
+      target.clear
+      target.blt(0, 0, source, source.rect)
+      0
+    end
+
+    def shadow_opacity
+      shadows = $game_map.shadows
+      shadows.respond_to?(:opacity) ? shadows.opacity.to_i : 255
+    rescue StandardError, NameError
+      255
+    end
+
+    def light_z
+      limit = 1070
+      begin
+        limit = System_Settings::KHAS_SHADOW_Z if defined?(System_Settings) && System_Settings.const_defined?(:KHAS_SHADOW_Z)
+      rescue StandardError, NameError
+      end
+      limit - 1
+    end
+
+    def light_shader(id, tx, ty, opacity)
+      bitmap = bitmap_for(id)
+      return 0 unless bitmap
+      opacity = opacity.to_i
+      return 0 if opacity <= 0
+      entry = @lights[id.to_i]
+      if entry.nil? || entry[1] != bitmap
+        sprite = Sprite.new
+        sprite.bitmap = bitmap
+        sprite.blend_type = 1
+        sprite.z = light_z
+        entry = [sprite, bitmap, @frame]
+        @lights[id.to_i] = entry
+        describe_light(bitmap)
+      end
+      sprite = entry[0]
+      sprite.x = tx.to_i
+      sprite.y = ty.to_i
+      opacity = 255 if opacity > 255
+      sprite.opacity = opacity * shadow_opacity / 255
+      sprite.visible = true
+      entry[2] = @frame
+      0
+    end
+
+    # What the light images look like, to read in the log (first few only).
+    def describe_light(bitmap)
+      @described = 0 unless @described
+      return if @described >= 3
+      @described += 1
+      centre = bitmap.get_pixel(bitmap.width / 2, bitmap.height / 2)
+      corner = bitmap.get_pixel(0, 0)
+      DL.nex_log('KGL light ' + bitmap.width.to_s + 'x' + bitmap.height.to_s + ' centre rgba ' +
+        [centre.red.to_i, centre.green.to_i, centre.blue.to_i, centre.alpha.to_i].inspect + ' corner rgba ' +
+        [corner.red.to_i, corner.green.to_i, corner.blue.to_i, corner.alpha.to_i].inspect)
+    rescue StandardError, NameError
+    end
+
+    # Before each screen update: lights that were not drawn this frame are hidden, and sprites of disposed light
+    # bitmaps are disposed.
+    def tick
+      @lights.each do |id, entry|
+        sprite = entry[0]
+        if entry[1].disposed?
+          sprite.dispose unless sprite.disposed?
+          @lights.delete(id)
+        elsif entry[2] != @frame
+          sprite.visible = false unless sprite.disposed?
+        end
+      end
+      @frame += 1
+    rescue StandardError, NameError
+    end
+
+    def hook_graphics
+      return if @hooked
+      @hooked = true
+      return unless defined?(Graphics) && Graphics.respond_to?(:update) && !Graphics.respond_to?(:nex_kgl_update)
+      class << Graphics
+        alias_method :nex_kgl_update, :update
+        def update(*args)
+          ::NexKGL.tick
+          nex_kgl_update(*args)
+        end
+      end
+      DL.nex_log('KGL: the lighting library is done with sprites (light = add-blended sprite below the darkness sprite)')
+    rescue StandardError, NameError
+    end
+
+    # A horizontal wall piece from x1 to x2 at row y (all relative to the light bitmap): the shadow is the part of the
+    # bitmap behind it, seen from the bitmap's centre.
+    def shadow_h(x1, x2, y)
+      bitmap = @sb
+      return 0 unless bitmap
+      x1, x2 = x2, x1 if x1 > x2
+      w = bitmap.width
+      h = bitmap.height
+      cx = w / 2.0
+      cy = h / 2.0
+      return 0 if y == cy
+      if y > cy
+        first = [y.ceil, 0].max
+        last = h - 1
+      else
+        first = 0
+        last = [y.floor - 1, h - 1].min
+      end
+      r = first
+      while r <= last
+        t = (y > cy) ? (r - cy) / (y - cy) : (cy - r) / (cy - y)
+        left = (cx + (x1 - cx) * t).floor
+        right = (cx + (x2 - cx) * t).ceil
+        left = 0 if left < 0
+        right = w if right > w
+        bitmap.clear_rect(left, r, right - left, 1) if right > left
+        r += 1
+      end
+      0
+    end
+
+    # A vertical wall piece from y1 to y2 at column x.
+    def shadow_v(y1, y2, x)
+      bitmap = @sb
+      return 0 unless bitmap
+      y1, y2 = y2, y1 if y1 > y2
+      w = bitmap.width
+      h = bitmap.height
+      cx = w / 2.0
+      cy = h / 2.0
+      return 0 if x == cx
+      if x > cx
+        first = [x.ceil, 0].max
+        last = w - 1
+      else
+        first = 0
+        last = [x.floor - 1, w - 1].min
+      end
+      c = first
+      while c <= last
+        t = (x > cx) ? (c - cx) / (x - cx) : (cx - c) / (cx - x)
+        top = (cy + (y1 - cy) * t).floor
+        bottom = (cy + (y2 - cy) * t).ceil
+        top = 0 if top < 0
+        bottom = h if bottom > h
+        bitmap.clear_rect(c, top, 1, bottom - top) if bottom > top
+        c += 1
+      end
+      0
+    end
+  end
 end
