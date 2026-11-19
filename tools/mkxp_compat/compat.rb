@@ -335,6 +335,490 @@ class Integer
   end
 end
 
+# ---------------------------------------------------------------------------------------------
+# Safety net 1: newer Ruby methods. The core embeds Ruby 1.9, but mods and newer scripts are
+# written for 2.x/3.x. Every method below is only added when it is missing (plain 1.9 syntax).
+# ---------------------------------------------------------------------------------------------
+module NexBackport
+  def self.define(klass, name, &body)
+    if klass.method_defined?(name) || klass.private_method_defined?(name)
+      owner = klass.instance_method(name).owner rescue klass
+      return unless owner == Enumerable && klass != Enumerable
+    end
+    klass.send(:define_method, name, &body)
+  rescue Exception => e
+    DL.nex_log('backport ' + klass.to_s + '#' + name.to_s + ' failed: ' + e.message) if defined?(DL)
+  end
+end
+
+module Enumerable
+  NexBackport.define(self, :sum) do |*init, &blk|
+    acc = init.empty? ? 0 : init[0]
+    each { |x| acc = acc + (blk ? blk.call(x) : x) }
+    acc
+  end
+  NexBackport.define(self, :to_h) do |&blk|
+    h = {}
+    each do |x|
+      pair = blk ? blk.call(x) : x
+      h[pair[0]] = pair[1]
+    end
+    h
+  end
+  NexBackport.define(self, :filter_map) do |&blk|
+    out = []
+    each { |x| v = blk.call(x); out << v if v }
+    out
+  end
+  NexBackport.define(self, :tally) do
+    h = Hash.new(0)
+    each { |x| h[x] += 1 }
+    h
+  end
+  NexBackport.define(self, :each_entry) { |&blk| each(&blk) }
+end
+
+class Array
+  NexBackport.define(self, :filter) { |&blk| select(&blk) }
+  NexBackport.define(self, :append) { |*a| push(*a) }
+  NexBackport.define(self, :prepend) { |*a| unshift(*a) }
+  NexBackport.define(self, :difference) { |*o| o.inject(self) { |m, x| m - x } }
+  NexBackport.define(self, :union) { |*o| o.inject(self) { |m, x| m | x } }
+  NexBackport.define(self, :intersection) { |*o| o.inject(self) { |m, x| m & x } }
+  NexBackport.define(self, :intersect?) { |o| !(self & o).empty? }
+  NexBackport.define(self, :dig) do |idx, *rest|
+    v = self[idx]
+    rest.empty? || v.nil? ? v : v.dig(*rest)
+  end
+  NexBackport.define(self, :bsearch) do |&blk|
+    lo = 0
+    hi = size
+    found = nil
+    while lo < hi
+      mid = (lo + hi) / 2
+      r = blk.call(self[mid])
+      if r == true
+        found = self[mid]
+        hi = mid
+      elsif r == false || r.nil?
+        lo = mid + 1
+      elsif r == 0
+        found = self[mid]
+        break
+      elsif r < 0
+        hi = mid
+      else
+        lo = mid + 1
+      end
+    end
+    found
+  end
+end
+
+class Hash
+  NexBackport.define(self, :dig) do |key, *rest|
+    v = self[key]
+    rest.empty? || v.nil? ? v : v.dig(*rest)
+  end
+  NexBackport.define(self, :to_h) do |&blk|
+    if blk
+      h = {}
+      each { |k, v| pair = blk.call(k, v); h[pair[0]] = pair[1] }
+      h
+    else
+      self
+    end
+  end
+  NexBackport.define(self, :transform_values) do |&blk|
+    h = {}
+    each { |k, v| h[k] = blk.call(v) }
+    h
+  end
+  NexBackport.define(self, :transform_values!) do |&blk|
+    keys.each { |k| self[k] = blk.call(self[k]) }
+    self
+  end
+  NexBackport.define(self, :transform_keys) do |&blk|
+    h = {}
+    each { |k, v| h[blk.call(k)] = v }
+    h
+  end
+  NexBackport.define(self, :transform_keys!) do |&blk|
+    pairs = to_a
+    clear
+    pairs.each { |k, v| self[blk.call(k)] = v }
+    self
+  end
+  NexBackport.define(self, :slice) do |*ks|
+    h = {}
+    ks.each { |k| h[k] = self[k] if has_key?(k) }
+    h
+  end
+  NexBackport.define(self, :except) do |*ks|
+    h = dup
+    ks.each { |k| h.delete(k) }
+    h
+  end
+  NexBackport.define(self, :compact) { reject { |_, v| v.nil? } }
+  NexBackport.define(self, :compact!) do
+    n = size
+    delete_if { |_, v| v.nil? }
+    n == size ? nil : self
+  end
+  NexBackport.define(self, :filter) { |&blk| select(&blk) }
+  NexBackport.define(self, :fetch_values) { |*ks| ks.map { |k| fetch(k) } }
+end
+
+class String
+  NexBackport.define(self, :delete_prefix) { |p| start_with?(p) ? self[p.length..-1] : dup }
+  NexBackport.define(self, :delete_suffix) { |s| end_with?(s) && !s.empty? ? self[0, length - s.length] : dup }
+  NexBackport.define(self, :casecmp?) { |o| o.is_a?(String) ? downcase == o.downcase : nil }
+  NexBackport.define(self, :unpack1) { |f| unpack(f)[0] }
+  NexBackport.define(self, :match?) { |re, *pos| !!(re.is_a?(Regexp) ? re : Regexp.new(Regexp.escape(re.to_s))).match(self, *pos) }
+  NexBackport.define(self, :b) { dup.force_encoding('ASCII-8BIT') }
+  NexBackport.define(self, :scrub) do |*rep|
+    valid_encoding? ? dup : encode('UTF-16LE', :invalid => :replace, :undef => :replace, :replace => (rep[0] || '?')).encode('UTF-8')
+  end
+  NexBackport.define(self, :+@) { frozen? ? dup : self }
+  NexBackport.define(self, :-@) { frozen? ? self : dup.freeze }
+end
+
+class Symbol
+  NexBackport.define(self, :start_with?) { |*a| to_s.start_with?(*a.map { |x| x.to_s }) }
+  NexBackport.define(self, :end_with?) { |*a| to_s.end_with?(*a.map { |x| x.to_s }) }
+end
+
+class Regexp
+  NexBackport.define(self, :match?) { |s, *pos| s.nil? ? false : !!match(s.to_s, *pos) }
+end
+
+class Struct
+  NexBackport.define(self, :to_h) do |&blk|
+    h = {}
+    members.each { |m| pair = blk ? blk.call(m, self[m]) : [m, self[m]]; h[pair[0]] = pair[1] }
+    h
+  end
+end
+
+module Comparable
+  NexBackport.define(self, :clamp) do |lo, hi = nil|
+    if lo.is_a?(Range)
+      hi = lo.end
+      lo = lo.begin
+    end
+    return lo if !lo.nil? && (self <=> lo) < 0
+    return hi if !hi.nil? && (self <=> hi) > 0
+    self
+  end
+end
+
+class Numeric
+  NexBackport.define(self, :positive?) { self > 0 }
+  NexBackport.define(self, :negative?) { self < 0 }
+end
+
+class Integer
+  NexBackport.define(self, :digits) do |*base|
+    b = base[0] || 10
+    n = self
+    raise Math::DomainError, 'out of domain' if n < 0
+    return [0] if n == 0
+    out = []
+    while n > 0
+      out << n % b
+      n /= b
+    end
+    out
+  end
+  NexBackport.define(self, :bit_length) do
+    n = self < 0 ? ~self : self
+    len = 0
+    while n > 0
+      n >>= 1
+      len += 1
+    end
+    len
+  end
+  NexBackport.define(self, :pow) { |e, *m| m.empty? ? self**e : (self**e) % m[0] }
+  unless Integer.respond_to?(:sqrt)
+    def Integer.sqrt(n)
+      Math.sqrt(n).floor
+    end
+  end
+end
+
+module Kernel
+  NexBackport.define(self, :itself) { self }
+  NexBackport.define(self, :then) { |&blk| blk ? blk.call(self) : self }
+  NexBackport.define(self, :yield_self) { |&blk| blk ? blk.call(self) : self }
+  unless Kernel.private_method_defined?(:__dir__) || Kernel.method_defined?(:__dir__)
+    def __dir__
+      line = caller(1)[0].to_s
+      file = line.sub(/:\d+(:in .*)?\z/, '')
+      File.dirname(File.expand_path(file))
+    end
+  end
+  # Refinements (`refine`/`using`) cannot be built in Ruby 1.9. The closest honest behaviour is to
+  # apply the refinement to the class directly, so a mod that depends on it still works.
+  unless Kernel.private_method_defined?(:using) || Kernel.method_defined?(:using)
+    def using(mod)
+      self
+    end
+  end
+end
+
+class Module
+  unless method_defined?(:refine) || private_method_defined?(:refine)
+    def refine(klass, &blk)
+      klass.class_eval(&blk)
+      klass
+    end
+  end
+end
+
+class Exception
+  NexBackport.define(self, :full_message) do |*a|
+    (message.to_s + " (" + self.class.to_s + ")\n" + (backtrace || []).join("\n"))
+  end
+end
+
+class << File
+  NexBackport.define(self, :binwrite) do |name, data, *rest|
+    File.open(name, 'wb') { |f| f.write(data) }
+    data.to_s.bytesize
+  end
+  NexBackport.define(self, :empty?) { |n| File.exist?(n) && File.size(n) == 0 }
+end
+
+class << Dir
+  NexBackport.define(self, :children) { |d, *r| Dir.entries(d).reject { |e| e == '.' || e == '..' } }
+  NexBackport.define(self, :each_child) do |d, *r, &blk|
+    Dir.entries(d).reject { |e| e == '.' || e == '..' }.each(&blk)
+  end
+  NexBackport.define(self, :empty?) { |d| File.directory?(d) && Dir.entries(d).length <= 2 }
+end
+
+module Process
+  unless const_defined?(:CLOCK_MONOTONIC)
+    CLOCK_REALTIME = 0
+    CLOCK_MONOTONIC = 1
+    CLOCK_PROCESS_CPUTIME_ID = 2
+    CLOCK_THREAD_CPUTIME_ID = 3
+  end
+  unless respond_to?(:clock_gettime)
+    def self.clock_gettime(id = 0, unit = :float_second)
+      t = Time.now.to_f
+      case unit
+      when :float_millisecond then t * 1000.0
+      when :float_microsecond then t * 1000000.0
+      when :millisecond then (t * 1000).to_i
+      when :microsecond then (t * 1000000).to_i
+      when :nanosecond then (t * 1000000000).to_i
+      when :second then t.to_i
+      else t
+      end
+    end
+  end
+end
+
+# ---------------------------------------------------------------------------------------------
+# Safety net 2: common Windows calls the core's Win32API stand-ins do not answer (they would
+# return 0 and leave the game without its settings). Only added when the core has no class.
+# ---------------------------------------------------------------------------------------------
+module Win32API_Impl
+  module NexIni
+    def self.path(file)
+      f = file.to_s.gsub("\\", '/')
+      f = f[2..-1] if f =~ /\A[A-Za-z]:\//
+      f
+    end
+
+    def self.read(file)
+      data = {}
+      section = nil
+      f = path(file)
+      return data unless File.exist?(f)
+      File.read(f).split(/\r?\n/).each do |line|
+        l = line.strip
+        next if l.empty? || l[0, 1] == ';'
+        if l =~ /\A\[(.*)\]\z/
+          section = $1.downcase
+          data[section] ||= {}
+        elsif section && (i = l.index('='))
+          data[section][l[0, i].strip.downcase] = l[(i + 1)..-1].to_s.strip
+        end
+      end
+      data
+    rescue Exception
+      {}
+    end
+
+    def self.fill(buffer, size, text, wide)
+      return text.length unless buffer.is_a?(String)
+      size = size.to_i
+      text = text[0, [size - 1, 0].max]
+      bytes = wide ? text.unpack('U*').pack('v*') + "\0\0" : text.unpack('C*').pack('C*') + "\0"
+      buffer.force_encoding('ASCII-8BIT')
+      buffer[0, bytes.length] = bytes
+      text.length
+    end
+
+    def self.write(file, section, key, value)
+      f = path(file)
+      sec = section.to_s
+      lines = File.exist?(f) ? File.read(f).split(/\r?\n/) : []
+      in_sec = false
+      done = false
+      out = []
+      lines.each do |line|
+        if line.strip =~ /\A\[(.*)\]\z/
+          if in_sec && !done && key
+            out << "#{key}=#{value}"
+            done = true
+          end
+          in_sec = $1.downcase == sec.downcase
+        elsif in_sec && key && !done && line.strip.downcase.index(key.to_s.downcase + '=') == 0
+          line = "#{key}=#{value}"
+          done = true
+        end
+        out << line
+      end
+      unless done || key.nil?
+        out << "[#{sec}]" unless in_sec
+        out << "#{key}=#{value}"
+      end
+      File.open(f, 'wb') { |io| io.write(out.join("\r\n") + "\r\n") }
+      1
+    rescue Exception
+      0
+    end
+  end
+
+  module Kernel32
+    unless const_defined?(:GetPrivateProfileStringA)
+      class GetPrivateProfileStringA
+        def wide; false; end
+        def call(a)
+          sec = NexIni.read(a[5])[a[0].to_s.downcase]
+          val = sec && a[1].is_a?(String) ? sec[a[1].downcase] : nil
+          val = a[2].to_s if val.nil?
+          NexIni.fill(a[3], a[4], val, wide)
+        end
+      end
+      class GetPrivateProfileStringW < GetPrivateProfileStringA
+        def wide; true; end
+      end
+    end
+    unless const_defined?(:GetPrivateProfileIntA)
+      class GetPrivateProfileIntA
+        def call(a)
+          sec = NexIni.read(a[3])[a[0].to_s.downcase]
+          val = sec ? sec[a[1].to_s.downcase] : nil
+          val.nil? ? a[2].to_i : val.to_i
+        end
+      end
+      GetPrivateProfileIntW = GetPrivateProfileIntA
+    end
+    unless const_defined?(:WritePrivateProfileStringA)
+      class WritePrivateProfileStringA
+        def call(a)
+          NexIni.write(a[3], a[0], a[1], a[2])
+        end
+      end
+      WritePrivateProfileStringW = WritePrivateProfileStringA
+    end
+    unless const_defined?(:GetTickCount)
+      class GetTickCount
+        def call(a); (Time.now.to_f * 1000).to_i & 0xFFFFFFFF; end
+      end
+    end
+    unless const_defined?(:GetUserDefaultLangID)
+      class GetUserDefaultLangID
+        def call(a); 0x0409; end
+      end
+      GetSystemDefaultLangID = GetUserDefaultLangID
+      GetUserDefaultUILanguage = GetUserDefaultLangID
+      GetUserDefaultLCID = GetUserDefaultLangID
+    end
+    unless const_defined?(:Sleep)
+      class Sleep
+        def call(a); sleep(a[0].to_i / 1000.0) if a[0].to_i > 0; 0; end
+      end
+    end
+    unless const_defined?(:GetLastError)
+      class GetLastError
+        def call(a); 0; end
+      end
+      SetLastError = GetLastError
+    end
+    unless const_defined?(:GetCurrentProcessId)
+      class GetCurrentProcessId
+        def call(a); 1; end
+      end
+      GetModuleHandle = GetCurrentProcessId
+      GetModuleHandleA = GetCurrentProcessId
+      GetModuleHandleW = GetCurrentProcessId
+    end
+    unless const_defined?(:QueryPerformanceCounter)
+      class QueryPerformanceCounter
+        def call(a)
+          v = (Time.now.to_f * 1000000).to_i
+          a[0].replace([v].pack('Q')) if a[0].is_a?(String) && !a[0].frozen?
+          1
+        end
+      end
+      class QueryPerformanceFrequency
+        def call(a)
+          a[0].replace([1000000].pack('Q')) if a[0].is_a?(String) && !a[0].frozen?
+          1
+        end
+      end
+    end
+  end
+
+  module Winmm
+    unless const_defined?(:TimeGetTime)
+      class TimeGetTime
+        def call(a); (Time.now.to_f * 1000).to_i & 0xFFFFFFFF; end
+      end
+    end
+  end
+
+  module User32
+    unless const_defined?(:MessageBoxA)
+      class MessageBoxA
+        def call(a)
+          DL.nex_log('MessageBox: ' + a[1].to_s) if defined?(DL)
+          1
+        end
+      end
+      MessageBoxW = MessageBoxA
+    end
+    unless const_defined?(:GetDesktopWindow)
+      class GetDesktopWindow
+        def call(a); 1; end
+      end
+      GetActiveWindow = GetDesktopWindow
+    end
+    unless const_defined?(:SetWindowTextA)
+      class SetWindowTextA
+        def call(a); 1; end
+      end
+      SetWindowTextW = SetWindowTextA
+    end
+  end
+
+  module Shell32
+    unless const_defined?(:ShellExecute)
+      class ShellExecute
+        def call(a); 33; end
+      end
+      ShellExecuteA = ShellExecute
+      ShellExecuteW = ShellExecute
+    end
+  end
+end
+
 module NexKGL
   @lights = {}
   @frame = 0
