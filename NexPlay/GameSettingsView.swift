@@ -464,15 +464,22 @@ struct GameSettingsView: View {
         Task { await loadCover() }
     }
 
+    /// 8.14.0: the game page closes first and the game is removed once it is gone, so no screen is still showing
+    /// (or saving into) a game whose files are being deleted.
     private func delete(_ game: Game) {
-        Task {
-            await store.delete(game)
-            collections.forget(game.id)
-            privacy.setHidden(game.id, false)
-            LayoutStore.delete(for: game.id)
-            ExtrasStore.delete(game.id)
-            dismiss()
-            onDeleted()
+        let target = game
+        let store = self.store
+        let collections = self.collections
+        let privacy = self.privacy
+        onDeleted()
+        if !embedded { dismiss() }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            await store.delete(target)
+            collections.forget(target.id)
+            privacy.setHidden(target.id, false)
+            LayoutStore.delete(for: target.id)
+            ExtrasStore.delete(target.id)
         }
     }
 }

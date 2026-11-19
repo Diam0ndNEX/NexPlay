@@ -13,7 +13,14 @@ enum DataStores {
 
     @MainActor static func wipe(for game: Game) async {
         if #available(iOS 17.0, *) {
-            try? await WKWebsiteDataStore.remove(forIdentifier: game.id)
+            // 8.14.0: only a store that exists is removed (WebKit can stop the app for an unknown or busy one).
+            let known = await WKWebsiteDataStore.allDataStoreIdentifiers
+            guard known.contains(game.id) else { return }
+            do {
+                try await WKWebsiteDataStore.remove(forIdentifier: game.id)
+            } catch {
+                AppLog.log("delete: web data of \(game.name) not removed: \(error.localizedDescription)")
+            }
         } else {
             let store = WKWebsiteDataStore.default()
             let types = WKWebsiteDataStore.allWebsiteDataTypes()

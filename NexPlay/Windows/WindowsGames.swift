@@ -235,8 +235,21 @@ final class WindowsLaunchController: UIViewController {
         hud.place(in: view.bounds, insets: view.safeAreaInsets)
     }
 
+    // 8.14.0: BCD's controls window (above the app) takes touches while this is true. When the player was closed
+    // another way than `finish()`, it stayed true and the game page's Back and Play stopped reacting after a
+    // Windows game. Whenever this screen is off the screen, the flag is off.
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        #if NEXPLAY_WINDOWS
+        NexWindowsHost.sessionOnScreen = false
+        #endif
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if NEXPLAY_WINDOWS
+        if started && !finished { NexWindowsHost.sessionOnScreen = true }
+        #endif
         guard !started else { return }
         started = true
         #if NEXPLAY_WINDOWS

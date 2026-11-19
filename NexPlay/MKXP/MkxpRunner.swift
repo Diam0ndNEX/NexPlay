@@ -24,6 +24,11 @@ private struct GameCoreSymbols {
     typealias EventCallback = @convention(c) (UnsafeMutableRawPointer?) -> Void
     typealias SetEventCallback = @convention(c) (EventCallback?, UnsafeMutableRawPointer?) -> Void
     typealias IntResult = @convention(c) () -> Int32
+    typealias SetInt = @convention(c) (Int32) -> Void
+    typealias DoubleResult = @convention(c) () -> Double
+    typealias SnapshotSize = @convention(c) (UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Bool
+    typealias CopySnapshot = @convention(c) (UnsafeMutablePointer<UInt8>?, Int32, UnsafeMutablePointer<Int32>?,
+                                             UnsafeMutablePointer<Int32>?) -> Bool
 
     let setGamePath: SetPath
     let runApp: RunApp
@@ -42,6 +47,14 @@ private struct GameCoreSymbols {
     let signalInfoDismissed: Void0?
     let setTerminatedCallback: SetEventCallback?
     let didExitCleanly: IntResult?
+    // 8.14.0: the in-game menu's tools (GameCore.h). Each is optional: a core without one hides its row.
+    let setFastForward: SetInt?
+    let setCheatsEnabled: SetBool?
+    let averageFPS: DoubleResult?
+    let snapshotSize: SnapshotSize?
+    let copySnapshot: CopySnapshot?
+    let pushTextInput: SetPath?
+    let textInputActive: IntResult?
 
     static func load() -> GameCoreSymbols? {
         guard let frameworks = Bundle.main.privateFrameworksPath else { return nil }
@@ -75,7 +88,14 @@ private struct GameCoreSymbols {
             setInfoCallback: symbol("gamecore_setInfoMessageCallback", SetMessageCallback.self),
             signalInfoDismissed: symbol("gamecore_signalInfoDismissed", Void0.self),
             setTerminatedCallback: symbol("gamecore_setEngineTerminatedCallback", SetEventCallback.self),
-            didExitCleanly: symbol("gamecore_didEngineExitCleanly", IntResult.self))
+            didExitCleanly: symbol("gamecore_didEngineExitCleanly", IntResult.self),
+            setFastForward: symbol("gamecore_setFastForwardMultiplier", SetInt.self),
+            setCheatsEnabled: symbol("gamecore_setCheatsEnabled", SetBool.self),
+            averageFPS: symbol("gamecore_getAverageFPS", DoubleResult.self),
+            snapshotSize: symbol("gamecore_getSnapshotSize", SnapshotSize.self),
+            copySnapshot: symbol("gamecore_copySnapshotRGBA", CopySnapshot.self),
+            pushTextInput: symbol("gamecore_pushTextInput", SetPath.self),
+            textInputActive: symbol("gamecore_isTextInputActive", IntResult.self))
     }
 }
 
@@ -139,6 +159,14 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
     private var paused = false
     private var ended = false
     private var missingRTP: [String] = []
+    // 8.14.0
+    private var speed = 1
+    private var cheatsOn = false
+    /// The game was paused for editing the touch controls (so their drag and tap gestures run: while the core runs it
+    /// keeps the main run loop busy and UIKit gesture recognizers never fire).
+    private var pausedForEditing = false
+    private var hud: PerformanceHUDView?
+    private var hudTimer: Timer?
 
     init(game: Game, core: GameCoreSymbols, onExit: @escaping () -> Void) {
         self.game = game
@@ -244,7 +272,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         // 8.13.27: RPG Maker's own player stretches the game screen with smoothing (bilinear). The core's default is
         // nearest-neighbour, which at a phone's non-whole-number scale (640x360 shown about 3.3x) gives uneven, harsh
         // pixels that shimmer while the screen scrolls. Bilinear for upscaling, as on Windows.
-        overlay["smoothScaling"] = MkxpScaling.current(for: game.id).rawValue  // Game Panel > Picture
+        overlay["smoothScaling"] = NativeScaling.current(for: game.id).rawValue  // in-game menu > Display > Picture
         let compatScripts = MkxpCompat.installedPaths(for: game.id)
         if !compatScripts.isEmpty { overlay["preloadScript"] = compatScripts }
         if compatScripts.count > 1 {
@@ -374,16 +402,12 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         host.view.backgroundColor = .clear
         let overlay = GamepadOverlayView(frame: window.bounds)
         overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        overlay.setProfile(LayoutStore.load(for: game.id))
+        // 8.14.0: wired like the web player (presets, Edit Button page, reset, global size and opacity).
+        NativePad.wire(overlay, game: game) { [weak host] in host }
         overlay.isHidden = !game.gamepad
         overlay.onKey = { [weak self] key, down in self?.send(key, down) }
-        let gameID = game.id
-        overlay.onSave = { profile in LayoutStore.save(profile, for: gameID) }
-        overlay.onReset = {
-            LayoutStore.reset(gameID)
-            return LayoutStore.load(for: gameID)
-        }
-        overlay.onEditingChanged = { [weak self] _ in self?.refreshMenuButton() }
+        overlay.onAction = { [weak self] action, down in self?.handleAction(action, down) }
+        overlay.onEditingChanged = { [weak self] editing in self?.editingChanged(editing) }
         host.view.addSubview(overlay)
         host.view.addSubview(menuButton)
         NSLayoutConstraint.activate([
@@ -400,9 +424,11 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
 
         let manager = PhysicalControllerManager(gameID: game.id)
         manager.onKey = { [weak self] key, down in self?.send(key, down) }
+        manager.onAction = { [weak self] action, down in self?.handleAction(action, down) }
         manager.start()
         controllers = manager
         refreshMenuButton()
+        if game.statsOverlay == true { showHUD(true) }
     }
 
     private lazy var menuButton: UIButton = {
@@ -441,24 +467,60 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
 
     // 8.13.19: NexPlay's in-game menu (the panel the other engines use). The game is paused while it is open and goes
     // back to what it was (running, or paused if it was paused before or the panel's Pause switch is on).
+    // 8.14.0: the shared native panel (NativeGamePanel.swift): the same tabs and rows as the web and Windows panels.
     private weak var panelController: UIViewController?
     private var panelKeepPaused = false
 
+    private var canPause: Bool { core.requestPause != nil && core.requestResume != nil }
+
     private func openPanel() {
         guard let host = host, panelController == nil else { return }
-        let canPause = core.requestPause != nil && core.requestResume != nil
+        if overlay?.isEditing == true { overlay?.endEditing(save: true) }
         panelKeepPaused = paused
         if canPause && !paused { togglePause() }
-        let panel = MkxpPanel(
-            game: game, canPause: canPause, controlsHidden: overlay?.isHidden ?? false, paused: panelKeepPaused,
-            onClose: { [weak self] in self?.closePanel() },
-            onEsc: { [weak self] in self?.closePanel { self?.tap(41) } },
-            onReset: { [weak self] in self?.closePanel { self?.tap(69) } },
-            onSetPaused: { [weak self] keep in self?.panelKeepPaused = keep },
-            onSetControlsHidden: { [weak self] hidden in self?.overlay?.isHidden = hidden },
-            onEditControls: { [weak self] in self?.closePanel { self?.overlay?.beginEditing() } },
-            onQuit: { exit(0) })
-        let controller = NexMenuHostingController(rootView: panel)
+        var setup = NativePanelSetup(game: game)
+        setup.paused = panelKeepPaused
+        setup.speed = speed
+        setup.scaling = NativeScaling.current(for: game.id)
+        setup.scalingChoices = NativeScaling.allCases
+        setup.scalingLive = false
+        setup.statsOn = game.statsOverlay ?? false
+        setup.controlsHidden = overlay?.isHidden ?? false
+        setup.exitTitle = "Quit NexPlay"
+        setup.exitDetail = "The game can't be unloaded, so NexPlay closes."
+        setup.close = { [weak self] in self?.closePanel() }
+        if canPause {
+            setup.setPaused = { [weak self] keep in self?.panelKeepPaused = keep }
+        }
+        if core.setFastForward != nil {
+            setup.speeds = [1, 2, 3, 4, 6, 8]
+            setup.setSpeed = { [weak self] value in self?.setSpeed(value) }
+        }
+        setup.gameMenu = { [weak self] in self?.closePanel { self?.tap(41) } }
+        setup.restart = { [weak self] in self?.closePanel { self?.tap(69) } }
+        if core.setCheatsEnabled != nil {
+            setup.cheatsOn = cheatsOn
+            setup.setCheats = { [weak self] on in self?.setCheats(on) }
+            setup.openCheats = { [weak self] in self?.closePanel { self?.tap(74) } }
+        }
+        if core.snapshotSize != nil, core.copySnapshot != nil {
+            setup.screenshot = { [weak self] in self?.takeScreenshot() }
+        }
+        setup.setScaling = { [weak self] value in
+            guard let self else { return }
+            NativeScaling.set(value, for: self.game.id)
+        }
+        setup.setStats = { [weak self] on in self?.setStats(on) }
+        setup.setControlsHidden = { [weak self] hidden in self?.overlay?.isHidden = hidden }
+        setup.editControls = { [weak self] in self?.closePanel { self?.overlay?.beginEditing() } }
+        setup.preset = { [weak self] preset in self?.overlay?.applyPreset(preset) }
+        setup.resetControls = { [weak self] in
+            guard let self, let overlay = self.overlay else { return }
+            NativePad.resetLayout(overlay, game: self.game)
+        }
+        setup.type = { [weak self] text in self?.typeText(text) }
+        setup.exit = { exit(0) }
+        let controller = NexMenuHostingController(rootView: NativeGamePanel(setup: setup))
         panelController = controller
         host.present(controller, animated: true)
     }
@@ -469,12 +531,139 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
             return
         }
         panelController = nil
-        if core.requestPause != nil, core.requestResume != nil, paused != panelKeepPaused { togglePause() }
+        if canPause, paused != panelKeepPaused { togglePause() }
         controller.presentingViewController?.dismiss(animated: true) {
             if let action = action {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { action() }
             }
         }
+    }
+
+    // MARK: - 8.14.0: tools
+
+    /// Buttons and controller buttons that are not keys.
+    private func handleAction(_ action: ControlAction, _ down: Bool) {
+        switch action {
+        case .fastForward:
+            guard down, core.setFastForward != nil else { return }
+            let fast = max(2, min(9, game.fastForwardSpeed ?? 2))
+            setSpeed(speed == 1 ? fast : 1)
+        case .gamePanel:
+            if down { openPanel() }
+        case .scrollUp:
+            send(.pageUp, down)
+        case .scrollDown:
+            send(.pageDown, down)
+        case .showKeyboard:
+            if down { openPanel() }
+        case .quickSave, .quickLoad, .mouseLeft, .mouseRight:
+            if down { AppLog.log("mkxp: \(action.title) is not available for XP/VX/VX Ace games") }
+        default:
+            if let key = action.padKey { send(key, down) }
+        }
+    }
+
+    private func setSpeed(_ value: Int) {
+        speed = max(1, min(9, value))
+        core.setFastForward?(Int32(speed))
+        AppLog.log("mkxp: game speed \(speed)x")
+    }
+
+    private func setCheats(_ on: Bool) {
+        cheatsOn = on
+        core.setCheatsEnabled?(on)
+        AppLog.log("mkxp: cheat menu \(on ? "on" : "off")")
+    }
+
+    /// The core keeps a picture of the paused game (the panel pauses it), so this works from the menu.
+    private func takeScreenshot() {
+        guard let size = core.snapshotSize, let copy = core.copySnapshot else { return }
+        var width: Int32 = 0
+        var height: Int32 = 0
+        guard size(&width, &height), width > 0, height > 0 else {
+            AppLog.log("mkxp: no picture for a screenshot")
+            return
+        }
+        let total = Int(width) * Int(height) * 4
+        var buffer = [UInt8](repeating: 0, count: total)
+        let ok = buffer.withUnsafeMutableBufferPointer { pointer in
+            copy(pointer.baseAddress, Int32(total), &width, &height)
+        }
+        guard ok, let provider = CGDataProvider(data: Data(buffer) as CFData),
+              let image = CGImage(width: Int(width), height: Int(height), bitsPerComponent: 8, bitsPerPixel: 32,
+                                  bytesPerRow: Int(width) * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                                  provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+        else {
+            AppLog.log("mkxp: the screenshot could not be read")
+            return
+        }
+        NativePad.save(screenshot: UIImage(cgImage: image), for: game)
+    }
+
+    /// Text for a game's name entry: the core's text input when the game asks for text, else key presses.
+    private func typeText(_ text: String) {
+        if let push = core.pushTextInput, (core.textInputActive?() ?? 0) != 0 {
+            text.withCString { push($0) }
+            return
+        }
+        var delay = 0.0
+        for character in text.uppercased() {
+            guard let ascii = character.asciiValue else { continue }
+            let code = Int(ascii)
+            guard (65...90).contains(code) || (48...57).contains(code) || code == 32 else { continue }
+            let key = PadKey.fromKeyCode(code == 32 ? 32 : code)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.send(key, true) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.06) { [weak self] in self?.send(key, false) }
+            delay += 0.12
+        }
+    }
+
+    /// Editing the touch controls pauses the game, so dragging, tapping and the + menu work (see `pausedForEditing`).
+    private func editingChanged(_ editing: Bool) {
+        if editing {
+            if canPause && !paused {
+                togglePause()
+                pausedForEditing = true
+            }
+        } else if pausedForEditing {
+            pausedForEditing = false
+            if paused { togglePause() }
+        }
+        refreshMenuButton()
+    }
+
+    // MARK: Performance HUD
+
+    private func setStats(_ on: Bool) {
+        let gameID = game.id
+        LibraryStore.current?.mutate(gameID) { $0.statsOverlay = on }
+        showHUD(on)
+    }
+
+    private func showHUD(_ on: Bool) {
+        hudTimer?.invalidate()
+        hudTimer = nil
+        hud?.removeFromSuperview()
+        hud = nil
+        guard on, let view = host?.view else { return }
+        let panel = PerformanceHUDView(frame: .zero)
+        panel.context = "\(game.engine.badge) · mkxp"
+        view.addSubview(panel)
+        hud = panel
+        refreshHUD()
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshHUD() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        hudTimer = timer
+    }
+
+    private func refreshHUD() {
+        guard let hud, let view = host?.view else { return }
+        let fps = core.averageFPS.map { Int($0().rounded()) }
+        hud.update(fps: fps)
+        hud.place(in: view.bounds, insets: view.safeAreaInsets)
     }
 
     private func menuItems() -> [UIMenuElement] {
@@ -560,12 +749,29 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         case 16: scancode = 225
         case 17: scancode = 224
         case 18: scancode = 226
+        case 36: scancode = 74                               // Home
+        case 35: scancode = 77                               // End
+        case 45: scancode = 73                               // Insert
+        case 46: scancode = 76                               // Delete
+        case 186: scancode = 51                              // ;
+        case 187: scancode = 46                              // =
+        case 188: scancode = 54                              // ,
+        case 189: scancode = 45                              // -
+        case 190: scancode = 55                              // .
+        case 191: scancode = 56                              // /
+        case 192: scancode = 53                              // `
+        case 219: scancode = 47                              // [
+        case 220: scancode = 49                              // \\
+        case 221: scancode = 48                              // ]
+        case 222: scancode = 52                              // '
         default: return
         }
         core.injectKey(scancode, down ? 1 : 0)
     }
 
     func shutdownRuby() {
+        hudTimer?.invalidate()
+        hudTimer = nil
         controllers?.stop()
         controllers = nil
         controlsWindow?.isHidden = true

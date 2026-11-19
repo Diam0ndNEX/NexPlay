@@ -50,6 +50,15 @@ final class NexMenuNavigator: ObservableObject {
         steps[id] = step
     }
 
+    /// 8.14.0: called on every redraw of a row, so A runs the row's newest action (a row registered once kept the
+    /// action of its first draw: the game page's Play then started the game as it was before a setting changed).
+    /// Plain dictionaries, not published: safe to change while SwiftUI draws.
+    func refresh(_ id: String, action: @escaping () -> Void, step: ((Int) -> Void)?) {
+        guard actions[id] != nil else { return }
+        actions[id] = action
+        steps[id] = step
+    }
+
     func unregister(_ id: String) {
         actions[id] = nil
         steps[id] = nil
@@ -210,7 +219,8 @@ private struct NexMenuRing: ViewModifier {
 
     func body(content: Content) -> some View {
         let on = navigator.controllerActive && navigator.focused == id
-        content
+        navigator.refresh(id, action: action, step: step)
+        return content
             .overlay {
                 if on {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)

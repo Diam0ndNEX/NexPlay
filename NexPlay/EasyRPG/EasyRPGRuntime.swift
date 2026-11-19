@@ -121,7 +121,28 @@ final class EasyRPGLoop {
     private let lock = NSLock()
     private var stopping = false
     private var paused = false
+    private var multiplier = 1
     private var thread: Thread?
+
+    private var resetAsked = false
+
+    /// 8.14.0: the core is reset on its own thread before its next frame (the core is not thread safe).
+    func requestReset() {
+        lock.lock(); resetAsked = true; lock.unlock()
+    }
+
+    private func takeReset() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let asked = resetAsked
+        resetAsked = false
+        return asked
+    }
+
+    /// 8.14.0: frames per tick (fast forward), 1...9.
+    var speed: Int {
+        get { lock.lock(); defer { lock.unlock() }; return multiplier }
+        set { lock.lock(); multiplier = max(1, min(9, newValue)); lock.unlock() }
+    }
 
     var isPaused: Bool {
         get { lock.lock(); defer { lock.unlock() }; return paused }
@@ -152,7 +173,9 @@ final class EasyRPGLoop {
                     next = CACurrentMediaTime()
                     continue
                 }
-                nexretro_run()
+                if self.takeReset() { nexretro_reset() }
+                let frames = self.speed
+                for _ in 0..<frames { nexretro_run() }
                 next += interval
                 let wait = next - CACurrentMediaTime()
                 if wait > 0 {
@@ -175,7 +198,7 @@ final class EasyRPGLoop {
     }
 }
 
-/// The full-screen EasyRPG player: the picture, touch controls, controllers, sound and the close button.
+/// The full-screen EasyRPG player: the picture, NexPlay's touch controls and in-game menu (8.14.0), controllers, sound.
 @MainActor
 final class EasyRPGViewController: UIViewController {
     private let game: Game
@@ -183,7 +206,6 @@ final class EasyRPGViewController: UIViewController {
     private let onExit: () -> Void
     private let loop = EasyRPGLoop()
     private let screen = UIView()
-    private let controls = UIView()
     private let message = UILabel()
     private var displayLink: CADisplayLink?
     private let pixels = UnsafeMutablePointer<UInt32>.allocate(capacity: 1024 * 1024)
@@ -191,7 +213,19 @@ final class EasyRPGViewController: UIViewController {
     private var started = false
     private var shutDown = false
     private var sessionStart: Date?
-    private var pressedByTouch: [Int: UInt32] = [:]
+    // 8.14.0: NexPlay's touch controls, in-game menu, controllers and HUD (the same as the other engines).
+    private let pad = GamepadOverlayView()
+    private let menuButton = UIButton(type: .system)
+    private var controllers: PhysicalControllerManager?
+    private var held: [UInt32: Int] = [:]
+    private var lastImage: CGImage?
+    private var frames = 0
+    private var hud: PerformanceHUDView?
+    private var hudTimer: Timer?
+    private weak var panelController: UIViewController?
+    private var keepPaused = false
+    private var userPaused = false
+    private var pausedForEditing = false
 
     init(game: Game, store: LibraryStore, onExit: @escaping () -> Void) {
         self.game = game
@@ -216,7 +250,7 @@ final class EasyRPGViewController: UIViewController {
 
         screen.frame = view.bounds
         screen.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        screen.layer.magnificationFilter = .nearest
+        screen.layer.magnificationFilter = NativeScaling.current(for: game.id) == .sharp ? .nearest : .linear
         screen.layer.contentsGravity = .resizeAspect
         view.addSubview(screen)
 
@@ -228,10 +262,6 @@ final class EasyRPGViewController: UIViewController {
         message.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(message)
 
-        controls.frame = view.bounds
-        controls.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        controls.isMultipleTouchEnabled = true
-        view.addSubview(controls)
         buildControls()
 
         NSLayoutConstraint.activate([
@@ -245,6 +275,11 @@ final class EasyRPGViewController: UIViewController {
                                                name: .GCControllerDidConnect, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(controllerChanged),
                                                name: .GCControllerDidDisconnect, object: nil)
+        let manager = PhysicalControllerManager(gameID: game.id)
+        manager.onKey = { [weak self] key, down in self?.press(key, down) }
+        manager.onAction = { [weak self] action, down in self?.handleAction(action, down) }
+        manager.start()
+        controllers = manager
         NotificationCenter.default.addObserver(self, selector: #selector(willResignActive),
                                                name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(didBecomeActive),
@@ -310,6 +345,11 @@ final class EasyRPGViewController: UIViewController {
             }
         }
         for id in 0..<16 { nexretro_set_button(UInt32(id), false) }
+        held = [:]
+        controllers?.stop()
+        controllers = nil
+        hudTimer?.invalidate()
+        hudTimer = nil
     }
 
     private func finished() {
@@ -333,7 +373,7 @@ final class EasyRPGViewController: UIViewController {
     }
 
     @objc private func didBecomeActive() {
-        guard !shutDown, displayLink != nil else { return }
+        guard !shutDown, displayLink != nil, !userPaused, panelController == nil, !pad.isEditing else { return }
         loop.isPaused = false
         try? audio?.start()
         sessionStart = Date()
@@ -354,6 +394,8 @@ final class EasyRPGViewController: UIViewController {
                                                            | CGBitmapInfo.byteOrder32Little.rawValue),
                                   provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
         else { return }
+        lastImage = image
+        frames += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         screen.layer.contents = image
@@ -411,87 +453,233 @@ final class EasyRPGViewController: UIViewController {
     }
 
     private func buildControls() {
-        let closeButton = UIButton(type: .system)
-        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        closeButton.tintColor = UIColor.white.withAlphaComponent(0.6)
-        closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
-        closeButton.accessibilityLabel = "Back to Library"
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(closeButton)
+        pad.frame = view.bounds
+        pad.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        NativePad.wire(pad, game: game) { [weak self] in self }
+        pad.isHidden = !game.gamepad
+        pad.onKey = { [weak self] key, down in self?.press(key, down) }
+        pad.onAction = { [weak self] action, down in self?.handleAction(action, down) }
+        pad.onEditingChanged = { [weak self] editing in self?.editingChanged(editing) }
+        view.addSubview(pad)
+
+        menuButton.translatesAutoresizingMaskIntoConstraints = false
+        menuButton.setImage(UIImage(systemName: "ellipsis.circle.fill"), for: .normal)
+        menuButton.tintColor = .white
+        menuButton.backgroundColor = UIColor(white: 0, alpha: 0.35)
+        menuButton.layer.cornerRadius = 20
+        menuButton.alpha = 0.7
+        menuButton.accessibilityLabel = "Game menu"
+        menuButton.addAction(UIAction { [weak self] _ in self?.menuButtonTapped() }, for: .touchUpInside)
+        view.addSubview(menuButton)
         NSLayoutConstraint.activate([
-            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
-            closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6),
-            closeButton.widthAnchor.constraint(equalToConstant: 34),
-            closeButton.heightAnchor.constraint(equalToConstant: 34),
+            menuButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6),
+            menuButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -10),
+            menuButton.widthAnchor.constraint(equalToConstant: 40),
+            menuButton.heightAnchor.constraint(equalToConstant: 40),
         ])
-
-        let size: CGFloat = 56
-        let pad = UIView()
-        pad.translatesAutoresizingMaskIntoConstraints = false
-        controls.addSubview(pad)
-        let face = UIView()
-        face.translatesAutoresizingMaskIntoConstraints = false
-        controls.addSubview(face)
-        NSLayoutConstraint.activate([
-            pad.leadingAnchor.constraint(equalTo: controls.safeAreaLayoutGuide.leadingAnchor, constant: 24),
-            pad.bottomAnchor.constraint(equalTo: controls.safeAreaLayoutGuide.bottomAnchor, constant: -20),
-            pad.widthAnchor.constraint(equalToConstant: size * 3),
-            pad.heightAnchor.constraint(equalToConstant: size * 3),
-            face.trailingAnchor.constraint(equalTo: controls.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-            face.bottomAnchor.constraint(equalTo: controls.safeAreaLayoutGuide.bottomAnchor, constant: -20),
-            face.widthAnchor.constraint(equalToConstant: size * 3),
-            face.heightAnchor.constraint(equalToConstant: size * 3),
-        ])
-        addButton("arrowtriangle.up.fill", .up, to: pad, x: 1, y: 0, size: size)
-        addButton("arrowtriangle.down.fill", .down, to: pad, x: 1, y: 2, size: size)
-        addButton("arrowtriangle.left.fill", .left, to: pad, x: 0, y: 1, size: size)
-        addButton("arrowtriangle.right.fill", .right, to: pad, x: 2, y: 1, size: size)
-        addButton("a.circle.fill", .a, to: face, x: 2, y: 1, size: size)
-        addButton("b.circle.fill", .b, to: face, x: 1, y: 2, size: size)
-        addButton("x.circle.fill", .x, to: face, x: 1, y: 0, size: size)
+        if game.statsOverlay == true { showHUD(true) }
     }
 
-    private func addButton(_ symbol: String, _ id: Pad, to parent: UIView, x: CGFloat, y: CGFloat, size: CGFloat) {
-        let button = UIButton(type: .custom)
-        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 30)), for: .normal)
-        button.tintColor = UIColor.white.withAlphaComponent(0.45)
-        button.frame = CGRect(x: x * size, y: y * size, width: size, height: size)
-        button.tag = Int(id.rawValue)
-        button.addTarget(self, action: #selector(buttonDown(_:)), for: [.touchDown, .touchDragEnter])
-        button.addTarget(self, action: #selector(buttonUp(_:)), for: [.touchUpInside, .touchUpOutside, .touchDragExit, .touchCancel])
-        parent.addSubview(button)
+    /// A key from the touch controls or a controller, as EasyRPG's joypad: arrows and W/A/S/D move, Z/Enter/Space
+    /// decide, X/Esc/Backspace cancel, Shift is EasyRPG's Shift, Page Up/Down are L/R, F12 resets.
+    private func press(_ key: PadKey, _ down: Bool) {
+        let id: Pad
+        switch key.keyCode {
+        case 38, 87: id = .up
+        case 40, 83: id = .down
+        case 37, 65: id = .left
+        case 39, 68: id = .right
+        case 90, 13, 32, 67: id = .a
+        case 88, 27, 8, 86, 66, 78: id = .b
+        case 16: id = .x
+        case 9, 81: id = .y
+        case 33: id = .l
+        case 34: id = .r
+        case 113: id = .select
+        case 123:
+            if down { loop.requestReset() }
+            return
+        default: return
+        }
+        let count = max(0, (held[id.rawValue] ?? 0) + (down ? 1 : -1))
+        held[id.rawValue] = count
+        nexretro_set_button(id.rawValue, count > 0)
     }
 
-    @objc private func buttonDown(_ sender: UIButton) {
-        nexretro_set_button(UInt32(sender.tag), true)
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    private func handleAction(_ action: ControlAction, _ down: Bool) {
+        switch action {
+        case .fastForward:
+            guard down else { return }
+            let fast = max(2, min(9, game.fastForwardSpeed ?? 2))
+            loop.speed = loop.speed == 1 ? fast : 1
+        case .gamePanel, .showKeyboard:
+            if down { openPanel() }
+        case .scrollUp:
+            press(.pageUp, down)
+        case .scrollDown:
+            press(.pageDown, down)
+        case .quickSave, .quickLoad, .mouseLeft, .mouseRight:
+            if down { AppLog.log("easyrpg: \(action.title) is not available for RPG Maker 2000/2003 games") }
+        default:
+            if let key = action.padKey { press(key, down) }
+        }
     }
 
-    @objc private func buttonUp(_ sender: UIButton) {
-        nexretro_set_button(UInt32(sender.tag), false)
+    private func setPaused(_ on: Bool) {
+        guard displayLink != nil else { return }
+        loop.isPaused = on
+        if on { audio?.pause() } else { try? audio?.start() }
     }
 
-    @objc private func controllerChanged() {
-        let pads = GCController.controllers().compactMap(\.extendedGamepad)
-        controls.isHidden = !pads.isEmpty
-        for gamepad in pads {
-            gamepad.valueChangedHandler = { pad, _ in
-                let up = pad.dpad.up.isPressed || pad.leftThumbstick.yAxis.value > 0.5
-                let down = pad.dpad.down.isPressed || pad.leftThumbstick.yAxis.value < -0.5
-                let left = pad.dpad.left.isPressed || pad.leftThumbstick.xAxis.value < -0.5
-                let right = pad.dpad.right.isPressed || pad.leftThumbstick.xAxis.value > 0.5
-                nexretro_set_button(Pad.up.rawValue, up)
-                nexretro_set_button(Pad.down.rawValue, down)
-                nexretro_set_button(Pad.left.rawValue, left)
-                nexretro_set_button(Pad.right.rawValue, right)
-                nexretro_set_button(Pad.a.rawValue, pad.buttonA.isPressed)
-                nexretro_set_button(Pad.b.rawValue, pad.buttonB.isPressed)
-                nexretro_set_button(Pad.x.rawValue, pad.buttonX.isPressed)
-                nexretro_set_button(Pad.y.rawValue, pad.buttonY.isPressed)
-                nexretro_set_button(Pad.start.rawValue, pad.buttonMenu.isPressed)
-                nexretro_set_button(Pad.l.rawValue, pad.leftShoulder.isPressed)
-                nexretro_set_button(Pad.r.rawValue, pad.rightShoulder.isPressed)
+    private func editingChanged(_ editing: Bool) {
+        menuButton.isHidden = editing
+        if editing {
+            if !userPaused && !loop.isPaused {
+                setPaused(true)
+                pausedForEditing = true
+            }
+            addDoneButton()
+        } else {
+            doneButton?.removeFromSuperview()
+            doneButton = nil
+            if pausedForEditing {
+                pausedForEditing = false
+                setPaused(false)
             }
         }
+    }
+
+    private var doneButton: UIButton?
+
+    /// While the controls are edited: Done (save) and Cancel at the top left.
+    private func addDoneButton() {
+        guard doneButton == nil else { return }
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setTitle("Done", for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        button.tintColor = .white
+        button.backgroundColor = UIColor(red: 0.2, green: 0.72, blue: 0.33, alpha: 1)
+        button.layer.cornerRadius = 18
+        button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+        button.showsMenuAsPrimaryAction = false
+        button.addAction(UIAction { [weak self] _ in self?.pad.endEditing(save: true) }, for: .touchUpInside)
+        view.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
+            button.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            button.heightAnchor.constraint(equalToConstant: 36),
+        ])
+        doneButton = button
+    }
+
+    // MARK: In-game menu (8.14.0)
+
+    private func menuButtonTapped() {
+        guard !pad.isEditing else { return }
+        openPanel()
+    }
+
+    private func openPanel() {
+        guard panelController == nil, !shutDown else { return }
+        keepPaused = userPaused
+        setPaused(true)
+        var setup = NativePanelSetup(game: game)
+        setup.paused = userPaused
+        setup.speed = loop.speed
+        setup.speeds = [1, 2, 3, 4, 6, 8]
+        setup.scaling = NativeScaling.current(for: game.id)
+        setup.scalingChoices = [.sharp, .smooth]
+        setup.scalingLive = true
+        setup.statsOn = game.statsOverlay ?? false
+        setup.controlsHidden = pad.isHidden
+        setup.close = { [weak self] in self?.closePanel() }
+        setup.setPaused = { [weak self] on in self?.keepPaused = on }
+        setup.setSpeed = { [weak self] value in self?.loop.speed = value }
+        setup.gameMenu = { [weak self] in self?.closePanel { self?.tapButton(.b) } }
+        setup.restart = { [weak self] in self?.closePanel { self?.loop.requestReset() } }
+        setup.screenshot = { [weak self] in self?.takeScreenshot() }
+        setup.setScaling = { [weak self] value in
+            guard let self else { return }
+            NativeScaling.set(value, for: self.game.id)
+            self.screen.layer.magnificationFilter = value == .sharp ? .nearest : .linear
+        }
+        setup.setStats = { [weak self] on in self?.setStats(on) }
+        setup.setControlsHidden = { [weak self] hidden in self?.pad.isHidden = hidden }
+        setup.editControls = { [weak self] in self?.closePanel { self?.pad.beginEditing() } }
+        setup.preset = { [weak self] preset in self?.pad.applyPreset(preset) }
+        setup.resetControls = { [weak self] in
+            guard let self else { return }
+            NativePad.resetLayout(self.pad, game: self.game)
+        }
+        setup.exit = { [weak self] in self?.closePanel { self?.close() } }
+        let controller = NexMenuHostingController(rootView: NativeGamePanel(setup: setup))
+        panelController = controller
+        present(controller, animated: true)
+    }
+
+    private func closePanel(then action: (() -> Void)? = nil) {
+        guard let controller = panelController else {
+            action?()
+            return
+        }
+        panelController = nil
+        userPaused = keepPaused
+        setPaused(userPaused)
+        controller.dismiss(animated: true) {
+            if let action { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { action() } }
+        }
+    }
+
+    private func tapButton(_ id: Pad) {
+        nexretro_set_button(id.rawValue, true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { nexretro_set_button(id.rawValue, false) }
+    }
+
+    private func takeScreenshot() {
+        guard let image = lastImage else { return }
+        NativePad.save(screenshot: UIImage(cgImage: image), for: game)
+    }
+
+    // MARK: Performance HUD
+
+    private func setStats(_ on: Bool) {
+        let gameID = game.id
+        store.mutate(gameID) { $0.statsOverlay = on }
+        showHUD(on)
+    }
+
+    private func showHUD(_ on: Bool) {
+        hudTimer?.invalidate()
+        hudTimer = nil
+        hud?.removeFromSuperview()
+        hud = nil
+        guard on else { return }
+        let panel = PerformanceHUDView(frame: .zero)
+        panel.context = "2000/2003 · EasyRPG"
+        view.addSubview(panel)
+        view.bringSubviewToFront(menuButton)
+        hud = panel
+        frames = 0
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshHUD() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        hudTimer = timer
+        refreshHUD()
+    }
+
+    private func refreshHUD() {
+        guard let hud else { return }
+        hud.update(fps: frames)
+        frames = 0
+        hud.place(in: view.bounds, insets: view.safeAreaInsets)
+    }
+
+    /// A controller hides the touch controls when Settings asks for it (Hide Pad With Controller).
+    @objc private func controllerChanged() {
+        let prefs = ControlPrefs.current()
+        guard prefs.hidePadWithController, !pad.isEditing else { return }
+        pad.isHidden = !GCController.controllers().isEmpty || !game.gamepad
     }
 }

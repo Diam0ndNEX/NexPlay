@@ -68,10 +68,15 @@ final class LibraryStore: ObservableObject {
         let target = game
         // 8.7.10: the card leaves the list first, so nothing on screen (card, zoom source, game page) points at a game
         // whose files are being removed underneath it.
+        // 8.14.0: each step is logged first, so a crash while deleting names its step in the next launch's log.
+        AppLog.log("delete: \(game.name): removing from the library")
         games.removeAll { $0.id == game.id }
         save()
+        AppLog.log("delete: rescuing saves")
         _ = await Task.detached(priority: .userInitiated) { SaveArchive.rescue(target) }.value
+        AppLog.log("delete: web data")
         await DataStores.wipe(for: game)
+        AppLog.log("delete: files")
         WindowsLibraryLink.remove(for: game)
         try? FileManager.default.removeItem(at: Paths.folder(for: game))
         try? FileManager.default.removeItem(at: Paths.backupFolder(for: game))

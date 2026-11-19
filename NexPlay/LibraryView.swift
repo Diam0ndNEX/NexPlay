@@ -425,6 +425,20 @@ struct LibraryView: View {
         return seen
     }
 
+    /// 8.14.0: Play from the game page, the same way for touch and controller: the game as it is now in the library
+    /// (a copy kept from opening the page would start with the settings from before), started when the page has closed.
+    private func playFromPage(_ chosen: Game) {
+        let fresh = store.game(id: chosen.id) ?? chosen
+        AppLog.log("play: \(fresh.name) chosen on the game page")
+        pendingPlay = fresh
+        if detail == nil {
+            startPendingPlay()
+            return
+        }
+        detail = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { startPendingPlay() }
+    }
+
     private func startPendingPlay() {
         guard let next = pendingPlay, detail == nil else { return }
         pendingPlay = nil
@@ -466,10 +480,7 @@ struct LibraryView: View {
                 // delay: a cover presented while another one was still closing was dropped, and `playing` then kept
                 // its value, so Play did nothing until the app restarted. 8.10.4: the card-to-page zoom is gone
                 // too: its interactive dismiss gesture swallowed taps on Back.
-                AppLog.log("play: \(chosen.name) chosen on the game page")
-                pendingPlay = chosen
-                detail = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { startPendingPlay() }
+                playFromPage(chosen)
             }
             .environmentObject(store)
             .environmentObject(collections)
@@ -593,8 +604,7 @@ struct LibraryView: View {
                 detail = game
                 return
             }
-            detail = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { playing = game }
+            playFromPage(game)
         }
         .task(id: sort) {
             guard sort.needsSizes else { return }
@@ -819,15 +829,13 @@ struct LibraryView: View {
         switch button {
         case .a:
             if let open = detail {
-                detail = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { playing = open }
+                playFromPage(open)
             } else if tab != .settings, let game = focusedGame {
                 detail = game
             }
         case .x:
             if let open = detail {
-                detail = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { playing = open }
+                playFromPage(open)
             } else if tab != .settings, let game = focusedGame {
                 playing = game
             }
@@ -1169,6 +1177,9 @@ struct LibraryView: View {
 
     private func deleteNow(_ games: [Game]) {
         Task {
+            // 8.14.0: let the confirmation and the card's context menu finish closing before the card goes away.
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            if let open = detail, games.contains(where: { $0.id == open.id }) { detail = nil }
             for game in games {
                 await store.delete(game)
                 collections.forget(game.id)
