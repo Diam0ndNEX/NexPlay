@@ -223,6 +223,14 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         guard !started else { return }
         started = true
         MkxpRunner.mark()
+        // 8.15.4: the core pauses by blocking the game thread, and when iOS sends the app to the background the
+        // core's event loop (on the MAIN thread) waits for the game thread to stop at its next frame. A paused game
+        // never gets there, so the main thread waited forever: no touches, no menu, no HUD after coming back.
+        // The game is resumed before the app leaves the screen.
+        NotificationCenter.default.addObserver(self, selector: #selector(resumeBeforeBackground),
+                                               name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(resumeBeforeBackground),
+                                               name: UIApplication.didEnterBackgroundNotification, object: nil)
         AppLog.noteGame(game.name)
         AppLog.log("mkxp core: starting \(game.name) (\(game.engine.badge))")
         showControls()
@@ -668,13 +676,9 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
     }
 
     /// Editing the touch controls pauses the game, so dragging, tapping and the + menu work (see `pausedForEditing`).
+    /// 8.15.4: editing no longer pauses the game (see `resumeBeforeBackground`: a paused core can lock the app).
     private func editingChanged(_ editing: Bool) {
-        if editing {
-            if canPause && !paused {
-                togglePause()
-                pausedForEditing = true
-            }
-        } else if pausedForEditing {
+        if !editing, pausedForEditing {
             pausedForEditing = false
             if paused { togglePause() }
         }
@@ -756,6 +760,15 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
     private func tap(_ scancode: Int32) {
         core.injectKey(scancode, 1)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [core] in core.injectKey(scancode, 0) }
+    }
+
+    @objc private func resumeBeforeBackground() {
+        guard paused, canPause else { return }
+        AppLog.log("mkxp: app leaving the screen, the game is resumed so it can't lock up")
+        paused = false
+        pausedForEditing = false
+        panelKeepPaused = false
+        core.requestResume?()
     }
 
     private func togglePause() {
