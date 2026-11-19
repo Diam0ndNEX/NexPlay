@@ -410,17 +410,67 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         button.layer.cornerRadius = 20
         button.alpha = 0.7
         button.accessibilityLabel = "Game menu"
-        button.showsMenuAsPrimaryAction = true
+        button.addAction(UIAction { [weak self] _ in self?.menuButtonTapped() }, for: .touchUpInside)
         return button
     }()
 
     /// The menu is rebuilt each time it opens, so its titles match the current state.
     private func refreshMenuButton() {
-        menuButton.menu = UIMenu(children: [
-            UIDeferredMenuElement.uncached { [weak self] completion in
-                completion(self?.menuItems() ?? [])
+        if overlay?.isEditing == true {
+            // While the touch controls are edited the button keeps a small menu (Done / Cancel).
+            menuButton.showsMenuAsPrimaryAction = true
+            menuButton.menu = UIMenu(children: [
+                UIDeferredMenuElement.uncached { [weak self] completion in
+                    completion(self?.menuItems() ?? [])
+                }
+            ])
+        } else {
+            menuButton.menu = nil
+            menuButton.showsMenuAsPrimaryAction = false
+        }
+    }
+
+    private func menuButtonTapped() {
+        guard overlay?.isEditing != true else { return }
+        openPanel()
+    }
+
+    // 8.13.19: NexPlay's in-game menu (the panel the other engines use). The game is paused while it is open and goes
+    // back to what it was (running, or paused if it was paused before or the panel's Pause switch is on).
+    private weak var panelController: UIViewController?
+    private var panelKeepPaused = false
+
+    private func openPanel() {
+        guard let host = host, panelController == nil else { return }
+        let canPause = core.requestPause != nil && core.requestResume != nil
+        panelKeepPaused = paused
+        if canPause && !paused { togglePause() }
+        let panel = MkxpPanel(
+            game: game, canPause: canPause, controlsHidden: overlay?.isHidden ?? false, paused: panelKeepPaused,
+            onClose: { [weak self] in self?.closePanel() },
+            onEsc: { [weak self] in self?.closePanel { self?.tap(41) } },
+            onReset: { [weak self] in self?.closePanel { self?.tap(69) } },
+            onSetPaused: { [weak self] keep in self?.panelKeepPaused = keep },
+            onSetControlsHidden: { [weak self] hidden in self?.overlay?.isHidden = hidden },
+            onEditControls: { [weak self] in self?.closePanel { self?.overlay?.beginEditing() } },
+            onQuit: { exit(0) })
+        let controller = NexMenuHostingController(rootView: panel)
+        panelController = controller
+        host.present(controller, animated: true)
+    }
+
+    private func closePanel(then action: (() -> Void)? = nil) {
+        guard let controller = panelController else {
+            action?()
+            return
+        }
+        panelController = nil
+        if core.requestPause != nil, core.requestResume != nil, paused != panelKeepPaused { togglePause() }
+        controller.presentingViewController?.dismiss(animated: true) {
+            if let action = action {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { action() }
             }
-        ])
+        }
     }
 
     private func menuItems() -> [UIMenuElement] {
