@@ -146,6 +146,14 @@ final class MkxpRunner: RubyGameRunner {
 }
 
 /// Starts the core and puts the touch controls and a menu button over it in a window of their own.
+/// A Date that can be read and written from any thread.
+private final class NexAtomicDate {
+    private let lock = NSLock()
+    private var value = Date()
+    func set(_ date: Date) { lock.lock(); value = date; lock.unlock() }
+    func get() -> Date { lock.lock(); defer { lock.unlock() }; return value }
+}
+
 private final class MkxpViewController: UIViewController, RubyPlayerControlling {
     private let game: Game
     private let core: GameCoreSymbols
@@ -167,6 +175,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
     private var pausedForEditing = false
     private var hud: PerformanceHUDView?
     private var hudTimer: Timer?
+    private var watchdog: DispatchSourceTimer?
 
     init(game: Game, core: GameCoreSymbols, onExit: @escaping () -> Void) {
         self.game = game
@@ -331,6 +340,23 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
             AppLog.log("mkxp: alive \(Int(Date().timeIntervalSince(startedAt))) s, fps \(fps), paused \(self.paused), panel \(self.panelController != nil), editing \(self.overlay?.isEditing == true)")
         }
         RunLoop.main.add(beat, forMode: .common)
+        // 8.15.3: a watchdog on its own thread. The core runs on the main thread, so when the main thread stops serving
+        // UIKit (touches, timers) the heartbeat above goes silent; this one keeps writing and says how long the main
+        // queue has been stuck, with the core's frame rate.
+        let mainSeen = NexAtomicDate()
+        let watch = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        watch.schedule(deadline: .now() + 2, repeating: 2)
+        watch.setEventHandler { [weak self] in
+            DispatchQueue.main.async { mainSeen.set(Date()) }
+            guard let self = self else { return }
+            let stuck = Date().timeIntervalSince(mainSeen.get())
+            if stuck > 3 {
+                AppLog.log("mkxp: the main thread has not served UIKit for \(Int(stuck)) s (the core holds it)")
+            }
+        }
+        mainSeen.set(Date())
+        watch.resume()
+        watchdog = watch
         // argv[0] of the real process, like Empo passes.
         var argv: [UnsafeMutablePointer<CChar>?] = [CommandLine.unsafeArgv[0], nil]
         let result = argv.withUnsafeMutableBufferPointer { buffer in
@@ -470,6 +496,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
     }
 
     private func menuButtonTapped() {
+        AppLog.log("mkxp: menu button tapped (editing \(overlay?.isEditing == true), panel \(panelController != nil))")
         guard overlay?.isEditing != true else { return }
         openPanel()
     }
@@ -749,8 +776,14 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
     }
 
     /// DOM keyCode to SDL scancode, the keys GameCore.h expects.
+    private var sentLogged = 0
+
     private func send(_ key: PadKey, _ down: Bool) {
         let code = key.keyCode
+        if sentLogged < 25 {
+            sentLogged += 1
+            AppLog.log("mkxp: touch key \(code) \(down ? "down" : "up") (\(sentLogged)/25 logged)")
+        }
         var scancode: Int32 = 0
         switch code {
         case 65...90: scancode = Int32(4 + code - 65)        // A-Z
