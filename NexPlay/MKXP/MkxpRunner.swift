@@ -236,8 +236,11 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         for kind in MkxpRTP.required(in: folderURL) {
             if MkxpRTP.has(kind) { rtpPaths.append(MkxpRTP.folder(kind).path) } else { missingRTP.append(kind) }
         }
-        if !rtpPaths.isEmpty,
-           let data = try? JSONSerialization.data(withJSONObject: ["RTP": rtpPaths]),
+        var overlay: [String: Any] = [:]
+        if !rtpPaths.isEmpty { overlay["RTP"] = rtpPaths }
+        if let compat = MkxpCompat.installedPath() { overlay["preloadScript"] = [compat] }
+        if !overlay.isEmpty,
+           let data = try? JSONSerialization.data(withJSONObject: overlay),
            let json = String(data: data, encoding: .utf8) {
             put("configOverlay", json)
         }
