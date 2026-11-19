@@ -212,6 +212,27 @@ begin
       mode.sub(/\Ar/, 'rt')
     end
 
+    # Does this File.new/File.open call read in text mode (no "b", no "+", not a write mode)?
+    def self.text_read?(args)
+      return false if args.empty? || args[0].is_a?(Integer)
+      opts = args.last.is_a?(Hash) ? args.last : nil
+      return false if opts && !options_ok?(opts)
+      positional = opts ? args[0...-1] : args
+      mode = positional[1]
+      return true if mode.nil?
+      return false unless mode.is_a?(String)
+      !!(mode =~ /\Ar(?![^:]*[b+])/)
+    end
+
+    # Some builds of the core keep the "\r" even in "rt" mode, so the text is also cleaned after reading.
+    def self.clean(text)
+      return text unless text.is_a?(String)
+      return text unless text.index("\r")
+      text.gsub("\r\n", "\n")
+    rescue Exception
+      text
+    end
+
     def self.options_ok?(opts)
       !(opts.key?(:mode) || opts.key?(:binmode) || opts.key?(:textmode) || opts.key?(:newline) ||
         opts.key?(:universal_newline) || opts.key?(:crlf_newline))
@@ -253,9 +274,30 @@ begin
     File.class_eval do
       alias_method :nex_initialize_before_text, :initialize
       def initialize(*args, &block)
+        @nex_text_read = NexTextMode.text_read?(args)
         nex_initialize_before_text(*NexTextMode.file_args(args), &block)
       end
       ruby2_keywords(:initialize) if respond_to?(:ruby2_keywords, true)
+    end
+  end
+
+  unless File.private_method_defined?(:nex_read_before_clean) || File.method_defined?(:nex_read_before_clean)
+    File.class_eval do
+      alias_method :nex_read_before_clean, :read
+      alias_method :nex_gets_before_clean, :gets
+      alias_method :nex_readlines_before_clean, :readlines
+      def read(*args)
+        text = nex_read_before_clean(*args)
+        @nex_text_read && (args.empty? || args[0].nil?) ? NexTextMode.clean(text) : text
+      end
+      def gets(*args)
+        text = nex_gets_before_clean(*args)
+        @nex_text_read ? NexTextMode.clean(text) : text
+      end
+      def readlines(*args)
+        lines = nex_readlines_before_clean(*args)
+        @nex_text_read ? lines.map { |l| NexTextMode.clean(l) } : lines
+      end
     end
   end
 
@@ -263,7 +305,8 @@ begin
     class << IO
       alias_method :nex_read_before_text, :read
       def read(*args)
-        nex_read_before_text(*NexTextMode.read_args(args))
+        text = nex_read_before_text(*NexTextMode.read_args(args))
+        (args.length == 1 || (args.length == 2 && args[1].is_a?(Hash) && NexTextMode.options_ok?(args[1]))) ? NexTextMode.clean(text) : text
       end
       ruby2_keywords(:read) if respond_to?(:ruby2_keywords, true)
     end
