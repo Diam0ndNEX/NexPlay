@@ -258,3 +258,42 @@ begin
   end
 rescue StandardError, NameError, ArgumentError
 end
+
+# Real RGSS takes any value for a true/false property (`sprite.visible = some_object`, `window.visible = 1`); the core
+# raises "TypeError: Argument 0: Expected bool" for anything but true/false/nil. The core already wraps some setters
+# (Font bold/italic/shadow/outline, Sprite mirror/pattern_tile/invert, Window stretch/active/pause/arrows_visible,
+# Tilemap visible); the visible= of Sprite, Plane, Window and Viewport is not among them. Same wrapping, same guard:
+# one alias per setter, so a second load can't alias the wrapper to itself.
+begin
+  %w[Sprite Plane Window Viewport Tilemap].each do |class_name|
+    next unless Object.const_defined?(class_name)
+    klass = Object.const_get(class_name)
+    next unless klass.method_defined?('visible=')
+    next if klass.method_defined?('nex_bool_orig_visible=')
+    klass.class_eval do
+      alias_method 'nex_bool_orig_visible=', 'visible='
+      define_method('visible=') { |value| send('nex_bool_orig_visible=', value ? true : false) }
+    end
+  end
+  %w[default_bold default_italic default_shadow default_outline].each do |prop|
+    next unless defined?(Font) && Font.respond_to?(prop + '=')
+    orig = 'nex_bool_orig_' + prop + '='
+    next if Font.respond_to?(orig)
+    Font.singleton_class.class_eval do
+      alias_method orig, prop + '='
+      define_method(prop + '=') { |value| send(orig, value ? true : false) }
+    end
+  end
+rescue StandardError, NameError
+end
+
+# Windows runs Ruby 1.9 with a text encoding set for the system; a game reading its UTF-8 text files and calling
+# encode("utf-8") on them works there. When this build starts with a binary default encoding, the same call fails
+# ("\xE5" from ASCII-8BIT to UTF-8). A binary or ASCII default is raised to UTF-8; the encodings are logged either way.
+begin
+  if Encoding.default_external == Encoding::ASCII_8BIT || Encoding.default_external == Encoding::US_ASCII
+    Encoding.default_external = Encoding::UTF_8
+  end
+  DL.nex_log('encodings: external ' + Encoding.default_external.to_s + ', internal ' + Encoding.default_internal.inspect)
+rescue StandardError, NameError
+end

@@ -27,6 +27,11 @@ class Win32API   # same lookup and tolerance as the core's
   end
 end
 module DL; end
+class Sprite
+  def visible=(value); raise TypeError, 'Argument 0: Expected bool' unless value == true || value == false || value.nil?; @visible = value; end
+  def visible; @visible; end
+end
+Encoding.default_external = Encoding::ASCII_8BIT
 load File.join(File.dirname(__FILE__), 'compat.rb')
 
 def check(name, ok)
@@ -99,4 +104,15 @@ check 'File.read with options drops \\r', File.read(tmp, :encoding => 'UTF-8') =
 check 'File.open with options drops \\r', File.open(tmp, 'r', :encoding => 'UTF-8').read == "a\nb"
 check 'File.read with a length still works', File.read(tmp, 2).length == 2
 File.delete(tmp)
+sprite = Sprite.new
+sprite.visible = Object.new
+check 'visible= takes any object', sprite.visible == true
+sprite.visible = 0
+check 'visible= takes 0 as on (as RGSS)', sprite.visible == true
+sprite.visible = nil
+check 'visible= takes nil as off', sprite.visible == false
+check 'binary default encoding raised to UTF-8', Encoding.default_external == Encoding::UTF_8
+load File.join(File.dirname(__FILE__), 'compat.rb')
+sprite.visible = 5
+check 'second load keeps the wrapper working', sprite.visible == true
 exit($failed ? 1 : 0)
