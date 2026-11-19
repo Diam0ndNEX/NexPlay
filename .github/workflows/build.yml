@@ -1,4 +1,7 @@
-# Paste as .github/workflows/build.yml (NexPlay 8.0.0; replaces the 7.13.2 file).
+# Paste as .github/workflows/build.yml (NexPlay 8.13.17; replaces the 8.0.0 file).
+# 8.13.17: every build now has the RPG Maker XP/VX/Ace core in it (a push no longer makes a build without it, so there is
+# no second manual build per push). If the core can't be fetched the build carries on without it and says so in a warning.
+# Run workflow > mkxp = off still makes a build without the core. Package install skips Homebrew's self-update.
 # 8.0.0: the "Windows engine" step downloads the newest windows-engine release (made by build-windows-runtime.yml)
 # and turns the Windows engine on, so BCD's code (NexPlay/Windows/BCD) is compiled into NexPlay. Without a release
 # the app is built as before, without Windows games.
@@ -16,9 +19,9 @@ on:
   workflow_dispatch:
     inputs:
       mkxp:
-        description: "Build with the RPG Maker XP/VX/Ace core (experimental)"
+        description: "Build with the RPG Maker XP/VX/Ace core"
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write
@@ -35,10 +38,10 @@ jobs:
 
       - name: Choose build type
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.mkxp }}" = "true" ]; then
-            echo "NEXPLAY_MKXP=1" >> "$GITHUB_ENV"
-          else
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.mkxp }}" = "false" ]; then
             echo "NEXPLAY_MKXP=0" >> "$GITHUB_ENV"
+          else
+            echo "NEXPLAY_MKXP=1" >> "$GITHUB_ENV"
           fi
 
       # StikJIT's Swift interface is made with a recent Xcode: use the newest one on the runner.
@@ -77,6 +80,10 @@ jobs:
           fi
 
       - name: Install XcodeGen and ldid
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
         run: brew install xcodegen ldid
 
       - name: Fetch StikJIT (built-in JIT)
@@ -84,7 +91,11 @@ jobs:
 
       - name: Build the mkxp core (XP/VX/Ace)
         if: env.NEXPLAY_MKXP == '1'
-        run: bash tools/fetch_mkxp_core.sh
+        run: |
+          if ! bash tools/fetch_mkxp_core.sh; then
+            echo "::warning::The XP/VX/Ace core could not be fetched; this build has no XP/VX/Ace support"
+            echo "NEXPLAY_MKXP=0" >> "$GITHUB_ENV"
+          fi
 
       # 8.0.0: BCD's engine (libraries, FEX headers, app resources) into vendor/bcd-engine; NexPlayWindows.yml on.
       - name: Windows engine (newest windows-engine release)
