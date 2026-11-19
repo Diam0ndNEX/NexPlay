@@ -197,4 +197,6 @@ check 'other libraries are not taken over', Win32API.new('user32', 'Whatever', '
 
 ok = (5[0] == 1 && 5[0, 8] == 5 && 0b1100[2, 2] == 3 && 0b1100[2..3] == 3)
 $stderr.puts('Integer#[] check') ; $failed = true unless ok
+module JSON; def self.decode(j); j; end; end
+check 'JSON.decode folds CRLF', JSON.decode("a\r\nb") == "a\nb"
 exit($failed ? 1 : 0)

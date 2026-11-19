@@ -347,6 +347,51 @@ begin
 rescue StandardError, NameError, ArgumentError
 end
 
+# Belt and braces for the "\r" problem: whichever way a game's file reached its JSON text, the game's own JSON.decode
+# (a hand-written parser that only skips " ", "\n", "\t") loops until the stack is exhausted when a "\r" is left in. The
+# moment a module called JSON gets a singleton `decode`, it is wrapped so Windows line endings are folded to "\n".
+begin
+  module Kernel
+    def singleton_method_added(name)
+      if name == :decode && self.is_a?(Module) && !defined?(@nex_json_wrapped) && self.name.to_s == 'JSON'
+        @nex_json_wrapped = true
+        class << self
+          alias_method :nex_decode_before_cr, :decode
+          def decode(json, *rest)
+            if json.is_a?(String)
+              begin
+                json = json.gsub("\r\n", "\n").gsub("\r", "\n") if json.index("\r")
+              rescue Exception
+              end
+            end
+            nex_decode_before_cr(json, *rest)
+          end
+        end
+        DL.nex_log('JSON.decode folds Windows line endings')
+      end
+    end
+    private :singleton_method_added
+  end
+rescue Exception => e
+  DL.nex_log('JSON line-ending guard failed: ' + e.message)
+end
+
+# One log line that says whether text-mode reading works in this core (read it first if a "\r" problem comes back).
+begin
+  nex_dir = ENV['TMPDIR'] || '/tmp'
+  nex_probe = File.join(nex_dir, 'nexplay_crlf_probe.txt')
+  File.open(nex_probe, 'wb') { |f| f.write("a\r\nb") }
+  nex_a = (File.open(nex_probe).read rescue 'ERR')
+  nex_b = (File.read(nex_probe) rescue 'ERR')
+  nex_c = (File.open(nex_probe, 'r').read rescue 'ERR')
+  nex_d = (open(nex_probe).read rescue 'ERR')
+  DL.nex_log('text-mode probe (open.read, File.read, open(r).read, Kernel#open.read): ' +
+             [nex_a, nex_b, nex_c, nex_d].map { |x| x.inspect }.join(' '))
+  File.delete(nex_probe) rescue nil
+rescue Exception => e
+  DL.nex_log('text-mode probe failed: ' + e.message)
+end
+
 # Real RGSS takes any value for a true/false property (`sprite.visible = some_object`, `window.visible = 1`); the core
 # raises "TypeError: Argument 0: Expected bool" for anything but true/false/nil. The core already wraps some setters
 # (Font bold/italic/shadow/outline, Sprite mirror/pattern_tile/invert, Window stretch/active/pause/arrows_visible,
