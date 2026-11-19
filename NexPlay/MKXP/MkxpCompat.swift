@@ -200,6 +200,7 @@ end
 # plain read keeps the "\r", and such a parser then sees an unknown character. So a file opened for reading without
 # "b" (binary) is opened in text mode here, as on Windows; "rb" and every write mode are untouched.
 begin
+  # Plain Ruby 1.9 syntax on purpose: the core parses this file with a 1.9 parser (no **opts, no prepend).
   module NexTextMode
     def self.mode_for(mode)
       return 'rt' if mode.nil?
@@ -213,30 +214,56 @@ begin
         opts.key?(:universal_newline) || opts.key?(:crlf_newline))
     end
 
-    module FileInit
-      def initialize(path, *rest, **opts, &block)
-        if !path.is_a?(Integer) && NexTextMode.options_ok?(opts) && rest.length <= 2
-          mode = rest[0]
-          if mode.nil? || mode.is_a?(String)
-            rest[0] = NexTextMode.mode_for(mode)
-          end
-        end
-        super(path, *rest, **opts, &block)
-      end
+    # Arguments of File.new / File.open: (path, mode = nil, perm = nil, options = {}).
+    def self.file_args(args)
+      return args if args.empty? || args[0].is_a?(Integer)
+      opts = args.last.is_a?(Hash) ? args.last : nil
+      return args if opts && !options_ok?(opts)
+      positional = opts ? args[0...-1] : args.dup
+      return args if positional.length > 2
+      mode = positional[1]
+      return args unless mode.nil? || mode.is_a?(String)
+      positional[1] = mode_for(mode)
+      opts ? positional + [opts] : positional
     end
 
-    module ReadHelpers
-      def read(path, *rest, **opts)
-        opts = { mode: 'rt' }.merge(opts) if NexTextMode.options_ok?(opts) && !path.is_a?(Integer)
-        super(path, *rest, **opts)
+    # Modern Ruby needs a trailing options hash flagged as keywords; Ruby 1.9 has no such thing.
+    def self.keywords(hash)
+      Hash.respond_to?(:ruby2_keywords_hash) ? Hash.ruby2_keywords_hash(hash) : hash
+    end
+
+    # Arguments of IO.read / File.read: (path, length = nil, offset = nil, options = {}).
+    def self.read_args(args)
+      return args if args.empty? || args[0].is_a?(Integer)
+      opts = args.last.is_a?(Hash) ? args.last : nil
+      return args if opts && !options_ok?(opts)
+      return args if opts && opts.key?(:mode)
+      if opts
+        args[0...-1] + [keywords({ :mode => 'rt' }.merge(opts))]
+      else
+        args + [keywords({ :mode => 'rt' })]
       end
     end
   end
 
-  unless File.ancestors.include?(NexTextMode::FileInit)
-    File.send(:prepend, NexTextMode::FileInit)
-    File.singleton_class.send(:prepend, NexTextMode::ReadHelpers)
-    IO.singleton_class.send(:prepend, NexTextMode::ReadHelpers)
+  unless File.private_method_defined?(:nex_initialize_before_text)
+    File.class_eval do
+      alias_method :nex_initialize_before_text, :initialize
+      def initialize(*args, &block)
+        nex_initialize_before_text(*NexTextMode.file_args(args), &block)
+      end
+      ruby2_keywords(:initialize) if respond_to?(:ruby2_keywords, true)
+    end
+  end
+
+  unless IO.respond_to?(:nex_read_before_text)
+    class << IO
+      alias_method :nex_read_before_text, :read
+      def read(*args)
+        nex_read_before_text(*NexTextMode.read_args(args))
+      end
+      ruby2_keywords(:read) if respond_to?(:ruby2_keywords, true)
+    end
   end
 rescue StandardError, NameError, ArgumentError
 end

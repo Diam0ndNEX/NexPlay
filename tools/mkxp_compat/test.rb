@@ -93,5 +93,10 @@ File.open(tmp, 'wb') { |f| f.write(Marshal.dump([1, "a\r\nb"])) }
 check 'Marshal through "rb" is intact', Marshal.load(File.open(tmp, 'rb')) == [1, "a\r\nb"]
 File.open(tmp, 'w') { |f| f.write("x\ny") }
 check 'writing still works', File.read(tmp) == "x\ny"
+check 'File.read with an options hash works', File.read(tmp, :encoding => 'UTF-8') == "x\ny"
+File.open(tmp, 'wb') { |f| f.write("a\r\nb") }
+check 'File.read with options drops \\r', File.read(tmp, :encoding => 'UTF-8') == "a\nb"
+check 'File.open with options drops \\r', File.open(tmp, 'r', :encoding => 'UTF-8').read == "a\nb"
+check 'File.read with a length still works', File.read(tmp, 2).length == 2
 File.delete(tmp)
 exit($failed ? 1 : 0)
