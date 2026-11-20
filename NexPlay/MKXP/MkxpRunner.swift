@@ -146,6 +146,14 @@ final class MkxpRunner: RubyGameRunner {
 }
 
 /// Starts the core and puts the touch controls and a menu button over it in a window of their own.
+/// A Double that can be read and written from any thread.
+private final class NexAtomicDouble {
+    private let lock = NSLock()
+    private var value = 0.0
+    func set(_ number: Double) { lock.lock(); value = number; lock.unlock() }
+    func get() -> Double { lock.lock(); defer { lock.unlock() }; return value }
+}
+
 /// A Date that can be read and written from any thread.
 private final class NexAtomicDate {
     private let lock = NSLock()
@@ -176,6 +184,10 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
     private var hud: PerformanceHUDView?
     private var hudTimer: Timer?
     private var watchdog: DispatchSourceTimer?
+    private var fpsTimer: DispatchSourceTimer?
+    /// 8.15.9: the core's frame rate, read on a background thread once a second. The main thread (HUD, heartbeat) only
+    /// reads this box and never calls into the core's frame counter (its lock is shared with the game thread).
+    private let fpsBox = NexAtomicDouble()
 
     init(game: Game, core: GameCoreSymbols, onExit: @escaping () -> Void) {
         self.game = game
@@ -347,7 +359,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         let startedAt = Date()
         let beat = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             guard let self = self, !self.ended else { return }
-            let fps = self.core.averageFPS.map { Int($0().rounded()) } ?? -1
+            let fps = self.core.averageFPS == nil ? -1 : Int(self.fpsBox.get().rounded())
             AppLog.log("mkxp: alive \(Int(Date().timeIntervalSince(startedAt))) s, fps \(fps), paused \(self.paused), panel \(self.panelController != nil), editing \(self.overlay?.isEditing == true)")
         }
         RunLoop.main.add(beat, forMode: .common)
@@ -380,6 +392,14 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         mainSeen.set(Date())
         watch.resume()
         watchdog = watch
+        if let readFPS = core.averageFPS {
+            let box = fpsBox
+            let sampler = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "nexplay.mkxp.fps", qos: .utility))
+            sampler.schedule(deadline: .now() + 2, repeating: 1)
+            sampler.setEventHandler { box.set(readFPS()) }
+            sampler.resume()
+            fpsTimer = sampler
+        }
         // argv[0] of the real process, like Empo passes.
         var argv: [UnsafeMutablePointer<CChar>?] = [CommandLine.unsafeArgv[0], nil]
         let result = argv.withUnsafeMutableBufferPointer { buffer in
@@ -728,7 +748,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
 
     private func refreshHUD() {
         guard let hud, let view = host?.view else { return }
-        let fps = core.averageFPS.map { Int($0().rounded()) }
+        let fps: Int? = core.averageFPS == nil ? nil : Int(fpsBox.get().rounded())
         hud.update(fps: fps)
         hud.place(in: view.bounds, insets: view.safeAreaInsets)
     }
