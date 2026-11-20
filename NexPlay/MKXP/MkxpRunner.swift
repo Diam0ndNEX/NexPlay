@@ -355,6 +355,8 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         // UIKit (touches, timers) the heartbeat above goes silent; this one keeps writing and says how long the main
         // queue has been stuck, with the core's frame rate.
         let mainSeen = NexAtomicDate()
+        var sampledOnce = false
+        var sampledTwice = false
         let watch = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         watch.schedule(deadline: .now() + 2, repeating: 2)
         watch.setEventHandler { [weak self] in
@@ -365,6 +367,14 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
             let seconds = Int(stuck)
             if stuck > 3, seconds < 6 || seconds % 30 < 2 {
                 AppLog.log("mkxp: the main thread has not served UIKit for \(seconds) s (the core holds it)")
+            }
+            // 8.15.8: where every thread is, twice (8 s and 40 s into the stall), to see what the core waits for.
+            if stuck > 8, !sampledOnce {
+                sampledOnce = true
+                ThreadSampler.snapshot(label: "stall 8 s")
+            } else if stuck > 40, !sampledTwice {
+                sampledTwice = true
+                ThreadSampler.snapshot(label: "stall 40 s")
             }
         }
         mainSeen.set(Date())
