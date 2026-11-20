@@ -353,6 +353,25 @@ end
 begin
   module Kernel
     def singleton_method_added(name)
+      # Fullscreen++ (Zeus81, many VX/VX Ace games): a saved "Fullscreen=1" in the game's ini makes the game build a
+      # desktop fullscreen (borderless topmost window, back window, resize) and the player stops answering touches.
+      # The core's window already fills the phone, so the fullscreen request becomes the windowed mode.
+      if name == :fullscreen_mode && self.is_a?(Module) && !defined?(@nex_fullscreen_wrapped) && self.name.to_s == 'Graphics'
+        @nex_fullscreen_wrapped = true
+        class << self
+          alias_method :nex_fullscreen_mode_orig, :fullscreen_mode
+          def fullscreen_mode(*args)
+            if respond_to?(:windowed_mode, true)
+              unless defined?(@nex_fullscreen_logged)
+                @nex_fullscreen_logged = true
+                DL.nex_log('Fullscreen++ asked for fullscreen: using the windowed mode instead (the screen is already full)')
+              end
+              return send(:windowed_mode)
+            end
+            nex_fullscreen_mode_orig(*args)
+          end
+        end
+      end
       if name == :decode && self.is_a?(Module) && !defined?(@nex_json_wrapped) && self.name.to_s == 'JSON'
         @nex_json_wrapped = true
         class << self

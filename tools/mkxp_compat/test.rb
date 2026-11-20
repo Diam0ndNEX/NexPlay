@@ -199,4 +199,13 @@ ok = (5[0] == 1 && 5[0, 8] == 5 && 0b1100[2, 2] == 3 && 0b1100[2..3] == 3)
 $stderr.puts('Integer#[] check') ; $failed = true unless ok
 module JSON; def self.decode(j); j; end; end
 check 'JSON.decode folds CRLF', JSON.decode("a\r\nb") == "a\nb"
+module Graphics
+  class << self
+    def windowed_mode; @mode = :windowed; end
+    def fullscreen_mode; @mode = :fullscreen; end
+    def mode; @mode; end
+  end
+end
+Graphics.fullscreen_mode
+check 'Fullscreen++ fullscreen request becomes windowed mode', Graphics.mode == :windowed
 exit($failed ? 1 : 0)
