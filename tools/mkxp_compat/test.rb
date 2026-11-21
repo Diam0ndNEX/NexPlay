@@ -251,4 +251,14 @@ check 'a per-attack call trace is written', $out.any? { |l| l.to_s.include?('HIT
 puts $out.select { |l| l.to_s.include?('HIT calls') }.first(3)
 check 'trace records swallowed errors and method_missing', $out.any? { |l| l.to_s.include?('RAISE ') } && $out.any? { |l| l.to_s.include?('method_missing{Game_Actor') && l.to_s.include?('some_unknown_call') }
 check 'skill pipeline hooks install only once', nex_actor.process_skill_result(nil) == :done
+
+class << Dir
+  def nex_glob_orig(pattern, *rest); ['x/Sensors_Battle.rb', 'x/sensors.rb', 'x/Sensors.rb', 'x/Alpha.rb']; end
+  def nex_aref_orig(pattern); ['x/Sensors_Battle.rb', 'x/Sensors.rb', 'x/Alpha.rb']; end
+end
+check 'Dir.glob returns Windows (alphabetical) order', Dir.glob('x/*') == ['x/Alpha.rb', 'x/Sensors.rb', 'x/sensors.rb', 'x/Sensors_Battle.rb']
+check 'Dir[] returns Windows order', Dir['x/*'] == ['x/Alpha.rb', 'x/Sensors.rb', 'x/Sensors_Battle.rb']
+nex_seen = []
+Dir.glob('x/*') { |f| nex_seen << f }
+check 'Dir.glob with a block is sorted too', nex_seen.first == 'x/Alpha.rb'
 exit($failed ? 1 : 0)

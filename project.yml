@@ -11,8 +11,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "8.16.8"
-    CURRENT_PROJECT_VERSION: "170"
+    MARKETING_VERSION: "8.16.9"
+    CURRENT_PROJECT_VERSION: "171"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
     # The XP/VX/Ace core is off by default. The workflow turns it on with

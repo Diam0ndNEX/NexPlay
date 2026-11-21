@@ -347,6 +347,56 @@ begin
 rescue StandardError, NameError, ArgumentError
 end
 
+# Directory listing order (8.16.9). Windows (NTFS) returns Dir[] / Dir.glob results alphabetically (case-insensitive);
+# iOS returns them in file-system order (arbitrary). LonaRPG loads its scripts by sorting Dir[] results on the number in
+# front of the file name (`to_i`), so files without a number all tie and keep the order Dir[] gave them: with the
+# arbitrary order Sensors_Battle.rb could load before Sensors.rb, `Battle_Sensor < Basic_Sensor` then inherited from the
+# core's IOS::NullStub, and every attack's `scan` went to NullStub.method_missing (nothing was ever hit).
+# Dir[] and Dir.glob now sort their results like Windows. Dir.entries/foreach are left alone (windows_fs uses them a lot).
+begin
+  module NexDirOrder
+    def self.sort(list)
+      return list unless list.is_a?(Array)
+      list.sort do |a, b|
+        c = a.to_s.upcase <=> b.to_s.upcase
+        c == 0 ? (a.to_s <=> b.to_s) : c
+      end
+    end
+  end
+  class << Dir
+    unless method_defined?(:nex_glob_orig)
+      alias_method :nex_glob_orig, :glob
+      alias_method :nex_aref_orig, :[]
+      def glob(pattern, *rest, &block)
+        list = []
+        if pattern.is_a?(Array)
+          pattern.each { |pt| list.concat(NexDirOrder.sort(nex_glob_orig(pt, *rest))) }
+        else
+          list = NexDirOrder.sort(nex_glob_orig(pattern, *rest))
+        end
+        if block
+          list.each { |item| block.call(item) }
+          return nil
+        end
+        list
+      end
+      def [](*patterns)
+        list = []
+        patterns.each { |pt| list.concat(NexDirOrder.sort(nex_aref_orig(pt))) }
+        list
+      end
+      # Ruby 2.7+ (only the headless test runs on it): keep keyword arguments such as base: working.
+      if respond_to?(:ruby2_keywords, true)
+        ruby2_keywords(:glob)
+        ruby2_keywords(:[])
+      end
+    end
+  end
+  DL.nex_log('Dir[] and Dir.glob return files in Windows order (alphabetical)')
+rescue Exception => e
+  DL.nex_log('Dir order guard failed: ' + e.message.to_s)
+end
+
 # Diagnostic (8.16.3): logs the skill pipeline (launch -> wait -> result) of the first skills, for every actor class
 # (player and enemies): "HIT skill ...". Installed from the first Graphics.update ticks once the game's classes exist.
 module NexSkillLog
@@ -459,7 +509,8 @@ module NexSkillLog
         end
       end
     end
-    say('skill pipeline hooks installed')
+    anc = (defined?(Sensors) && Sensors.const_defined?(:BasicAttack) ? Sensors::BasicAttack.ancestors.first(5).map { |a| a.to_s }.join(' < ') : 'no BasicAttack')
+    say('skill pipeline hooks installed; BasicAttack ancestors: ' + anc)
   rescue Exception => e
     DL.nex_log('HIT skill hook failed: ' + e.class.to_s + ' ' + e.message.to_s)
   end
