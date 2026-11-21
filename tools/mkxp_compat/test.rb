@@ -246,5 +246,6 @@ NexSkillLog.install
 nex_actor = Game_Actor.new
 check 'skill pipeline hooks keep the results', nex_actor.process_skill_result(nil) == :done && nex_actor.launch_effect_skill(Object.new) == :launched
 NexSkillLog.install
+check 'a per-attack call trace is written', $out.any? { |l| l.to_s.include?('HIT trace of Game_Actor') }
 check 'skill pipeline hooks install only once', nex_actor.process_skill_result(nil) == :done
 exit($failed ? 1 : 0)

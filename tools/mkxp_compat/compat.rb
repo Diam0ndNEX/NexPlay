@@ -367,28 +367,30 @@ module NexSkillLog
   # Bounded trace: after the first skill launch, records up to 400 Ruby method calls whose name looks combat related
   # (skill/hit/damage/scan/sensor/target/attack/effect/aggro/dodge/block) for at most 240 frames, then writes them.
   TRACE_RE = /skill|hit|damage|scan|sensor|sense|attack|aggro|block|popup|result|dodge|cancel/i
-  TRACE_SKIP = /\Aupdate_(dodge|aggro_frame|npc_sensor|target|skill_input)|ex_effects|new_effect|sensor_stop|is_skill|roster_input|chk_skill_eff|char_block|\Aupdate_popups|damage_effect|charge_effects|slime/i
-  def self.start_trace
-    return if @trace_started
-    @trace_started = true
+  TRACE_SKIP = /\Anex_|\Asay\z|\Adescribe\z|\Aentered\z|\Areport\z|\Ainstall\z|\Astart_trace|\Afinish_trace|\Aupdate_(dodge|aggro_frame|npc_sensor|target|skill_input)|ex_effects|new_effect|sensor_stop|is_skill|roster_input|chk_skill_eff|char_block|\Aupdate_popups|damage_effect|charge_effects|slime/i
+  # One trace per attack (the first 3 attacks of any actor, enemies included): from the moment process_skill_result
+  # starts until it returns, so only the target check / damage chain is recorded.
+  def self.start_trace(label)
+    return if @tracing || @traces_done.to_i >= 3
+    @tracing = true
+    @trace_label = label
     @trace = []
-    @trace_frames = 0
     begin
       set_trace_func(proc do |event, file, line, id, bind, klass|
-        if event == 'call' && id && @trace.size < 400 && id.to_s =~ TRACE_RE && id.to_s !~ TRACE_SKIP
+        if event == 'call' && id && @trace.size < 300 && id.to_s !~ TRACE_SKIP
           @trace << (klass.to_s + '#' + id.to_s)
         end
       end)
     rescue Exception => e
       say('trace failed: ' + e.message.to_s)
+      @tracing = false
     end
   end
 
-  def self.trace_tick
-    return unless @trace_started && !@trace_done
-    @trace_frames += 1
-    return unless @trace.size >= 400 || @trace_frames >= 240
-    @trace_done = true
+  def self.finish_trace
+    return unless @tracing
+    @tracing = false
+    @traces_done = @traces_done.to_i + 1
     begin
       set_trace_func(nil)
     rescue Exception
@@ -399,10 +401,13 @@ module NexSkillLog
       order << name unless counts[name]
       counts[name] = (counts[name] || 0) + 1
     end
-    DL.nex_log('HIT trace: ' + @trace.size.to_s + ' combat-named calls in ' + @trace_frames.to_s + ' frames')
-    order.each_slice(6) do |group|
-      DL.nex_log('HIT trace calls: ' + group.map { |n| n + ' x' + counts[n].to_s }.join(', '))
+    DL.nex_log('HIT trace of ' + @trace_label.to_s + ': ' + @trace.size.to_s + ' calls, ' + order.size.to_s + ' different')
+    order.each_slice(5) do |group|
+      DL.nex_log('HIT calls: ' + group.map { |n| n + ' x' + counts[n].to_s }.join(', '))
     end
+  end
+
+  def self.trace_tick
   end
 
   def self.install
@@ -419,13 +424,18 @@ module NexSkillLog
           alias_method orig, meth
           define_method(meth) do |*args|
             begin
-              NexSkillLog.start_trace if meth == :launch_effect_skill && defined?($game_player) && $game_player && $game_player.respond_to?(:actor) && $game_player.actor.equal?(self)
               NexSkillLog.say(self.class.to_s + '#' + meth.to_s + ' ' + NexSkillLog.describe(args[0]) +
                               ' state=' + (@action_state.inspect) + ' skill_wait=' + @skill_wait.inspect +
                               ' launched=' + @current_skill_launched.inspect)
             rescue Exception
             end
-            send(orig, *args)
+            traced = (meth == :process_skill_result)
+            NexSkillLog.start_trace(self.class.to_s) if traced
+            begin
+              send(orig, *args)
+            ensure
+              NexSkillLog.finish_trace if traced
+            end
           end
         end
       end
