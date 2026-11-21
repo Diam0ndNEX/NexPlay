@@ -243,6 +243,7 @@ class Game_Actor
   def process_skill_result(skill); begin; raise 'boom'; rescue; end; some_unknown_call(1); :done; end
   def launch_effect_skill(skill); :launched; end
 end
+NexSkillLog.send(:remove_const, :TRACE_ON); NexSkillLog.const_set(:TRACE_ON, true)
 NexSkillLog.install
 nex_actor = Game_Actor.new
 check 'skill pipeline hooks keep the results', nex_actor.process_skill_result(nil) == :done && nex_actor.launch_effect_skill(Object.new) == :launched

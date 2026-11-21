@@ -416,6 +416,9 @@ module NexSkillLog
 
   # Bounded trace: after the first skill launch, records up to 400 Ruby method calls whose name looks combat related
   # (skill/hit/damage/scan/sensor/target/attack/effect/aggro/dodge/block) for at most 240 frames, then writes them.
+  # 8.16.10: the per-attack call trace made fights drop to 43-47 fps; the cause (Dir order) is fixed, so it is off.
+  # Set to true to trace the first 10 attacks again.
+  TRACE_ON = false
   TRACE_RE = /skill|hit|damage|scan|sensor|sense|attack|aggro|block|popup|result|dodge|cancel/i
   TRACE_SKIP = /\Anex_|\Asay\z|\Adescribe\z|\Aentered\z|\Areport\z|\Ainstall\z|\Astart_trace|\Afinish_trace|\Aupdate_(dodge|aggro_frame|npc_sensor|target|skill_input)|ex_effects|new_effect|sensor_stop|is_skill|roster_input|chk_skill_eff|char_block|\Aupdate_popups|damage_effect|charge_effects|slime/i
   # One trace per attack (the first 3 attacks of any actor, enemies included): from the moment process_skill_result
@@ -489,7 +492,7 @@ module NexSkillLog
                               ' launched=' + @current_skill_launched.inspect)
             rescue Exception
             end
-            traced = (meth == :process_skill_result)
+            traced = (meth == :process_skill_result) && NexSkillLog::TRACE_ON
             NexSkillLog.start_trace(self.class.to_s) if traced
             begin
               send(orig, *args)
