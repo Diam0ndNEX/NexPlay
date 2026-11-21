@@ -179,6 +179,9 @@ begin
       if @dll.to_s =~ /kgl2\.klib\z/i
         return NexKGL.call(@func.to_s, args)
       end
+      if @dll.to_s =~ /BitmapChanger_Optimization\.dll\z/i
+        return NexPalette.call(@func.to_s, args)
+      end
       args = args.map do |arg|
         pointer = (arg.is_a?(Integer) && arg >= DL::NEX_BASE) ? DL.nex_pointer(arg) : nil
         pointer || arg
@@ -694,6 +697,149 @@ begin
   end
   DL.nex_log('encodings: external ' + Encoding.default_external.to_s + ', internal ' + Encoding.default_internal.inspect)
 rescue StandardError, NameError
+end
+
+# Palette changer (8.16.11): LonaRPG recolours bitmaps (skin / hair / clothes variants) with the Windows DLL
+# Data/PaletteChanger/BitmapChanger_Optimization.dll, called through Win32API. The core's stand-in only logged those calls
+# and returned 0, so no colour was ever swapped (the game believed the DLL worked, so its own Ruby fallback never ran).
+# Emulated here with Bitmap#raw_data (RGBA bytes). Semantics, read from 5000_LonaBitmapChanger.rb and its Ruby fallback:
+#   add_setting -> new setting number; add_swap(s, r, g, b, nr, ng, nb) / remove_swap(s, r, g, b);
+#   merge_settings(a, b) adds b's colours to a and returns a; exclusive_merge(a, b) the same for colours a lacks;
+#   remove_setting(s); clear_settings; remove_intersecting_settings(a, b) drops from a the colours b has;
+#   process_bitmap(bitmap.__id__, w, h, s) swaps pixels whose RGB equals a colour of s (alpha kept);
+#   process_bitmap_limited(..., s, x, y, w, h) only inside the rectangle;
+#   schedule_mode(bitmap id, w, h) ... execute: the process_* calls in between are collected and applied in one pass,
+#   every colour compared with the ORIGINAL pixel, later settings win (like the Ruby fallback's execute_filters).
+# Plain Ruby 1.9 syntax only.
+module NexPalette
+  @settings = {}
+  @next_id = 1
+  @sched = nil
+  @logged = false
+
+  def self.call(func, args)
+    unless @logged
+      @logged = true
+      DL.nex_log('BitmapChanger_Optimization.dll is done in Ruby (palette swaps are applied)')
+    end
+    case func
+    when 'add_setting'
+      id = @next_id
+      @next_id += 1
+      @settings[id] = {}
+      id
+    when 'add_swap'
+      table = table_for(args[0])
+      table[rgb(args[1], args[2], args[3])] = rgb(args[4], args[5], args[6])
+      0
+    when 'remove_swap'
+      table_for(args[0]).delete(rgb(args[1], args[2], args[3]))
+      0
+    when 'merge_settings'
+      table_for(args[0]).merge!(table_for(args[1]))
+      args[0].to_i
+    when 'exclusive_merge'
+      target = table_for(args[0])
+      table_for(args[1]).each { |k, v| target[k] = v unless target.has_key?(k) }
+      args[0].to_i
+    when 'remove_setting'
+      @settings.delete(args[0].to_i)
+      0
+    when 'clear_settings'
+      @settings.clear
+      0
+    when 'remove_intersecting_settings'
+      other = table_for(args[1])
+      table_for(args[0]).delete_if { |k, v| other.has_key?(k) }
+      0
+    when 'schedule_mode'
+      @sched = { :id => args[0].to_i, :passes => [] }
+      0
+    when 'process_bitmap'
+      queue_or_apply(args[0], args[3], nil)
+      0
+    when 'process_bitmap_limited'
+      queue_or_apply(args[0], args[3], [args[4].to_i, args[5].to_i, args[6].to_i, args[7].to_i])
+      0
+    when 'execute'
+      sched = @sched
+      @sched = nil
+      apply(sched[:id], sched[:passes]) if sched && !sched[:passes].empty?
+      0
+    else
+      0
+    end
+  rescue StandardError, NameError => e
+    DL.nex_log('palette ' + func.to_s + ' failed: ' + e.class.to_s + ' ' + e.message.to_s[0, 120])
+    0
+  end
+
+  def self.table_for(id)
+    @settings[id.to_i] ||= {}
+  end
+
+  def self.rgb(r, g, b)
+    ((r.to_i & 255) << 16) | ((g.to_i & 255) << 8) | (b.to_i & 255)
+  end
+
+  def self.queue_or_apply(bitmap_id, setting, rect)
+    pass = [table_for(setting), rect]
+    if @sched && @sched[:id] == bitmap_id.to_i
+      @sched[:passes] << pass
+    else
+      apply(bitmap_id.to_i, [pass])
+    end
+  end
+
+  def self.apply(bitmap_id, passes)
+    bitmap = (ObjectSpace._id2ref(bitmap_id) rescue nil)
+    return unless bitmap.is_a?(Bitmap) && !bitmap.disposed?
+    passes = passes.select { |pass| !pass[0].empty? }
+    return if passes.empty?
+    width = bitmap.width
+    height = bitmap.height
+    original = bitmap.raw_data.unpack('N*')
+    result = original.dup
+    changed = false
+    passes.each do |pass|
+      table = pass[0]
+      rect = pass[1]
+      if rect
+        x0 = [rect[0], 0].max
+        y0 = [rect[1], 0].max
+        x1 = [rect[0] + rect[2], width].min
+        y1 = [rect[1] + rect[3], height].min
+        y = y0
+        while y < y1
+          i = y * width + x0
+          stop = y * width + x1
+          while i < stop
+            value = original[i]
+            swap = table[value >> 8]
+            if swap
+              result[i] = (swap << 8) | (value & 255)
+              changed = true
+            end
+            i += 1
+          end
+          y += 1
+        end
+      else
+        i = 0
+        count = original.length
+        while i < count
+          value = original[i]
+          swap = table[value >> 8]
+          if swap
+            result[i] = (swap << 8) | (value & 255)
+            changed = true
+          end
+          i += 1
+        end
+      end
+    end
+    bitmap.raw_data = result.pack('N*') if changed
+  end
 end
 
 # Khas Graphics Library (System/KGL2.klib), the Windows DLL behind Khas Ultra Lighting (used by LonaRPG and others).

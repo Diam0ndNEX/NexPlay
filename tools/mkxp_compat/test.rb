@@ -262,4 +262,44 @@ check 'Dir[] returns Windows order', Dir['x/*'] == ['x/Alpha.rb', 'x/Sensors.rb'
 nex_seen = []
 Dir.glob('x/*') { |f| nex_seen << f }
 check 'Dir.glob with a block is sorted too', nex_seen.first == 'x/Alpha.rb'
+
+class Bitmap
+  attr_accessor :w, :h, :data
+  def initialize(w, h, pixels); @w = w; @h = h; @data = pixels.pack('N*'); end
+  def width; @w; end
+  def height; @h; end
+  def disposed?; false; end
+  def raw_data; @data.dup; end
+  def raw_data=(v); @data = v; end
+  def px; @data.unpack('N*'); end
+end unless defined?(Bitmap) && Bitmap.method_defined?(:px)
+def pal(name, *args); Win32API.new('Data/PaletteChanger/BitmapChanger_Optimization.dll', name, '', 'i').call(*args); end
+red = 0xFF0000FF; blue = 0x0000FFFF; green = 0x00FF00FF
+bmp = Bitmap.new(2, 2, [red, blue, red, green])
+s1 = pal('add_setting')
+s2 = pal('add_setting')
+check 'palette settings get distinct numbers', s1 != s2
+pal('add_swap', s1, 255, 0, 0, 0, 255, 0)
+pal('process_bitmap', bmp.__id__, 2, 2, s1)
+check 'palette swap recolours matching pixels and keeps alpha', bmp.px == [green, blue, green, green]
+bmp2 = Bitmap.new(2, 2, [red, blue, red, green])
+pal('add_swap', s2, 0, 255, 0, 255, 255, 255)
+pal('schedule_mode', bmp2.__id__, 2, 2)
+pal('process_bitmap', bmp2.__id__, 2, 2, s1)
+pal('process_bitmap', bmp2.__id__, 2, 2, s2)
+pal('execute')
+check 'scheduled passes compare the original pixel (red->green, green->white)', bmp2.px == [green, blue, green, 0xFFFFFFFF]
+bmp3 = Bitmap.new(2, 2, [red, red, red, red])
+pal('process_bitmap_limited', bmp3.__id__, 2, 2, s1, 1, 0, 1, 2)
+check 'limited palette swap only changes the rectangle', bmp3.px == [red, green, red, green]
+s3 = pal('add_setting')
+pal('merge_settings', s3, s1)
+pal('merge_settings', s3, s2)
+bmp4 = Bitmap.new(2, 1, [red, green])
+pal('process_bitmap', bmp4.__id__, 2, 1, s3)
+check 'merged settings swap both colours', bmp4.px == [green, 0xFFFFFFFF]
+pal('remove_swap', s3, 255, 0, 0)
+bmp5 = Bitmap.new(1, 1, [red])
+pal('process_bitmap', bmp5.__id__, 1, 1, s3)
+check 'remove_swap removes a colour', bmp5.px == [red]
 exit($failed ? 1 : 0)
