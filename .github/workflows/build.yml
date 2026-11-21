@@ -1,4 +1,6 @@
-# Paste as .github/workflows/build.yml (NexPlay 8.13.17; replaces the 8.0.0 file).
+# Paste as .github/workflows/build.yml (NexPlay 8.16.1; replaces the 8.13.17 file).
+# 8.16.1: faster: a push that only changes docs/notes (*.md, docs/) no longer builds, and the duplicate
+# upload-artifact step is gone (the IPA is on the release anyway; -7 s).
 # 8.13.17: every build now has the RPG Maker XP/VX/Ace core in it (a push no longer makes a build without it, so there is
 # no second manual build per push). If the core can't be fetched the build carries on without it and says so in a warning.
 # Run workflow > mkxp = off still makes a build without the core. Package install skips Homebrew's self-update.
@@ -16,6 +18,9 @@ name: Build NexPlay
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:
     inputs:
       mkxp:
@@ -79,29 +84,40 @@ jobs:
             cp "$ICON" "build/icon-cache/$STAMP.png"
           fi
 
-      - name: Install XcodeGen and ldid
+      # 8.16.1: the three setup downloads run side by side (about 36 s one after another, about 14 s together).
+      # Each one logs to its own file, printed afterwards. XcodeGen/ldid and the Windows engine must succeed
+      # (the build stops if not); the mkxp core may fail (warning, build without it), as before.
+      - name: Setup (XcodeGen + ldid, Windows engine, mkxp core in parallel)
         env:
+          GH_TOKEN: ${{ github.token }}
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
           HOMEBREW_NO_ENV_HINTS: "1"
-        run: brew install xcodegen ldid
+        run: |
+          mkdir -p build/setup-logs
+          brew install xcodegen ldid > build/setup-logs/brew.log 2>&1 &
+          P_BREW=$!
+          bash tools/windows/fetch_engine.sh > build/setup-logs/engine.log 2>&1 &
+          P_ENGINE=$!
+          P_MKXP=""
+          if [ "$NEXPLAY_MKXP" = "1" ]; then
+            bash tools/fetch_mkxp_core.sh > build/setup-logs/mkxp.log 2>&1 &
+            P_MKXP=$!
+          fi
+          FAIL=0
+          wait $P_BREW   || { echo "::error::brew install failed"; FAIL=1; }
+          wait $P_ENGINE || { echo "::error::Windows engine step failed"; FAIL=1; }
+          if [ -n "$P_MKXP" ]; then
+            if ! wait $P_MKXP; then
+              echo "::warning::The XP/VX/Ace core could not be fetched; this build has no XP/VX/Ace support"
+              echo "NEXPLAY_MKXP=0" >> "$GITHUB_ENV"
+            fi
+          fi
+          for f in build/setup-logs/*.log; do echo "::group::$f"; cat "$f"; echo "::endgroup::"; done
+          exit $FAIL
 
       - name: Fetch StikJIT (built-in JIT)
         run: bash tools/fetch_stikjit.sh
-
-      - name: Build the mkxp core (XP/VX/Ace)
-        if: env.NEXPLAY_MKXP == '1'
-        run: |
-          if ! bash tools/fetch_mkxp_core.sh; then
-            echo "::warning::The XP/VX/Ace core could not be fetched; this build has no XP/VX/Ace support"
-            echo "NEXPLAY_MKXP=0" >> "$GITHUB_ENV"
-          fi
-
-      # 8.0.0: BCD's engine (libraries, FEX headers, app resources) into vendor/bcd-engine; NexPlayWindows.yml on.
-      - name: Windows engine (newest windows-engine release)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash tools/windows/fetch_engine.sh
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -157,12 +173,6 @@ jobs:
           zip -qry -1 "$NAME.ipa" Payload
           ls -la "$NAME.ipa"
           echo "IPA_NAME=$NAME" >> "$GITHUB_ENV"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.IPA_NAME }}
-          path: ${{ env.IPA_NAME }}.ipa
-          compression-level: 0
 
       - uses: softprops/action-gh-release@v2
         with:
