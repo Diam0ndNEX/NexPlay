@@ -373,7 +373,48 @@ module NexSkillLog
     d.join(' ')
   end
 
+  # Bounded trace: after the first skill launch, records up to 400 Ruby method calls whose name looks combat related
+  # (skill/hit/damage/scan/sensor/target/attack/effect/aggro/dodge/block) for at most 240 frames, then writes them.
+  TRACE_RE = /skill|hit|damage|scan|sensor|target|attack|effect|aggro|dodge|block|popup|result/i
+  def self.start_trace
+    return if @trace_started
+    @trace_started = true
+    @trace = []
+    @trace_frames = 0
+    begin
+      set_trace_func(proc do |event, file, line, id, bind, klass|
+        if event == 'call' && id && @trace.size < 400 && id.to_s =~ TRACE_RE
+          @trace << (klass.to_s + '#' + id.to_s)
+        end
+      end)
+    rescue Exception => e
+      say('trace failed: ' + e.message.to_s)
+    end
+  end
+
+  def self.trace_tick
+    return unless @trace_started && !@trace_done
+    @trace_frames += 1
+    return unless @trace.size >= 400 || @trace_frames >= 240
+    @trace_done = true
+    begin
+      set_trace_func(nil)
+    rescue Exception
+    end
+    counts = {}
+    order = []
+    @trace.each do |name|
+      order << name unless counts[name]
+      counts[name] = (counts[name] || 0) + 1
+    end
+    DL.nex_log('HIT trace: ' + @trace.size.to_s + ' combat-named calls in ' + @trace_frames.to_s + ' frames')
+    order.each_slice(6) do |group|
+      DL.nex_log('HIT trace calls: ' + group.map { |n| n + ' x' + counts[n].to_s }.join(', '))
+    end
+  end
+
   def self.install
+    trace_tick
     return if @done
     return unless defined?(Game_Actor) && defined?(Game_Player)
     @done = true
@@ -386,6 +427,7 @@ module NexSkillLog
           alias_method orig, meth
           define_method(meth) do |*args|
             begin
+              NexSkillLog.start_trace if meth == :launch_effect_skill
               NexSkillLog.say(self.class.to_s + '#' + meth.to_s + ' ' + NexSkillLog.describe(args[0]) +
                               ' state=' + (@action_state.inspect) + ' skill_wait=' + @skill_wait.inspect +
                               ' launched=' + @current_skill_launched.inspect)
