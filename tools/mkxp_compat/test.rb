@@ -234,12 +234,13 @@ nex_res = Sensors::Basic_Sensor.scan($game_player, [$game_player, nex_enemy])
 check 'Sensors.scan still returns its result with the hit log on', nex_res.size == 1 && nex_res[0][0].equal?(nex_enemy)
 hit_lines = $out.select { |l| l.to_s.include?('HIT ') }
 check 'hit log: scan entry and report lines are written', hit_lines.any? { |l| l.include?('called on') } && hit_lines.any? { |l| l.include?('scan Sensors::Basic_Sensor') } && hit_lines.any? { |l| l.include?('counted') }
-puts hit_lines.first(4)
+
 
 class Game_Player; end
 class Game_Actor
   def initialize; @action_state = :none; @skill_wait = 3; @current_skill_launched = false; end
-  def process_skill_result(skill); :done; end
+  def method_missing(name, *args); nil; end
+  def process_skill_result(skill); begin; raise 'boom'; rescue; end; some_unknown_call(1); :done; end
   def launch_effect_skill(skill); :launched; end
 end
 NexSkillLog.install
@@ -247,5 +248,7 @@ nex_actor = Game_Actor.new
 check 'skill pipeline hooks keep the results', nex_actor.process_skill_result(nil) == :done && nex_actor.launch_effect_skill(Object.new) == :launched
 NexSkillLog.install
 check 'a per-attack call trace is written', $out.any? { |l| l.to_s.include?('HIT trace of Game_Actor') }
+puts $out.select { |l| l.to_s.include?('HIT calls') }.first(3)
+check 'trace records swallowed errors and method_missing', $out.any? { |l| l.to_s.include?('RAISE ') } && $out.any? { |l| l.to_s.include?('method_missing{Game_Actor') && l.to_s.include?('some_unknown_call') }
 check 'skill pipeline hooks install only once', nex_actor.process_skill_result(nil) == :done
 exit($failed ? 1 : 0)

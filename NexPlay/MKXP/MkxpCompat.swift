@@ -386,8 +386,18 @@ module NexSkillLog
     @trace = []
     begin
       set_trace_func(proc do |event, file, line, id, bind, klass|
-        if event == 'call' && id && @trace.size < 4000 && id.to_s !~ TRACE_SKIP
-          @trace << (klass.to_s + '#' + id.to_s)
+        if @trace.size < 4000
+          where = file.to_s.split('/').last.to_s + ':' + line.to_s
+          if event == 'raise'
+            ex = $!
+            info = ex ? (ex.class.to_s + ': ' + ex.message.to_s[0, 160]) : 'raise ?'
+            @trace << ('RAISE ' + info + ' @' + where)
+          elsif event == 'call' && id == :method_missing
+            info = (eval("(self.is_a?(Module) ? self.name.to_s : self.class.to_s) + ' ' + local_variables.map { |v| v.to_s + '=' + (eval(v.to_s).inspect[0, 60] rescue '?') }.join(' ')", bind) rescue 'n/a')
+            @trace << ('method_missing{' + info + '} @' + where)
+          elsif event == 'call' && id && id.to_s !~ TRACE_SKIP
+            @trace << (klass.to_s + '#' + id.to_s)
+          end
         end
       end)
     rescue Exception => e
