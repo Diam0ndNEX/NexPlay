@@ -344,7 +344,7 @@ module NexSkillLog
   @done = false
   @lines = 0
   def self.say(text)
-    return if @lines >= 80
+    return if @lines >= 6000
     @lines += 1
     DL.nex_log('HIT ' + text)
   end
@@ -371,13 +371,13 @@ module NexSkillLog
   # One trace per attack (the first 3 attacks of any actor, enemies included): from the moment process_skill_result
   # starts until it returns, so only the target check / damage chain is recorded.
   def self.start_trace(label)
-    return if @tracing || @traces_done.to_i >= 3
+    return if @tracing || @traces_done.to_i >= 10
     @tracing = true
     @trace_label = label
     @trace = []
     begin
       set_trace_func(proc do |event, file, line, id, bind, klass|
-        if event == 'call' && id && @trace.size < 300 && id.to_s !~ TRACE_SKIP
+        if event == 'call' && id && @trace.size < 4000 && id.to_s !~ TRACE_SKIP
           @trace << (klass.to_s + '#' + id.to_s)
         end
       end)
@@ -454,7 +454,7 @@ end
 module NexHitLog
   @lines = 0
   def self.say(text)
-    return if @lines >= 60
+    return if @lines >= 600
     @lines += 1
     DL.nex_log('HIT ' + text)
   end
@@ -466,7 +466,7 @@ module NexHitLog
   end
 
   def self.report(sensor, args, result)
-    return if @lines >= 60
+    return if @lines >= 600
     character = args[0]
     targets = args[1] || $game_map.all_characters
     near = []
