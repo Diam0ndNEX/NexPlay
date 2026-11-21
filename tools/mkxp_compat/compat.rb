@@ -270,7 +270,7 @@ begin
         known, value = NexIni.call(@func, args)
         known, value = NexClipboard.call(@func, args) unless known
         known, value = NexWin32.call(@dll, @func, args) unless known
-        unless @nex_win32_logged
+        unless @nex_win32_logged || @dll.to_s =~ /kgl2\.klib\z|BitmapChanger_Optimization\.dll\z/i
           @nex_win32_logged = true
           DL.nex_log('Win32 ' + @dll.to_s + ':' + @func.to_s + (known ? ' answered like Windows' : ' not implemented (returns 0)'))
         end
