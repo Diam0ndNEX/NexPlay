@@ -208,4 +208,28 @@ module Graphics
 end
 Graphics.fullscreen_mode
 check 'Fullscreen++ fullscreen request becomes windowed mode', Graphics.mode == :windowed
+
+class NexFakeChar
+  attr_accessor :x, :y, :real_x, :real_y, :direction, :erased
+  def initialize(x, y); @x = x; @y = y; @real_x = x; @real_y = y; @direction = 2; @erased = false; end
+  def deleted?; false; end
+end
+module Sensors
+  class Basic_Sensor
+    def self.scan(character, targets = [])
+      targets.select { |t| !t.equal?(character) }.map { |t| [t, 1, 1, 'x'] }
+    end
+    def self.signal_IgnoreCheck(c, t, m = false); false; end
+    def self.not_actor?(t); false; end
+    def self.ignore_obj_chk(c, t); false; end
+    def self.mine_number(c, t, m); 0.5; end
+    def self.get_mine_xy(c, t, m); [1, 2]; end
+    def self.area_dimension; [10, 5]; end
+    def self.calc_sight_hp_and_dist(c, t); [4, 1]; end
+  end
+end
+$game_player = NexFakeChar.new(5, 5)
+nex_enemy = NexFakeChar.new(5, 6)
+nex_res = Sensors::Basic_Sensor.scan($game_player, [$game_player, nex_enemy])
+check 'Sensors.scan still returns its result with the hit log on', nex_res.size == 1 && nex_res[0][0].equal?(nex_enemy)
 exit($failed ? 1 : 0)

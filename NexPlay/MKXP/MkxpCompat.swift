@@ -347,6 +347,61 @@ begin
 rescue StandardError, NameError, ArgumentError
 end
 
+# Diagnostic (8.16.2): LonaRPG decides who an attack hits in Sensors::*.scan (plain Ruby geometry on a detection array).
+# When attacks "play but hit nothing" this logs, for the first attacks of the player, WHY each nearby target was
+# rejected: ignored (dead/object/friend/self), outside the detection area (mine value nil/0), or blocked by terrain.
+# Lines: "[NexPlay compat] HIT ...". Capped at 60 lines per run. Plain Ruby 1.9 syntax only.
+module NexHitLog
+  @lines = 0
+  def self.say(text)
+    return if @lines >= 60
+    @lines += 1
+    DL.nex_log('HIT ' + text)
+  end
+
+  def self.report(sensor, args, result)
+    return if @lines >= 60
+    character = args[0]
+    return unless defined?($game_player) && $game_player && character.equal?($game_player)
+    targets = args[1] || $game_map.all_characters
+    near = []
+    targets.each do |tgt|
+      begin
+        next if tgt.equal?(character)
+        dx = (tgt.x - character.x).abs
+        dy = (tgt.y - character.y).abs
+        near << tgt if dx <= 5 && dy <= 8
+      rescue Exception
+      end
+    end
+    say('scan ' + sensor.name.to_s + ': ' + targets.size.to_s + ' characters, ' + near.size.to_s + ' near, ' +
+        result.size.to_s + ' hit, player at ' + character.x.to_s + ',' + character.y.to_s + ' dir ' + character.direction.to_s +
+        ' real ' + character.real_x.to_s + ',' + character.real_y.to_s)
+    near.each do |tgt|
+      why = nil
+      begin
+        if tgt.erased || tgt.deleted?
+          why = 'erased/deleted'
+        elsif sensor.signal_IgnoreCheck(character, tgt, false)
+          why = 'ignored (not actor=' + sensor.not_actor?(tgt).inspect + ' object=' + sensor.ignore_obj_chk(character, tgt).inspect + ')'
+        else
+          mine = sensor.mine_number(character, tgt, false)
+          xy = sensor.get_mine_xy(character, tgt, false)
+          if mine.nil? || mine == 0
+            why = 'outside the area: mine=' + mine.inspect + ' at ' + xy.inspect + ' of ' + sensor.area_dimension.inspect
+          else
+            vis = sensor.calc_sight_hp_and_dist(character, tgt)
+            why = vis[0] < 0 ? ('blocked by terrain, sight ' + vis.inspect) : ('counted: mine=' + mine.to_s + ' sight ' + vis.inspect)
+          end
+        end
+      rescue Exception => e
+        why = 'ERROR ' + e.class.to_s + ': ' + e.message.to_s
+      end
+      say('  target at ' + tgt.x.to_s + ',' + tgt.y.to_s + ' real ' + tgt.real_x.to_s + ',' + tgt.real_y.to_s + ' -> ' + why)
+    end
+  end
+end
+
 # Belt and braces for the "\r" problem: whichever way a game's file reached its JSON text, the game's own JSON.decode
 # (a hand-written parser that only skips " ", "\n", "\t") loops until the stack is exhausted when a "\r" is left in. The
 # moment a module called JSON gets a singleton `decode`, it is wrapped so Windows line endings are folded to "\n".
@@ -369,6 +424,20 @@ begin
               return send(:windowed_mode)
             end
             nex_fullscreen_mode_orig(*args)
+          end
+        end
+      end
+      if name == :scan && self.is_a?(Module) && !defined?(@nex_scan_wrapped) && self.name.to_s =~ /\ASensors::/
+        @nex_scan_wrapped = true
+        class << self
+          alias_method :nex_scan_orig, :scan
+          def scan(*args)
+            result = nex_scan_orig(*args)
+            begin
+              NexHitLog.report(self, args, result)
+            rescue Exception
+            end
+            result
           end
         end
       end
