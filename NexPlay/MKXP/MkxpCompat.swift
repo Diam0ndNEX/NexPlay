@@ -201,6 +201,94 @@ begin
 rescue StandardError, NameError
 end
 
+# Windows calls the core does not implement answer 0, which a game reads as "failed" (no window, no device context,
+# no brush) and then skips or raises. Answer what Windows answers when the call succeeds (8.17.0). Plain Ruby 1.9.
+module NexWin32
+  ERROR_DEVICE_NOT_CONNECTED = 1167
+  @handle = 0x10000
+  @brushes = {}
+
+  def self.handle
+    @handle += 4
+  end
+
+  # Returns [true, value] when the function is known here, [false, nil] otherwise.
+  def self.call(dll, func, args)
+    lib = dll.to_s.downcase.sub(/\.dll\z/, '').sub(/\A.*[\/\\]/, '')
+    name = func.to_s.sub(/[AW]\z/, '')
+    case lib
+    when 'user32'
+      case name
+      when 'ShowWindow', 'SetWindowLong', 'SetWindowLongPtr', 'GetWindowLong', 'SetFocus', 'SetCapture', 'ReleaseCapture' then [true, 0]
+      when 'SetWindowPos', 'UpdateWindow', 'ReleaseDC', 'FillRect', 'EmptyClipboard', 'OpenClipboard', 'CloseClipboard',
+           'SetKeyboardState', 'SetForegroundWindow', 'BringWindowToTop', 'MoveWindow', 'InvalidateRect', 'SetCursorPos',
+           'DestroyWindow', 'SetWindowText', 'EnableWindow', 'FlashWindow', 'IsWindow', 'IsWindowVisible' then [true, 1]
+      when 'CreateWindowEx', 'GetDC', 'GetWindowDC', 'GetDesktopWindow', 'GetActiveWindow', 'GetFocus' then [true, handle]
+      when 'GetKeyboardLayout' then [true, 0x04090409]
+      when 'GetClipboardData', 'SetClipboardData' then [true, 0]
+      when 'SendInput' then [true, args[0].to_i]
+      when 'GetDoubleClickTime' then [true, 500]
+      when 'GetCaretBlinkTime' then [true, 530]
+      when 'MessageBox' then [true, 1]
+      else [false, nil]
+      end
+    when 'gdi32'
+      case name
+      when 'CreateSolidBrush', 'CreateCompatibleDC', 'CreateCompatibleBitmap', 'CreateDC', 'CreatePen', 'CreateFont' then [true, handle]
+      when 'SelectObject' then [true, handle]
+      when 'DeleteObject', 'DeleteDC', 'BitBlt', 'StretchBlt', 'SetBkMode', 'SetTextColor' then [true, 1]
+      when 'GetDeviceCaps' then [true, (args[1].to_i == 88 || args[1].to_i == 90) ? 96 : 0]
+      else [false, nil]
+      end
+    when 'xinput9_1_0', 'xinput1_3', 'xinput1_4', 'xinput1_2', 'xinput'
+      case name
+      when 'XInputGetState', 'XInputSetState', 'XInputGetCapabilities', 'XInputGetBatteryInformation', 'XInputGetKeystroke'
+        [true, ERROR_DEVICE_NOT_CONNECTED]
+      when 'XInputEnable' then [true, 0]
+      else [false, nil]
+      end
+    when 'kernel32'
+      case name
+      when 'GetTickCount' then [true, (Graphics.frame_count * 1000 / 60) & 0x7FFFFFFF]
+      when 'Sleep', 'SetLastError', 'SetErrorMode', 'SetThreadPriority' then [true, 0]
+      when 'GetLastError' then [true, 0]
+      when 'GetCurrentProcessId' then [true, 4242]
+      when 'GetACP' then [true, 1252]
+      when 'GetUserDefaultLangID', 'GetSystemDefaultLangID' then [true, 0x0409]
+      else [false, nil]
+      end
+    when 'winmm'
+      case name
+      when 'timeGetTime' then [true, (Graphics.frame_count * 1000 / 60) & 0x7FFFFFFF]
+      when 'timeBeginPeriod', 'timeEndPeriod' then [true, 0]
+      else [false, nil]
+      end
+    else
+      [false, nil]
+    end
+  rescue StandardError, NameError
+    [false, nil]
+  end
+end
+begin
+  Win32API.class_eval do
+    next if method_defined?(:nex_call_before_win32)
+    alias_method :nex_call_before_win32, :call
+    def call(*args)
+      unless @mkxp_wrap_impl || @mkxp_native_available
+        known, value = NexWin32.call(@dll, @func, args)
+        unless @nex_win32_logged
+          @nex_win32_logged = true
+          DL.nex_log('Win32 ' + @dll.to_s + ':' + @func.to_s + (known ? ' answered like Windows' : ' not implemented (returns 0)'))
+        end
+        return value if known
+      end
+      nex_call_before_win32(*args)
+    end
+  end
+rescue StandardError, NameError
+end
+
 # Windows opens a file in text mode by default: "\r\n" is read as "\n". Games written on Windows rely on it (a JSON
 # or text file saved with Windows line endings, read by a hand-written parser that only knows "\n"). Everywhere else a
 # plain read keeps the "\r", and such a parser then sees an unknown character. So a file opened for reading without

@@ -302,4 +302,11 @@ pal('remove_swap', s3, 255, 0, 0)
 bmp5 = Bitmap.new(1, 1, [red])
 pal('process_bitmap', bmp5.__id__, 1, 1, s3)
 check 'remove_swap removes a colour', bmp5.px == [red]
+
+check 'XInputGetState says no pad connected', Win32API.new('XINPUT1_3', 'XInputGetState', 'ip', 'i').call(0, 0) == 1167
+check 'CreateWindowEx returns a window handle', Win32API.new('user32', 'CreateWindowEx', 'ippiiiiiiiii', 'i').call(0,0,0,0,0,0,0,0,0,0,0) != 0
+check 'GetDC returns a device context', Win32API.new('user32', 'GetDC', 'i', 'i').call(0) != 0
+check 'CreateSolidBrush returns a brush', Win32API.new('gdi32', 'CreateSolidBrush', 'i', 'i').call(0) != 0
+check 'SetWindowPos succeeds', Win32API.new('user32', 'SetWindowPos', 'iiiiiii', 'i').call(1,0,0,0,0,0,0) == 1
+check 'unknown call still returns 0', Win32API.new('user32', 'NoSuchThing', 'i', 'i').call(1) == 0
 exit($failed ? 1 : 0)
