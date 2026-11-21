@@ -19,7 +19,7 @@ class Win32API   # same lookup and tolerance as the core's
     @dll = dll; @func = func
     d = dll.sub(/\.dll\z/i, '').capitalize
     d = 'Nolib' unless d =~ /\A[A-Z]\w*\z/   # a path such as System/KGL2.klib is no constant name (the core tolerates it)
-    @impl = Win32API_Impl.const_defined?(d) && Win32API_Impl.const_get(d).const_defined?(func) ? Win32API_Impl.const_get(d).const_get(func).new : nil
+    @impl = Win32API_Impl.const_defined?(d) && Win32API_Impl.const_get(d).const_defined?(func.sub(/\A./){|c|c.upcase}) ? Win32API_Impl.const_get(d).const_get(func.sub(/\A./){|c|c.upcase}).new : nil
   end
   def call(*args)
     return @impl.call(args) if @impl
@@ -309,4 +309,41 @@ check 'GetDC returns a device context', Win32API.new('user32', 'GetDC', 'i', 'i'
 check 'CreateSolidBrush returns a brush', Win32API.new('gdi32', 'CreateSolidBrush', 'i', 'i').call(0) != 0
 check 'SetWindowPos succeeds', Win32API.new('user32', 'SetWindowPos', 'iiiiiii', 'i').call(1,0,0,0,0,0,0) == 1
 check 'unknown call still returns 0', Win32API.new('user32', 'NoSuchThing', 'i', 'i').call(1) == 0
+
+Dir.mkdir('/tmp/nexini') rescue nil
+ini = '/tmp/nexini/t.ini'
+File.delete(ini) if File.exist?(ini)
+wp = Win32API.new('kernel32', 'WritePrivateProfileString', 'pppp', 'i')
+gp = Win32API.new('kernel32', 'GetPrivateProfileString', 'ppppip', 'i')
+gi = Win32API.new('kernel32', 'GetPrivateProfileInt', 'ppip', 'i')
+check 'ini write succeeds', wp.call('Game', 'Volume', '70', ini) == 1
+wp.call('Game', 'Name', 'Lona', ini)
+buf = ' ' * 64
+n = gp.call('Game', 'Name', 'none', buf, 64, ini)
+check 'ini read returns the stored text', n == 4 && buf[0, n] == 'Lona'
+buf = ' ' * 64
+n = gp.call('Game', 'Missing', 'dflt', buf, 64, ini)
+check 'ini read falls back to the default', buf[0, n] == 'dflt'
+check 'ini int read', gi.call('Game', 'Volume', 5, ini) == 70 && gi.call('Game', 'Nope', 5, ini) == 5
+wp.call('Game', 'Volume', '80', ini)
+check 'ini write replaces a value', gi.call('Game', 'Volume', 5, ini) == 80
+ga = Win32API.new('kernel32', 'GlobalAlloc', 'ii', 'i')
+gl = Win32API.new('kernel32', 'GlobalLock', 'i', 'i')
+cp = Win32API.new('kernel32', 'lstrcpyA', 'ip', 'i')
+sc = Win32API.new('user32', 'SetClipboardData', 'ii', 'i')
+gc = Win32API.new('user32', 'GetClipboardData', 'i', 'i')
+h = ga.call(2, 16)
+cp.call(gl.call(h), 'hello')
+sc.call(1, h)
+h2 = gc.call(1)
+out = ' ' * 16
+Win32API.new('kernel32', 'lstrcpyA', 'pi', 'i').call(out, gl.call(h2))
+check 'clipboard text round trip', out[0, 5] == 'hello'
+
+# Bitmap data: RGBA top-down (raw_data) <-> BGRA bottom-up (game's get_data)
+r = 0x11223344  # R=0x11 G=0x22 B=0x33 A=0x44
+raw = [r, 0xAABBCCDD].pack('N*')   # 1 wide, 2 high
+dib = NexBitmapData.to_dib(raw, 1, 2)
+check 'get_data is BGRA, bottom row first', dib.unpack('C*') == [0xCC, 0xBB, 0xAA, 0xDD, 0x33, 0x22, 0x11, 0x44]
+check 'set_data converts back losslessly', NexBitmapData.from_dib(dib, 1, 2) == raw
 exit($failed ? 1 : 0)

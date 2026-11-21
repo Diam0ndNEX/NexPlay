@@ -267,7 +267,9 @@ begin
     alias_method :nex_call_before_win32, :call
     def call(*args)
       unless @mkxp_wrap_impl || @mkxp_native_available
-        known, value = NexWin32.call(@dll, @func, args)
+        known, value = NexIni.call(@func, args)
+        known, value = NexClipboard.call(@func, args) unless known
+        known, value = NexWin32.call(@dll, @func, args) unless known
         unless @nex_win32_logged
           @nex_win32_logged = true
           DL.nex_log('Win32 ' + @dll.to_s + ':' + @func.to_s + (known ? ' answered like Windows' : ' not implemented (returns 0)'))
@@ -278,6 +280,233 @@ begin
     end
   end
 rescue StandardError, NameError
+end
+
+# Bitmap#get_data / set_data / get_data_ptr (LonaRPG's 230_BitmapExport.rb) read the Windows memory behind a Bitmap through
+# RtlMoveMemory and Ruby's internal pointers. That cannot work here: it returned blank data, so the screenshot kept in a
+# save file (Bitmap#_dump / _load), Bitmap#export and the palette changer's Ruby path all got black. Redefined with
+# Bitmap#raw_data, in the format the game expects: Windows DIB = BGRA bytes, bottom row first (8.17.1). Plain Ruby 1.9.
+module NexBitmapData
+  @done = false
+
+  def self.to_dib(raw, w, h)
+    px = raw.unpack('N*')
+    out = []
+    y = h - 1
+    while y >= 0
+      i = y * w
+      stop = i + w
+      while i < stop
+        v = px[i]
+        out << (((v & 255) << 24) | ((v >> 24) << 16) | (((v >> 16) & 255) << 8) | ((v >> 8) & 255))
+        i += 1
+      end
+      y -= 1
+    end
+    out.pack('V*')
+  end
+
+  def self.from_dib(data, w, h)
+    px = data.unpack('V*')
+    out = []
+    y = h - 1
+    while y >= 0
+      i = y * w
+      stop = i + w
+      while i < stop
+        x = px[i]
+        out << ((((x >> 16) & 255) << 24) | (((x >> 8) & 255) << 16) | ((x & 255) << 8) | (x >> 24))
+        i += 1
+      end
+      y -= 1
+    end
+    out.pack('N*')
+  end
+
+  def self.install
+    return if @done
+    return unless defined?(Bitmap) && Bitmap.method_defined?(:raw_data)
+    @done = true
+    Bitmap.class_eval do
+      def get_data
+        return ('\0' * 0) if disposed? || width < 1 || height < 1
+        NexBitmapData.to_dib(raw_data, width, height)
+      end
+      def set_data(data)
+        return 0 if disposed? || data.nil? || data.bytesize != width * height * 4
+        self.raw_data = NexBitmapData.from_dib(data, width, height)
+        1
+      end
+      def get_data_ptr
+        data = get_data
+        def data.free; nil; end
+        return data unless block_given?
+        yield data
+      end
+    end
+    DL.nex_log('Bitmap#get_data/set_data/get_data_ptr use raw_data (save screenshots, exports and palette fallback get real pixels)')
+  end
+end
+begin
+  class << Graphics
+    unless method_defined?(:nex_update_before_bitmapdata)
+      alias_method :nex_update_before_bitmapdata, :update
+      def update(*args)
+        ::NexBitmapData.install
+        nex_update_before_bitmapdata(*args)
+      end
+    end
+  end
+rescue StandardError, NameError
+end
+
+# Windows .ini files (GetPrivateProfileString / Int, WritePrivateProfileString): games keep their settings in them. The core
+# answered 0 and never wrote anything, so every setting fell back to its default. Real read and write here (8.17.1).
+module NexIni
+  def self.path(file)
+    f = file.to_s.gsub('\\', '/')
+    f = f.sub(/\A\.\//, '')
+    f = f.sub(/\A[A-Za-z]:/, '')
+    f.empty? ? 'Game.ini' : f
+  end
+
+  def self.read(file)
+    sections = {}
+    order = []
+    current = nil
+    begin
+      File.open(path(file), 'rb') do |io|
+        io.each_line do |line|
+          line = line.strip
+          next if line.empty? || line[0, 1] == ';'
+          if line =~ /\A\[(.*)\]\z/
+            current = $1
+            sections[current] ||= []
+          elsif current && (eq = line.index('='))
+            sections[current] << [line[0, eq].strip, line[eq + 1, line.length].to_s.strip]
+          end
+        end
+      end
+    rescue StandardError, SystemCallError
+    end
+    sections
+  end
+
+  def self.write(file, sections)
+    File.open(path(file), 'wb') do |io|
+      sections.each do |name, pairs|
+        io.write('[' + name + "]\r\n")
+        pairs.each { |k, v| io.write(k + '=' + v + "\r\n") }
+        io.write("\r\n")
+      end
+    end
+  end
+
+  def self.find(sections, section, key)
+    sec = nil
+    sections.each { |n, pairs| sec = pairs if n.downcase == section.to_s.downcase }
+    return nil unless sec
+    pair = sec.find { |k, v| k.downcase == key.to_s.downcase }
+    pair ? pair[1] : nil
+  end
+
+  def self.put(buffer, text, size)
+    text = text.to_s
+    limit = size.to_i > 0 ? size.to_i - 1 : text.length
+    text = text[0, limit]
+    if buffer.is_a?(String)
+      buffer[0, text.length + 1] = text + "\0"
+    end
+    text.length
+  end
+
+  # Returns [known, value].
+  def self.call(func, args)
+    case func.to_s.sub(/[AW]\z/, '')
+    when 'GetPrivateProfileString'
+      # section, key, default, buffer, size, file
+      value = find(read(args[5]), args[0], args[1])
+      [true, put(args[3], value.nil? ? args[2] : value, args[4])]
+    when 'GetPrivateProfileInt'
+      value = find(read(args[3]), args[0], args[1])
+      [true, (value.nil? ? args[2].to_i : value.to_i)]
+    when 'WritePrivateProfileString'
+      # section, key, value, file
+      sections = read(args[3])
+      name = sections.keys.find { |n| n.downcase == args[0].to_s.downcase } || args[0].to_s
+      sections[name] ||= []
+      if args[1].nil? || args[1] == 0
+        sections.delete(name)
+      elsif args[2].nil? || args[2] == 0
+        sections[name].delete_if { |k, v| k.downcase == args[1].to_s.downcase }
+      else
+        pair = sections[name].find { |k, v| k.downcase == args[1].to_s.downcase }
+        if pair
+          pair[1] = args[2].to_s
+        else
+          sections[name] << [args[1].to_s, args[2].to_s]
+        end
+      end
+      write(args[3], sections)
+      [true, 1]
+    else
+      [false, nil]
+    end
+  rescue StandardError, SystemCallError, NameError
+    [true, 0]
+  end
+end
+
+# A clipboard and global memory that live in the game: GlobalAlloc / GlobalLock / lstrcpy / lstrlen / SetClipboardData /
+# GetClipboardData, enough for copy and paste of text between a game's own fields. The handle is also the "pointer".
+module NexClipboard
+  @memory = {}
+  @next = 0x00A00000
+  @data = nil
+
+  def self.call(func, args)
+    case func.to_s.sub(/[AW]\z/, '')
+    when 'GlobalAlloc'
+      @next += 0x1000
+      @memory[@next] = "\0" * [args[1].to_i, 1].max
+      [true, @next]
+    when 'GlobalLock' then [true, args[0].to_i]
+    when 'GlobalUnlock' then [true, 1]
+    when 'GlobalFree'
+      @memory.delete(args[0].to_i)
+      [true, 0]
+    when 'GlobalSize' then [true, (@memory[args[0].to_i] || '').length]
+    when 'lstrcpy', 'lstrcpyn'
+      source = args[1].is_a?(String) ? args[1] : (@memory[args[1].to_i] || '')
+      source = source.split("\0")[0].to_s
+      if args[0].is_a?(String)
+        args[0][0, source.length + 1] = source + "\0"
+      elsif @memory[args[0].to_i]
+        @memory[args[0].to_i] = source + "\0"
+      else
+        return [true, 0]
+      end
+      [true, args[0].is_a?(String) ? 1 : args[0].to_i]
+    when 'lstrlen'
+      text = args[0].is_a?(String) ? args[0] : (@memory[args[0].to_i] || '')
+      [true, text.split("\0")[0].to_s.length]
+    when 'SetClipboardData'
+      @data = (@memory[args[1].to_i] || '').dup
+      [true, args[1].to_i]
+    when 'GetClipboardData'
+      return [true, 0] if @data.nil?
+      @next += 0x1000
+      @memory[@next] = @data.dup
+      [true, @next]
+    when 'EmptyClipboard'
+      @data = nil
+      [true, 1]
+    else
+      [false, nil]
+    end
+  rescue StandardError, NameError
+    [true, 0]
+  end
 end
 
 # Windows opens a file in text mode by default: "\r\n" is read as "\n". Games written on Windows rely on it (a JSON
