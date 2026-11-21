@@ -338,6 +338,62 @@ begin
 rescue StandardError, NameError, ArgumentError
 end
 
+# Diagnostic (8.16.3): logs the skill pipeline (launch -> wait -> result) of the first skills, for every actor class
+# (player and enemies): "HIT skill ...". Installed from the first Graphics.update ticks once the game's classes exist.
+module NexSkillLog
+  @done = false
+  @lines = 0
+  def self.say(text)
+    return if @lines >= 80
+    @lines += 1
+    DL.nex_log('HIT ' + text)
+  end
+
+  def self.describe(skill)
+    return 'nil' if skill.nil?
+    d = []
+    [:hit_frame, :wait_hit_frame, :hitbox?, :is_projectile?, :blocking?, :holding?, :chs_animation].each do |m|
+      begin
+        d << m.to_s + '=' + skill.send(m).inspect if skill.respond_to?(m)
+      rescue Exception => e
+        d << m.to_s + '=ERR'
+      end
+    end
+    det = (skill.hit_detection.name rescue '?')
+    d << 'detection=' + det.to_s
+    d.join(' ')
+  end
+
+  def self.install
+    return if @done
+    return unless defined?(Game_Actor) && defined?(Game_Player)
+    @done = true
+    [Game_Actor, (defined?(Game_NonPlayerCharacter) ? Game_NonPlayerCharacter : nil)].compact.each do |klass|
+      [:launch_effect_skill, :process_skill_result].each do |meth|
+        next unless klass.method_defined?(meth) || klass.private_method_defined?(meth)
+        orig = 'nex_orig_' + meth.to_s
+        next if klass.method_defined?(orig)
+        klass.class_eval do
+          alias_method orig, meth
+          define_method(meth) do |*args|
+            begin
+              NexSkillLog.say(self.class.to_s + '#' + meth.to_s + ' ' + NexSkillLog.describe(args[0]) +
+                              ' state=' + (@action_state.inspect) + ' skill_wait=' + @skill_wait.inspect +
+                              ' launched=' + @current_skill_launched.inspect)
+            rescue Exception
+            end
+            send(orig, *args)
+          end
+        end
+      end
+    end
+    say('skill pipeline hooks installed')
+  rescue Exception => e
+    DL.nex_log('HIT skill hook failed: ' + e.class.to_s + ' ' + e.message.to_s)
+  end
+end
+
+
 # Diagnostic (8.16.2): LonaRPG decides who an attack hits in Sensors::*.scan (plain Ruby geometry on a detection array).
 # When attacks "play but hit nothing" this logs, for the first attacks of the player, WHY each nearby target was
 # rejected: ignored (dead/object/friend/self), outside the detection area (mine value nil/0), or blocked by terrain.
@@ -353,7 +409,6 @@ module NexHitLog
   def self.report(sensor, args, result)
     return if @lines >= 60
     character = args[0]
-    return unless defined?($game_player) && $game_player && character.equal?($game_player)
     targets = args[1] || $game_map.all_characters
     near = []
     targets.each do |tgt|
@@ -365,7 +420,7 @@ module NexHitLog
       rescue Exception
       end
     end
-    say('scan ' + sensor.name.to_s + ': ' + targets.size.to_s + ' characters, ' + near.size.to_s + ' near, ' +
+    say('scan ' + sensor.name.to_s + (defined?($game_player) && character.equal?($game_player) ? ' (player)' : ' (' + character.class.to_s + ')') + ': ' + targets.size.to_s + ' characters, ' + near.size.to_s + ' near, ' +
         result.size.to_s + ' hit, player at ' + character.x.to_s + ',' + character.y.to_s + ' dir ' + character.direction.to_s +
         ' real ' + character.real_x.to_s + ',' + character.real_y.to_s)
     near.each do |tgt|
@@ -420,6 +475,7 @@ begin
       end
       if name == :scan && self.is_a?(Module) && !defined?(@nex_scan_wrapped) && self.name.to_s =~ /\ASensors::/
         @nex_scan_wrapped = true
+        DL.nex_log('HIT hook: wrapped ' + self.name.to_s + '.scan')
         class << self
           alias_method :nex_scan_orig, :scan
           def scan(*args)
@@ -1176,6 +1232,7 @@ module NexKGL
         alias_method :nex_kgl_update, :update
         def update(*args)
           ::NexKGL.tick
+          ::NexSkillLog.install
           nex_kgl_update(*args)
         end
       end

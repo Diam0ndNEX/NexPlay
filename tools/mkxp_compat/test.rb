@@ -232,4 +232,16 @@ $game_player = NexFakeChar.new(5, 5)
 nex_enemy = NexFakeChar.new(5, 6)
 nex_res = Sensors::Basic_Sensor.scan($game_player, [$game_player, nex_enemy])
 check 'Sensors.scan still returns its result with the hit log on', nex_res.size == 1 && nex_res[0][0].equal?(nex_enemy)
+
+class Game_Player; end
+class Game_Actor
+  def initialize; @action_state = :none; @skill_wait = 3; @current_skill_launched = false; end
+  def process_skill_result(skill); :done; end
+  def launch_effect_skill(skill); :launched; end
+end
+NexSkillLog.install
+nex_actor = Game_Actor.new
+check 'skill pipeline hooks keep the results', nex_actor.process_skill_result(nil) == :done && nex_actor.launch_effect_skill(Object.new) == :launched
+NexSkillLog.install
+check 'skill pipeline hooks install only once', nex_actor.process_skill_result(nil) == :done
 exit($failed ? 1 : 0)
