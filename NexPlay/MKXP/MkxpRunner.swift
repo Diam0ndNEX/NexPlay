@@ -150,8 +150,15 @@ final class MkxpRunner: RubyGameRunner {
 private final class NexAtomicDouble {
     private let lock = NSLock()
     private var value = 0.0
-    func set(_ number: Double) { lock.lock(); value = number; lock.unlock() }
+    /// 8.16.1: the core's average is 0/0 (NaN) before the first frame and can be infinite; Int(NaN) is a hard crash trap,
+    /// and on the main thread it froze the whole app. Only a finite, sane number is stored.
+    func set(_ number: Double) {
+        let safe = number.isFinite ? min(max(number, 0), 1000) : 0
+        lock.lock(); value = safe; lock.unlock()
+    }
     func get() -> Double { lock.lock(); defer { lock.unlock() }; return value }
+    /// The stored number as a whole number, never a trap.
+    var whole: Int { let v = get(); return v.isFinite ? Int(min(max(v, 0), 1000).rounded()) : 0 }
 }
 
 /// A Date that can be read and written from any thread.
@@ -359,7 +366,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         let startedAt = Date()
         let beat = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             guard let self = self, !self.ended else { return }
-            let fps = self.core.averageFPS == nil ? -1 : Int(self.fpsBox.get().rounded())
+            let fps = self.core.averageFPS == nil ? -1 : self.fpsBox.whole
             AppLog.log("mkxp: alive \(Int(Date().timeIntervalSince(startedAt))) s, fps \(fps), paused \(self.paused), panel \(self.panelController != nil), editing \(self.overlay?.isEditing == true)")
         }
         RunLoop.main.add(beat, forMode: .common)
@@ -748,7 +755,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
 
     private func refreshHUD() {
         guard let hud, let view = host?.view else { return }
-        let fps: Int? = core.averageFPS == nil ? nil : Int(fpsBox.get().rounded())
+        let fps: Int? = core.averageFPS == nil ? nil : fpsBox.whole
         hud.update(fps: fps)
         hud.place(in: view.bounds, insets: view.safeAreaInsets)
     }
