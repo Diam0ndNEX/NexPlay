@@ -545,12 +545,52 @@ enum PageScripts {
             tmpdir: function () { return '/'; },
             EOL: '\n'
         };
+
+        // 8.17.3: Greenworks (Steamworks for NW.js). Games that check it at startup (Orange Greenworks and games
+        // built on it) show "please restart Steam" and stop when it is missing. This stub says Steam is running,
+        // takes achievement calls and answers every other function with a no-op. Nothing is sent to Steam.
+        function gwDone(a) {
+            var cb = a[a.length - 1];
+            if (typeof cb === 'function') setTimeout(function () { cb(false); }, 0);
+        }
+        var greenworksBase = {
+            init: function () { return true; },
+            initAPI: function () { return true; },
+            isSteamRunning: function () { return true; },
+            isSteamInitialized: function () { return true; },
+            getAppId: function () { return 480; },
+            getCurrentGameLanguage: function () { return 'english'; },
+            getCurrentUILanguage: function () { return 'english'; },
+            getSteamId: function () {
+                return { flags: {}, type: 1, accountId: 1, steamId: '76561197960265729', staticAccountId: '1', isValid: 1, level: 1, screenName: 'NexPlay' };
+            },
+            isDLCInstalled: function () { return false; },
+            isGameOverlayEnabled: function () { return false; },
+            getAchievementNames: function () { return []; },
+            getNumberOfAchievements: function () { return 0; },
+            activateAchievement: function (name, ok) { if (typeof ok === 'function') setTimeout(ok, 0); },
+            clearAchievement: function (name, ok) { if (typeof ok === 'function') setTimeout(ok, 0); },
+            getAchievement: function (name, ok) { if (typeof ok === 'function') setTimeout(function () { ok(false); }, 0); },
+            getNumberOfPlayers: function (ok) { if (typeof ok === 'function') setTimeout(function () { ok(1); }, 0); },
+            on: noop,
+            removeListener: noop
+        };
+        var greenworks = new Proxy(greenworksBase, {
+            get: function (target, key) {
+                if (key in target) return target[key];
+                if (typeof key === 'symbol' || key === 'then') return undefined;
+                return function () { gwDone(arguments); };
+            }
+        });
+
         var modules = { fs: fs, path: path, os: os, 'nw.gui': nwGui };
 
         window.nw = nwGui;
         window.require = function (name) {
-            var found = modules[String(name).replace(/^node:/, '')];
+            var id = String(name).replace(/^node:/, '');
+            var found = modules[id];
             if (found) return found;
+            if (/(^|\/)greenworks(\.js|\.node)?$/i.test(id)) return greenworks;
             var error = new Error("Cannot find module '" + name + "'");
             error.code = 'MODULE_NOT_FOUND';
             throw error;
