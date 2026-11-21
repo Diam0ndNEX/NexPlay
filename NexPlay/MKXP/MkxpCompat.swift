@@ -375,7 +375,8 @@ module NexSkillLog
 
   # Bounded trace: after the first skill launch, records up to 400 Ruby method calls whose name looks combat related
   # (skill/hit/damage/scan/sensor/target/attack/effect/aggro/dodge/block) for at most 240 frames, then writes them.
-  TRACE_RE = /skill|hit|damage|scan|sensor|target|attack|effect|aggro|dodge|block|popup|result/i
+  TRACE_RE = /skill|hit|damage|scan|sensor|sense|attack|aggro|block|popup|result|dodge|cancel/i
+  TRACE_SKIP = /\Aupdate_(dodge|aggro_frame|npc_sensor|target|skill_input)|ex_effects|new_effect|sensor_stop|is_skill|roster_input|chk_skill_eff|char_block|\Aupdate_popups|damage_effect|charge_effects|slime/i
   def self.start_trace
     return if @trace_started
     @trace_started = true
@@ -383,7 +384,7 @@ module NexSkillLog
     @trace_frames = 0
     begin
       set_trace_func(proc do |event, file, line, id, bind, klass|
-        if event == 'call' && id && @trace.size < 400 && id.to_s =~ TRACE_RE
+        if event == 'call' && id && @trace.size < 400 && id.to_s =~ TRACE_RE && id.to_s !~ TRACE_SKIP
           @trace << (klass.to_s + '#' + id.to_s)
         end
       end)
@@ -427,7 +428,7 @@ module NexSkillLog
           alias_method orig, meth
           define_method(meth) do |*args|
             begin
-              NexSkillLog.start_trace if meth == :launch_effect_skill
+              NexSkillLog.start_trace if meth == :launch_effect_skill && defined?($game_player) && $game_player && $game_player.respond_to?(:actor) && $game_player.actor.equal?(self)
               NexSkillLog.say(self.class.to_s + '#' + meth.to_s + ' ' + NexSkillLog.describe(args[0]) +
                               ' state=' + (@action_state.inspect) + ' skill_wait=' + @skill_wait.inspect +
                               ' launched=' + @current_skill_launched.inspect)
@@ -455,6 +456,12 @@ module NexHitLog
     return if @lines >= 60
     @lines += 1
     DL.nex_log('HIT ' + text)
+  end
+
+  def self.entered(sensor, args)
+    @entered = (@entered || 0) + 1
+    say('scan #' + @entered.to_s + ' called on ' + sensor.name.to_s + ' by ' + args[0].class.to_s) if @entered <= 6
+  rescue Exception
   end
 
   def self.report(sensor, args, result)
@@ -530,10 +537,17 @@ begin
         class << self
           alias_method :nex_scan_orig, :scan
           def scan(*args)
-            result = nex_scan_orig(*args)
+            NexHitLog.entered(self, args)
+            begin
+              result = nex_scan_orig(*args)
+            rescue Exception => e
+              NexHitLog.say('scan RAISED ' + e.class.to_s + ': ' + e.message.to_s + ' at ' + (e.backtrace || [])[0, 4].join(' | '))
+              raise
+            end
             begin
               NexHitLog.report(self, args, result)
-            rescue Exception
+            rescue Exception => e
+              NexHitLog.say('report failed ' + e.class.to_s + ': ' + e.message.to_s + ' at ' + (e.backtrace || [])[0, 3].join(' | '))
             end
             result
           end

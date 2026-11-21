@@ -232,6 +232,9 @@ $game_player = NexFakeChar.new(5, 5)
 nex_enemy = NexFakeChar.new(5, 6)
 nex_res = Sensors::Basic_Sensor.scan($game_player, [$game_player, nex_enemy])
 check 'Sensors.scan still returns its result with the hit log on', nex_res.size == 1 && nex_res[0][0].equal?(nex_enemy)
+hit_lines = $out.select { |l| l.to_s.include?('HIT ') }
+check 'hit log: scan entry and report lines are written', hit_lines.any? { |l| l.include?('called on') } && hit_lines.any? { |l| l.include?('scan Sensors::Basic_Sensor') } && hit_lines.any? { |l| l.include?('counted') }
+puts hit_lines.first(4)
 
 class Game_Player; end
 class Game_Actor
