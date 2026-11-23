@@ -212,7 +212,8 @@ struct Game: Identifiable, Codable, Hashable {
 
 /// How an RPG Maker game fills a screen whose shape differs from the game's.
 enum ScreenScaling: String, CaseIterable, Identifiable {
-    case fit, fill, stretch
+    /// 8.18.0: pixel (whole screen pixels per game pixel) and game (the game's own sizing code) added.
+    case fit, fill, stretch, pixel, game
 
     var id: String { rawValue }
 
@@ -221,6 +222,8 @@ enum ScreenScaling: String, CaseIterable, Identifiable {
         case .fit: return "Fit"
         case .fill: return "Fill"
         case .stretch: return "Stretch"
+        case .pixel: return "Pixel Perfect"
+        case .game: return "Game's Own"
         }
     }
 
@@ -229,6 +232,19 @@ enum ScreenScaling: String, CaseIterable, Identifiable {
         case .fit: return "rectangle.center.inset.filled"
         case .fill: return "rectangle.inset.filled"
         case .stretch: return "arrow.left.and.right.square"
+        case .pixel: return "square.grid.3x3.square"
+        case .game: return "gamecontroller"
+        }
+    }
+
+    /// One line for the menus.
+    var detail: String {
+        switch self {
+        case .fit: return "The whole picture, as large as the screen allows."
+        case .fill: return "The picture covers the screen; the edges are cut off."
+        case .stretch: return "The picture is pulled to the screen's shape."
+        case .pixel: return "Like Fit, with every game pixel the same size. Sharpest for pixel art; a little smaller."
+        case .game: return "The game's own sizing code, as on a PC."
         }
     }
 
@@ -240,6 +256,12 @@ enum ScreenScaling: String, CaseIterable, Identifiable {
     static func resolved(for game: Game) -> ScreenScaling {
         if let raw = game.screenScaling, let mode = ScreenScaling(rawValue: raw) { return mode }
         return global
+    }
+
+    /// 8.18.0: what the page uses: the Game Panel's Screen Size (Picture) wins over Game Settings and Settings.
+    static func effective(for game: Game, picture: AssistOptions) -> ScreenScaling {
+        if let mode = ScreenScaling(rawValue: picture.pictureFit) { return mode }
+        return resolved(for: game)
     }
 }
 

@@ -78,8 +78,13 @@ enum PlayerFeatures {
         // 8.13.0: the Ren'Py cheat engine; the Game Panel's Ren'Py card opens it.
         let renpyCheats = RenPyCheatsFeature(context: context)
         panel.renpyCheats = renpyCheats
-        return [panel, PluginsFeature(context: context), CheatsFeature(context: context), renpyCheats,
-                TranslationFeature(context: context), RenPySavesFeature(context: context), RumbleFeature(context: context)]
+        let cheats = CheatsFeature(context: context)
+        let translation = TranslationFeature(context: context)
+        panel.cheats = cheats
+        panel.translation = translation
+        cheats.translation = translation
+        return [panel, PluginsFeature(context: context), cheats, renpyCheats,
+                translation, RenPySavesFeature(context: context), RumbleFeature(context: context)]
     }
 
     /// Replacement file contents the scheme handler serves for a game (relative path, lowercased), or nil.

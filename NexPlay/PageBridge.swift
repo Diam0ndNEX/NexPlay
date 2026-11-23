@@ -48,6 +48,40 @@ enum PageScripts {
     })();
     """#
 
+    /// 8.18.0: the page is laid out at the web view's real size (1 CSS pixel = 1 point) and can't be zoomed.
+    /// RPG Maker MV's index.html only has `user-scalable=no`, so WebKit laid it out 980 px wide and zoomed it, and
+    /// kept a zoom from before a rotation: the game came up zoomed in or cut off until the screen size changed.
+    /// `force` (RPG Maker) replaces the page's viewport; otherwise only a viewport without a width is fixed.
+    static func viewport(force: Bool) -> String {
+        let body = #"""
+        (function () {
+            var WANT = 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+            function fix() {
+                var head = document.head || document.documentElement;
+                if (!head) return;
+                var metas = document.querySelectorAll('meta[name="viewport"]');
+                if (!metas.length) {
+                    var m = document.createElement('meta');
+                    m.name = 'viewport';
+                    m.content = WANT;
+                    head.insertBefore(m, head.firstChild);
+                    return;
+                }
+                for (var i = 0; i < metas.length; i++) {
+                    var c = String(metas[i].getAttribute('content') || '');
+                    if (FORCE || !/width\s*=/.test(c)) {
+                        if (metas[i].getAttribute('content') !== WANT) metas[i].setAttribute('content', WANT);
+                    }
+                }
+            }
+            fix();
+            document.addEventListener('DOMContentLoaded', fix);
+            window.addEventListener('load', fix);
+        })();
+        """#
+        return "var FORCE = \(force ? "true" : "false");\n" + body
+    }
+
     /// Stops the long-press magnifier, text selection and tap flash that make games feel like web pages.
     static let noSelect = #"""
     (function () {
@@ -170,20 +204,47 @@ enum PageScripts {
     """#
 
     /// Sends console output, script errors and files that failed to load to the app's game log.
-    /// Limited to 40 lines a second so a game that logs every frame can't slow itself down.
+    /// Limited to 20 lines a second so a game that logs every frame can't slow itself down.
     static let diagnostics = #"""
     (function () {
         var count = 0, windowStart = Date.now();
         function allowed() {
             var now = Date.now();
             if (now - windowStart > 1000) { windowStart = now; count = 0; }
-            return ++count <= 40;
+            return ++count <= 20;
         }
         function send(text) {
             try { window.webkit.messageHandlers.nexLog.postMessage(String(text).slice(0, 2000)); } catch (e) {}
         }
+        // 8.18.0: objects are written with a budget (depth 3, ~1500 characters). JSON.stringify of a whole game
+        // object (a game that logs $gameParty in every battle) cost a frame each time.
+        function brief(v, depth, budget) {
+            if (budget.left <= 0) return '…';
+            if (v === null || v === undefined) return String(v);
+            var t = typeof v;
+            if (t === 'string') { budget.left -= v.length + 2; return JSON.stringify(v.length > 300 ? v.slice(0, 300) + '…' : v); }
+            if (t === 'number' || t === 'boolean') { budget.left -= 6; return String(v); }
+            if (t === 'function') { budget.left -= 10; return 'function'; }
+            if (t !== 'object') return String(v);
+            if (v instanceof Error) return String(v.stack || v);
+            if (depth <= 0) { budget.left -= 6; return Array.isArray(v) ? '[…]' : '{…}'; }
+            var out = [], n = 0;
+            if (Array.isArray(v)) {
+                for (var i = 0; i < v.length && budget.left > 0; i++) { if (++n > 40) { out.push('…'); break; } out.push(brief(v[i], depth - 1, budget)); }
+                return '[' + out.join(',') + ']';
+            }
+            for (var k in v) {
+                if (!Object.prototype.hasOwnProperty.call(v, k)) continue;
+                if (budget.left <= 0 || ++n > 40) { out.push('…'); break; }
+                budget.left -= k.length + 3;
+                var item;
+                try { item = brief(v[k], depth - 1, budget); } catch (e) { item = '?'; }
+                out.push(JSON.stringify(k) + ':' + item);
+            }
+            return '{' + out.join(',') + '}';
+        }
         function show(a) {
-            try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch (e) { return String(a); }
+            try { return typeof a === 'object' && a !== null ? brief(a, 3, { left: 1500 }) : String(a); } catch (e) { return String(a); }
         }
         ['log', 'info', 'warn', 'error'].forEach(function (level) {
             var original = console[level] ? console[level].bind(console) : function () {};
@@ -201,6 +262,215 @@ enum PageScripts {
         window.addEventListener('unhandledrejection', function (e) {
             if (allowed()) send('unhandled rejection: ' + e.reason);
         });
+    })();
+    """#
+
+    /// 8.18.0 RPG Maker MV/MZ speed-ups for iOS (menus opened with a delay and dropped frames):
+    /// - Sound effects are kept after their first load: MV and MZ load (and MV decodes) the file again every time a
+    ///   sound plays, so every cursor move in a menu was a file request plus a decode. MV keeps the decoded sound
+    ///   (up to ~48 MB), MZ the file bytes.
+    /// - A cheaper blur for the menu background (MV blurs the map picture with 26 full-screen canvas draws).
+    /// - Videos: the .mp4 is used when the game has one (iOS decodes WebM in software), the other file is tried
+    ///   when one fails, and a video that can't play is skipped instead of stopping the game with a load error.
+    static let rpgSpeedups = #"""
+    (function () {
+        if (window.__nexSpeedups) return;
+        window.__nexSpeedups = true;
+        function note(text) { try { window.webkit.messageHandlers.nexLog.postMessage('speed-ups: ' + text); } catch (e) {} }
+        function cacheable(url) { return /\/se\//i.test(String(url || '')); }
+
+        // MARK: MZ: sound effect bytes (fetch)
+        var bytes = {}, bytesTotal = 0;
+        if (window.fetch) {
+            var nativeFetch = window.fetch.bind(window);
+            window.fetch = function (input, init) {
+                var url = typeof input === 'string' ? input : (input && input.url) || '';
+                if (!cacheable(url) || (init && init.method && String(init.method).toUpperCase() !== 'GET')) return nativeFetch.apply(null, arguments);
+                var hit = bytes[url];
+                if (hit) return Promise.resolve(new Response(hit.slice(0), { status: 200, headers: { 'Content-Type': 'application/octet-stream' } }));
+                return nativeFetch.apply(null, arguments).then(function (response) {
+                    if (!response.ok || bytesTotal > 32e6) return response;
+                    return response.arrayBuffer().then(function (buf) {
+                        if (!bytes[url]) { bytes[url] = buf; bytesTotal += buf.byteLength; }
+                        return new Response(buf.slice(0), { status: response.status, headers: { 'Content-Type': 'application/octet-stream' } });
+                    });
+                });
+            };
+        }
+
+        // MARK: MV: decoded sound effects (XHR + decodeAudioData)
+        var decoded = {}, order = [], decodedBytes = 0, decodeKey = null;
+        function keep(key, raw, buffer) {
+            if (decoded[key]) return;
+            var size = (buffer.length || 0) * (buffer.numberOfChannels || 1) * 4 + (raw ? raw.byteLength : 0);
+            decoded[key] = { raw: raw, buffer: buffer, size: size };
+            order.push(key);
+            decodedBytes += size;
+            while (decodedBytes > 48e6 && order.length > 1) {
+                var old = order.shift();
+                if (decoded[old]) { decodedBytes -= decoded[old].size; delete decoded[old]; }
+            }
+        }
+        function wrapContext(ctx) {
+            if (!ctx || ctx.__nexDecode || !ctx.decodeAudioData) return;
+            ctx.__nexDecode = true;
+            var nativeDecode = ctx.decodeAudioData.bind(ctx);
+            ctx.decodeAudioData = function (data, ok, fail) {
+                var job = decodeKey;
+                decodeKey = null;
+                if (job && decoded[job.key]) {
+                    var b = decoded[job.key].buffer;
+                    if (ok) setTimeout(function () { ok(b); }, 0);
+                    return Promise.resolve(b);
+                }
+                var p = nativeDecode(data, function (buffer) {
+                    if (job) keep(job.key, job.raw, buffer);
+                    if (ok) ok(buffer);
+                }, function (e) { if (fail) fail(e); });
+                if (p && p.catch) p.catch(function () {});
+                return p;
+            };
+        }
+        (function hookMV(tries) {
+            if (typeof WebAudio === 'undefined') { if ((tries || 0) < 400) setTimeout(function () { hookMV((tries || 0) + 1); }, 50); return; }
+            var proto = WebAudio.prototype;
+            // MZ's WebAudio has no _onXhrLoad: it fetches (handled above).
+            if (!proto._load || !proto._onXhrLoad || proto.__nexSE) return;
+            proto.__nexSE = true;
+            var load = proto._load;
+            proto._load = function (url) {
+                var ctx = WebAudio._context;
+                if (!ctx || !cacheable(url)) return load.apply(this, arguments);
+                wrapContext(ctx);
+                var self = this;
+                var real = url;
+                try { if (typeof Decrypter !== 'undefined' && Decrypter.hasEncryptedAudio) real = Decrypter.extToEncryptExt(url); } catch (e) {}
+                var hit = decoded[real];
+                if (hit) {
+                    setTimeout(function () {
+                        decodeKey = { key: real, raw: null };
+                        try { self._onXhrLoad({ status: 200, response: hit.raw.slice(0) }); } catch (e) {}
+                        decodeKey = null;
+                    }, 0);
+                    return;
+                }
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', real);
+                xhr.responseType = 'arraybuffer';
+                xhr.onload = function () {
+                    if (xhr.status < 400) {
+                        var raw = null;
+                        try { raw = xhr.response.slice(0); } catch (e) {}
+                        decodeKey = raw ? { key: real, raw: raw } : null;
+                        try { self._onXhrLoad(xhr); } finally { decodeKey = null; }
+                    }
+                };
+                xhr.onerror = this._loader || function () { self._hasError = true; };
+                xhr.send();
+            };
+        })();
+
+        // MARK: cheaper menu background blur
+        (function hookBlur(tries) {
+            if (typeof Bitmap === 'undefined') { if ((tries || 0) < 400) setTimeout(function () { hookBlur((tries || 0) + 1); }, 50); return; }
+            if (Bitmap.prototype.__nexBlur || !Bitmap.prototype.blur) return;
+            Bitmap.prototype.__nexBlur = true;
+            var tmp = null;
+            var slowBlur = Bitmap.prototype.blur;
+            Bitmap.prototype.blur = function () {
+                try {
+                    var w = this.width, h = this.height;
+                    var canvas = this.canvas || this._canvas, ctx = this.context || this._context;
+                    if (!w || !h || !canvas || !ctx) return slowBlur.apply(this, arguments);
+                    var sw = Math.max(1, Math.round(w / 3)), sh = Math.max(1, Math.round(h / 3));
+                    if (!tmp) tmp = document.createElement('canvas');
+                    if (tmp.width !== sw) tmp.width = sw;
+                    if (tmp.height !== sh) tmp.height = sh;
+                    var t = tmp.getContext('2d');
+                    t.imageSmoothingEnabled = true;
+                    t.clearRect(0, 0, sw, sh);
+                    t.drawImage(canvas, 0, 0, w, h, 0, 0, sw, sh);
+                    ctx.save();
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.globalCompositeOperation = 'copy';
+                    ctx.drawImage(tmp, 0, 0, sw, sh, 0, 0, w, h);
+                    ctx.restore();
+                    if (this._setDirty) this._setDirty();
+                } catch (e) {
+                    return slowBlur.apply(this, arguments);
+                }
+            };
+        })();
+
+        // MARK: videos
+        var exists = {};
+        function fileExists(url) {
+            if (url in exists) return exists[url];
+            var found = false;
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open('HEAD', url, false);
+                xhr.send(null);
+                found = xhr.status >= 200 && xhr.status < 300;
+            } catch (e) {}
+            exists[url] = found;
+            return found;
+        }
+        function other(src) {
+            if (/\.webm(\?|#|$)/i.test(src)) return src.replace(/\.webm(?=(\?|#|$))/i, '.mp4');
+            if (/\.mp4(\?|#|$)/i.test(src)) return src.replace(/\.mp4(?=(\?|#|$))/i, '.webm');
+            return null;
+        }
+        function preferMp4(src) {
+            if (!/\.webm(\?|#|$)/i.test(src)) return src;
+            var mp4 = other(src);
+            return mp4 && fileExists(mp4) ? mp4 : src;
+        }
+        function guard(element, src, retry, giveUp) {
+            var alt = other(src), tried = false;
+            var original = element.onerror;
+            element.onerror = function () {
+                if (!tried && alt && fileExists(alt)) {
+                    tried = true;
+                    note('video ' + src.split('/').pop() + ' could not play, trying ' + alt.split('/').pop());
+                    retry(alt);
+                    return;
+                }
+                note('video ' + src.split('/').pop() + ' could not play; skipped');
+                giveUp(original);
+            };
+        }
+        (function hookVideo(tries) {
+            if (typeof Graphics === 'undefined') { if ((tries || 0) < 400) setTimeout(function () { hookVideo((tries || 0) + 1); }, 50); return; }
+            if (Graphics._playVideo && !Graphics.__nexVideo) {
+                // MV
+                Graphics.__nexVideo = true;
+                var playMV = Graphics._playVideo;
+                Graphics._playVideo = function (src) {
+                    var first = preferMp4(String(src));
+                    playMV.call(this, first);
+                    var self = this;
+                    if (this._video) guard(this._video, first, function (alt) {
+                        playMV.call(self, alt);
+                        if (self._video) self._video.onerror = function () { note('video skipped'); try { self._onVideoError(); } catch (e) {} };
+                    }, function () { try { self._onVideoError(); } catch (e) {} });
+                };
+            }
+            if (typeof Video !== 'undefined' && Video.play && !Video.__nexVideo) {
+                // MZ
+                Video.__nexVideo = true;
+                var playMZ = Video.play;
+                Video.play = function (src) {
+                    var first = preferMp4(String(src));
+                    playMZ.call(this, first);
+                    var self = this;
+                    if (this._element) guard(this._element, first, function (alt) {
+                        playMZ.call(self, alt);
+                        if (self._element) self._element.onerror = function () { note('video skipped'); try { self._loading = false; self._onEnd(); } catch (e) {} };
+                    }, function () { try { self._loading = false; self._onEnd(); } catch (e) {} });
+                };
+            }
+        })();
     })();
     """#
 
@@ -306,47 +576,101 @@ enum PageScripts {
             }
         };
 
-        // Screen scaling: "fit" is RPG Maker's own letterbox. "fill" crops to cover the screen, "stretch" fills it
-        // and changes the aspect. Both replace Graphics._centerElement and map touches through the canvas rect.
-        if (cfg.scaling === 'fill' || cfg.scaling === 'stretch') {
-            (function patchScaling() {
-                if (typeof Graphics === 'undefined' || !Graphics._centerElement) { setTimeout(patchScaling, 30); return; }
-                if (Graphics.__nexScaled) return;
-                Graphics.__nexScaled = true;
-                var fill = cfg.scaling === 'fill';
-                Graphics._centerElement = function (element) {
-                    if (!element) return;
-                    var vw = window.innerWidth, vh = window.innerHeight;
-                    var w = element.width || this._width, h = element.height || this._height;
-                    if (!w || !h || !vw || !vh) return;
-                    var sx = vw / w, sy = vh / h;
-                    if (fill) { sx = sy = Math.max(sx, sy); }
-                    var cw = w * sx, ch = h * sy;
-                    var style = element.style;
-                    style.position = 'absolute';
-                    style.margin = '0';
-                    style.right = 'auto';
-                    style.bottom = 'auto';
-                    style.left = ((vw - cw) / 2) + 'px';
-                    style.top = ((vh - ch) / 2) + 'px';
-                    style.width = cw + 'px';
-                    style.height = ch + 'px';
-                };
-                Graphics.pageToCanvasX = function (x) {
-                    var c = this._canvas;
-                    if (!c) return 0;
-                    var r = c.getBoundingClientRect();
-                    return Math.round((x - r.left) * c.width / (r.width || 1));
-                };
-                Graphics.pageToCanvasY = function (y) {
-                    var c = this._canvas;
-                    if (!c) return 0;
-                    var r = c.getBoundingClientRect();
-                    return Math.round((y - r.top) * c.height / (r.height || 1));
-                };
-                try { if (Graphics._updateAllElements && Graphics._canvas) Graphics._updateAllElements(); } catch (e) {}
-            })();
+        // 8.18.0 Screen size. One place decides how big the picture is, for every mode, and it can change while
+        // the game runs (window.__nexScale). The old way (RPG Maker's own letterbox, plus a UIKit transform on top)
+        // depended on _stretchEnabled (off with the desktop user agent in browser mode = the game at 1:1, zoomed in
+        // and cut off), on a 980 px layout viewport, and on the canvas size measured at the wrong moment.
+        //   fit     whole picture, as big as possible (letterbox)
+        //   fill    covers the screen, edges cut
+        //   stretch fills the screen, shape not kept
+        //   pixel   like fit, but a whole number of screen pixels per game pixel (sharp pixel art)
+        //   game    the game's own code (Graphics._centerElement as shipped)
+        var scaleMode = cfg.scaling || 'fit';
+        var nativeCenter = null, nativeToX = null, nativeToY = null;
+        function viewSize() {
+            var de = document.documentElement;
+            var vw = window.innerWidth || (de && de.clientWidth) || 0;
+            var vh = window.innerHeight || (de && de.clientHeight) || 0;
+            return [vw, vh];
         }
+        function scaleFor(w, h) {
+            var v = viewSize(), vw = v[0], vh = v[1];
+            if (!w || !h || !vw || !vh) return null;
+            var sx = vw / w, sy = vh / h, fit = Math.min(sx, sy);
+            switch (scaleMode) {
+            case 'fill': sx = sy = Math.max(sx, sy); break;
+            case 'stretch': break;
+            case 'pixel':
+                var dpr = window.devicePixelRatio || 1;
+                var whole = Math.floor(fit * dpr + 0.001) / dpr;
+                sx = sy = whole >= 1 / dpr ? whole : fit;
+                break;
+            default: sx = sy = fit;
+            }
+            return [sx, sy, vw, vh];
+        }
+        function relayout() {
+            try { if (typeof Graphics !== 'undefined' && Graphics._updateAllElements && Graphics._canvas) Graphics._updateAllElements(); } catch (e) {}
+        }
+        var relayoutTimer = 0;
+        function relayoutSoon() {
+            clearTimeout(relayoutTimer);
+            relayoutTimer = setTimeout(relayout, 60);
+        }
+        window.__nexRelayout = function () { relayout(); relayoutSoon(); return scaleMode; };
+        window.__nexScale = function (mode) {
+            scaleMode = ['fit', 'fill', 'stretch', 'pixel', 'game'].indexOf(mode) >= 0 ? mode : 'fit';
+            relayout();
+            return scaleMode;
+        };
+        window.addEventListener('resize', relayoutSoon);
+        window.addEventListener('orientationchange', relayoutSoon);
+        (function patchScaling() {
+            if (typeof Graphics === 'undefined' || !Graphics._centerElement) { setTimeout(patchScaling, 30); return; }
+            if (Graphics.__nexScaled) return;
+            Graphics.__nexScaled = true;
+            nativeCenter = Graphics._centerElement;
+            nativeToX = Graphics.pageToCanvasX;
+            nativeToY = Graphics.pageToCanvasY;
+            Graphics._centerElement = function (element) {
+                if (!element) return;
+                if (scaleMode === 'game') return nativeCenter.apply(this, arguments);
+                // The game's size decides the scale; each element (canvas, video, error box) keeps its own size.
+                var gw = this._width || element.width, gh = this._height || element.height;
+                var s = scaleFor(gw, gh);
+                if (!s) return nativeCenter.apply(this, arguments);
+                var w = element.width || gw, h = element.height || gh;
+                var cw = w * s[0], ch = h * s[1];
+                var style = element.style;
+                style.position = 'absolute';
+                style.margin = '0';
+                style.right = 'auto';
+                style.bottom = 'auto';
+                function px(v) { return (Math.round(v * 100) / 100) + 'px'; }
+                style.left = px((s[2] - cw) / 2);
+                style.top = px((s[3] - ch) / 2);
+                style.width = px(cw);
+                style.height = px(ch);
+                if (element === this._canvas) this._realScale = s[0];
+            };
+            Graphics.pageToCanvasX = function (x) {
+                if (scaleMode === 'game' && nativeToX) return nativeToX.apply(this, arguments);
+                var c = this._canvas;
+                if (!c) return 0;
+                var r = c.getBoundingClientRect();
+                return Math.round((x - r.left) * c.width / (r.width || 1));
+            };
+            Graphics.pageToCanvasY = function (y) {
+                if (scaleMode === 'game' && nativeToY) return nativeToY.apply(this, arguments);
+                var c = this._canvas;
+                if (!c) return 0;
+                var r = c.getBoundingClientRect();
+                return Math.round((y - r.top) * c.height / (r.height || 1));
+            };
+            relayout();
+            // The web view often gets its final size a moment after the game sized itself.
+            [250, 1000, 3000].forEach(function (ms) { setTimeout(relayout, ms); });
+        })();
 
         if (cfg.pixelated) {
             document.addEventListener('DOMContentLoaded', function () {

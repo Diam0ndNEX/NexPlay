@@ -13,6 +13,9 @@ final class GamePanelFeature: PlayerFeature {
     let power: PowerFeature
     /// 8.13.0: opened from the Ren'Py card (set by `PlayerFeatures.make`).
     weak var renpyCheats: RenPyCheatsFeature?
+    /// 8.18.0: the RPG Maker cheat engine and translation, opened from the Tools tab.
+    weak var cheats: CheatsFeature?
+    weak var translation: TranslationFeature?
 
     init(context: PlayerContext, assist: PlayAssistFeature, tools: WebToolsFeature, power: PowerFeature) {
         self.assist = assist
@@ -354,6 +357,19 @@ final class GamePanelModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { context?.restartGame() }
     }
 
+    /// 8.18.0: closes the panel, then opens the RPG Maker cheat engine or the translation settings.
+    func openCheats() {
+        let feature = panel?.cheats
+        shouldClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { feature?.openEngine() }
+    }
+
+    func openTranslation() {
+        let feature = panel?.translation
+        shouldClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { feature?.openSettings() }
+    }
+
     /// Closes the panel, then opens the Ren'Py cheat engine.
     func openRenPyCheats() {
         let feature = panel?.renpyCheats
@@ -644,11 +660,14 @@ struct GamePanelView: View {
 
     /// 8.11.0: what Windows games have in BCD's menu (Picture: aspect and scaling, magnifier, filter, screen turn).
     @ViewBuilder private var pictureSection: some View {
-        let moved = model.options.pictureZoom > 1 || !model.options.pictureFit.isEmpty
+        let rpg = model.game.engine.isRPGMaker
+        let moved = model.options.pictureZoom > 1 || (!rpg && !model.options.pictureFit.isEmpty)
         NexMenuSection("Picture") {
-            NexMenuChipsRow(title: "Screen Size", detail: Self.fitDetail(model.options.pictureFit), symbol: "aspectratio",
-                            choices: [NexMenuChoice(value: "", title: "Game"), NexMenuChoice(value: "fit", title: "Fit"),
-                                      NexMenuChoice(value: "fill", title: "Fill"), NexMenuChoice(value: "stretch", title: "Stretch")],
+            // 8.18.0: RPG Maker sizes the picture in the page (live, nothing cut off); other engines are scaled
+            // as a whole view.
+            NexMenuChipsRow(title: "Screen Size", detail: Self.fitDetail(model.options.pictureFit, game: model.game),
+                            symbol: "aspectratio",
+                            choices: Self.fitChoices(rpg: rpg),
                             selected: model.options.pictureFit) { value in model.setPicture { $0.pictureFit = value } }
             NexMenuToggleRow(title: "Use the Whole Screen", detail: "Lets the game run under the notch and the home bar",
                              symbol: "rectangle.inset.filled", isOn: model.options.pictureFull) { value in
@@ -679,13 +698,18 @@ struct GamePanelView: View {
         }
     }
 
-    private static func fitDetail(_ fit: String) -> String {
-        switch fit {
-        case "fit": return "The whole picture, as large as the screen allows."
-        case "fill": return "The picture covers the screen; the edges may be cut off."
-        case "stretch": return "The picture is pulled to the screen's shape."
-        default: return "The game sizes itself."
+    private static func fitChoices(rpg: Bool) -> [NexMenuChoice<String>] {
+        let modes: [ScreenScaling] = rpg ? [.fit, .fill, .stretch, .pixel, .game] : [.fit, .fill, .stretch]
+        return [NexMenuChoice(value: "", title: "Default")] + modes.map { NexMenuChoice(value: $0.rawValue, title: $0.title) }
+    }
+
+    private static func fitDetail(_ fit: String, game: Game) -> String {
+        if let mode = ScreenScaling(rawValue: fit) { return mode.detail }
+        if game.engine.isRPGMaker {
+            let mode = ScreenScaling.resolved(for: game)
+            return "\(mode.title) (Game Settings or Settings > Screen Scaling). \(mode.detail)"
         }
+        return "The game sizes itself."
     }
 
     private func pictureSlider(_ title: String, value: Double, set: @escaping (Double) -> Void) -> some View {
@@ -748,6 +772,12 @@ struct GamePanelView: View {
                        symbol: "ladybug") { model.reportProblem() }
         }
         if model.isRPG {
+            NexMenuSection("RPG Maker") {
+                NexMenuRow(title: "Cheat Engine", detail: "Money, items, stats, battles, teleport, switches, variables, value scan, locks",
+                           symbol: "wand.and.stars", accessory: .chevron) { model.openCheats() }
+                NexMenuRow(title: "Translation", detail: "English on this iPhone (Apple Translation) or an MTool dictionary",
+                           symbol: "character.bubble", accessory: .chevron) { model.openTranslation() }
+            }
             NexMenuSection("Messages") {
                 NexMenuToggleRow(title: "Instant Text", symbol: "text.badge.checkmark", isOn: model.options.instantText) { value in
                     model.setOption { $0.instantText = value }

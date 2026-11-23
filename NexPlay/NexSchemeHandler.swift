@@ -33,7 +33,9 @@ final class NexSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private let rootPath: String
     private let protectedPaths: Set<String>
-    private let queue = DispatchQueue(label: "nexplay.files", qos: .userInitiated)
+    /// 8.18.0: concurrent. Reads (GET/HEAD) run side by side (a menu asks for many pictures and sounds at once,
+    /// one after the other they waited in line); writes, deletes and moves run alone (barrier), in order.
+    private let queue = DispatchQueue(label: "nexplay.files", qos: .userInitiated, attributes: .concurrent)
     /// Tasks WebKit has stopped. Answering a stopped task throws, so they are skipped. Main thread only.
     private let stopped = NSHashTable<AnyObject>.weakObjects()
     /// Optional replacement content for a path relative to the game folder (lowercased), for example a generated
@@ -71,7 +73,8 @@ final class NexSchemeHandler: NSObject, WKURLSchemeHandler {
             body: NexSchemeHandler.body(of: request)
         )
 
-        queue.async { [weak self] in
+        let readOnly = info.method == "GET" || info.method == "HEAD"
+        queue.async(flags: readOnly ? [] : .barrier) { [weak self] in
             guard let self else { return }
             let answer = self.answer(info)
             DispatchQueue.main.async {

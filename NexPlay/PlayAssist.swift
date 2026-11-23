@@ -77,7 +77,7 @@ enum PlayAssist {
     static let script = #"""
     (function () {
         if (window.__nexAssist) return;
-        var A = window.__nexAssist = { instant: false, auto: 0, rewind: true, every: 15000, max: 20, ring: [], last: 0, frame: -1, log: [], seq: 0 };
+        var A = window.__nexAssist = { instant: false, auto: 0, rewind: true, every: 20000, max: 15, ring: [], last: 0, frame: -1, log: [], seq: 0, cost: 0, sideEffect: '' };
         function ready() {
             return typeof SceneManager !== 'undefined' && typeof DataManager !== 'undefined' && typeof Scene_Map !== 'undefined'
                 && typeof JsonEx !== 'undefined' && typeof $dataSystem !== 'undefined' && !!$dataSystem
@@ -100,11 +100,48 @@ enum PlayAssist {
             if ($gameMap.isEventRunning && $gameMap.isEventRunning()) return 'Wait until the event ends.';
             return '';
         }
-        function contents() {
+        // 8.18.0: taking a state must not change the game. Some games run their own code when they are saved
+        // (plugins on onBeforeSave/makeSaveContents: a message, a common event, a sound). The rewind snapshot every
+        // 15 s on the map then showed that message again and again whenever the player stood still. Now:
+        // rewind never calls onBeforeSave, the game's message/event state is checked before and after, anything
+        // a save hook started is undone, and rewind turns itself off for this session (logged).
+        function busyState() {
+            var out = { msg: false, ev: false, ce: 0, q: 0 };
+            try { out.msg = !!($gameMessage && $gameMessage.isBusy && $gameMessage.isBusy()); } catch (e) {}
+            try { out.ev = !!($gameMap && $gameMap.isEventRunning && $gameMap.isEventRunning()); } catch (e) {}
+            try { out.ce = ($gameTemp && $gameTemp._commonEventId) || 0; } catch (e) {}
+            try { out.q = ($gameTemp && $gameTemp._commonEventQueue && $gameTemp._commonEventQueue.length) || 0; } catch (e) {}
+            return out;
+        }
+        function undoSideEffects(before) {
+            var after = busyState(), what = [];
+            if (after.msg && !before.msg) { what.push('a message'); try { $gameMessage.clear(); } catch (e) {} }
+            if (after.ce && !before.ce) { what.push('common event ' + after.ce); try { $gameTemp.clearCommonEvent ? $gameTemp.clearCommonEvent() : ($gameTemp._commonEventId = 0); } catch (e) {} }
+            if (after.q > before.q) { what.push('a common event'); try { $gameTemp._commonEventQueue.length = before.q; } catch (e) {} }
+            if (after.ev && !before.ev) what.push('an event');
+            return what;
+        }
+        function contents(forRewind) {
+            var before = busyState();
             var count = $gameSystem._saveCount;
-            if ($gameSystem.onBeforeSave) $gameSystem.onBeforeSave();
+            if (!forRewind && $gameSystem.onBeforeSave) $gameSystem.onBeforeSave();
             $gameSystem._saveCount = count;
-            return JsonEx.stringify(DataManager.makeSaveContents());
+            var t0 = Date.now();
+            var data = JsonEx.stringify(DataManager.makeSaveContents());
+            A.cost = Date.now() - t0;
+            var what = undoSideEffects(before);
+            if (what.length) {
+                A.sideEffect = what.join(', ');
+                if (A.rewind) {
+                    A.rewind = false;
+                    A.ring = [];
+                    note('rewind turned off for this session: saving the game started ' + A.sideEffect + ' (the game runs code when it saves)');
+                }
+            }
+            return data;
+        }
+        function note(text) {
+            try { window.webkit.messageHandlers.nexLog.postMessage('play assist: ' + text); } catch (e) {}
         }
         function meta() {
             var out = { map: '', playtime: '', leader: '', level: 0 };
@@ -133,13 +170,27 @@ enum PlayAssist {
             } catch (e) { return ''; }
         }
         function remember(label) {
-            A.ring.push({ t: Date.now(), data: contents(), map: label || '' });
-            while (A.ring.length > A.max) A.ring.shift();
+            var data = contents(true);
+            if (!A.rewind) return;
+            A.ring.push({ t: Date.now(), data: data, map: label || '' });
+            // 8.18.0: at most ~24 MB of snapshots (big saves times 20 snapshots ran the page out of memory).
+            var total = 0;
+            for (var i = 0; i < A.ring.length; i++) total += A.ring[i].data.length;
+            while (A.ring.length > A.max || (A.ring.length > 2 && total > 24e6)) total -= A.ring.shift().data.length;
+            // A slow save (big game) makes the frame stutter; take snapshots less often then.
+            if (A.cost > 120) {
+                A.rewind = false;
+                A.ring = [];
+                note('rewind turned off for this session: one snapshot took ' + A.cost + ' ms (the game stuttered)');
+            } else if (A.cost > 40) {
+                A.every = Math.min(120000, Math.max(A.every, A.cost * 1000));
+            }
         }
         A.setOptions = function (o) {
             A.instant = !!o.instant;
             A.auto = Number(o.auto) || 0;
-            A.rewind = !!o.rewind;
+            // A session where saving had side effects keeps rewind off.
+            A.rewind = !!o.rewind && !A.sideEffect;
             if (!A.rewind) A.ring = [];
             return 'ok';
         };
@@ -148,8 +199,8 @@ enum PlayAssist {
                 var why = problem();
                 if (why) return JSON.stringify({ ok: false, error: why });
                 var m = meta();
-                return JSON.stringify({ ok: true, data: contents(), map: m.map, playtime: m.playtime, leader: m.leader,
-                    level: m.level, shot: withShot ? shot() : '' });
+                return JSON.stringify({ ok: true, data: contents(false), map: m.map, playtime: m.playtime, leader: m.leader,
+                    level: m.level, shot: withShot ? shot() : '', cost: A.cost || 0, sideEffect: A.sideEffect || '' });
             } catch (e) { return JSON.stringify({ ok: false, error: String((e && e.message) || e) }); }
         };
         A.restore = function (data) {
@@ -186,16 +237,24 @@ enum PlayAssist {
             A.ring = A.ring.slice(0, index + 1);
             return A.restore(item.data);
         };
+        var failures = 0;
         setInterval(function () {
             try {
                 if (!A.rewind || document.hidden || Date.now() - A.last < A.every) return;
                 if (problem()) return;
                 var frame = (typeof Graphics !== 'undefined' && Graphics.frameCount) || 0;
                 if (frame === A.frame) return; // paused: nothing changed
+                // Snapshots are taken while the player walks or stands, not in the middle of a scene change.
+                if ($gamePlayer.isMoving && $gamePlayer.isMoving() && Date.now() - A.last < A.every * 2) return;
                 A.frame = frame;
                 A.last = Date.now();
                 remember(meta().map);
-            } catch (e) {}
+                failures = 0;
+            } catch (e) {
+                failures += 1;
+                if (failures === 1) note('rewind snapshot failed: ' + String((e && e.message) || e));
+                if (failures >= 3) { A.rewind = false; A.ring = []; note('rewind turned off for this session after 3 failed snapshots'); }
+            }
         }, 1000);
 
         function strip(text) {
@@ -458,6 +517,7 @@ final class PlayAssistFeature: PlayerFeature {
     private var lastAuto = Date()
     private var observers: [NSObjectProtocol] = []
     private var capturing = false
+    private var lastAutoError: String?
 
     override init(context: PlayerContext) {
         super.init(context: context)
@@ -533,7 +593,11 @@ final class PlayAssistFeature: PlayerFeature {
     private func autoTick() async {
         let minutes = options.autoStateMinutes
         guard minutes > 0, Date().timeIntervalSince(lastAuto) >= Double(minutes) * 60 else { return }
-        _ = await capture(kind: .auto)
+        // 8.18.0: a failed auto state is logged (once per reason), so a log shows why none was kept.
+        if let error = await capture(kind: .auto), error != lastAutoError {
+            lastAutoError = error
+            context.gameLog.add("auto state skipped: \(error)")
+        }
     }
 
     /// Leaving the app (or iOS closing it later) shouldn't lose progress: an auto state when going to the background.

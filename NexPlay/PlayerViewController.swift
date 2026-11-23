@@ -42,6 +42,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private let statsReceiver = StatsReceiver()
     private let logReceiver = LogReceiver()
     private let exitReceiver = MessageReceiver()
+    private let sizeReceiver = MessageReceiver()
+    private var pictureRefreshItems: [DispatchWorkItem] = []
     private let gameLog = GameLog()
     private let gamepad = GamepadOverlayView()
     private let controlBar = ControlBarView()
@@ -158,10 +160,17 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             content.addUserScript(WKUserScript(source: PageScripts.nwShim(entryFolder: folder),
                                                injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
+        if game.engine.isRPGMaker || game.engine.isWebGame {
+            // 8.18.0: 1 CSS pixel = 1 point, no page zoom (see PageScripts.viewport).
+            content.addUserScript(WKUserScript(source: PageScripts.viewport(force: game.engine.isRPGMaker),
+                                               injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         if game.engine.isRPGMaker {
+            let scaling = ScreenScaling.effective(for: game, picture: AssistOptions.load(for: game.id))
             let runtime = PageScripts.rpgRuntime(pixelated: defaults.bool(forKey: SettingsKey.pixelatedScaling),
-                                                 scaling: ScreenScaling.resolved(for: game))
+                                                 scaling: scaling)
             content.addUserScript(WKUserScript(source: runtime, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            content.addUserScript(WKUserScript(source: PageScripts.rpgSpeedups, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         content.addUserScript(WKUserScript(source: PageScripts.noSelect, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         if game.engine == .twine {
@@ -174,6 +183,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         content.add(statsReceiver, name: "nexStats")
         content.add(logReceiver, name: "nexLog")
         content.add(exitReceiver, name: "nexExit")
+        content.add(sizeReceiver, name: "nexSize")
 
         context = PlayerContext(gameLog: gameLog)
         context.game = { [weak self] in self?.game ?? Game(name: "", engine: .web, entry: "") }
@@ -210,6 +220,14 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         statsReceiver.onFPS = { [weak self] fps in self?.currentFPS = fps }
         statsReceiver.onWorstFrame = { [weak self] ms in self?.worstFrameMs = ms }
         logReceiver.onLine = { [weak self] line in self?.noteLine(line) }
+        sizeReceiver.onMessage = { [weak self] body in
+            // 8.18.0: the game changed its resolution; the picture is measured again.
+            guard let self else { return }
+            if let size = body as? [String: Any], let w = size["width"] as? NSNumber, let h = size["height"] as? NSNumber {
+                self.gameLog.add("game resolution \(w.intValue)x\(h.intValue)")
+            }
+            self.schedulePictureRefresh()
+        }
         exitReceiver.onMessage = { [weak self] _ in
             self?.gameLog.add("the game asked to quit")
             self?.exitGame()
@@ -311,6 +329,8 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         if pictureCanvasSize != view.bounds.size {
             pictureCanvasSize = view.bounds.size
             applyPictureTransform()
+            // The page lays itself out again after the web view got its new size: measure once more then.
+            schedulePictureRefresh()
         }
     }
 
@@ -962,7 +982,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         view.setNeedsLayout()
         view.layoutIfNeeded()
         applyPictureFilter()
+        applyPageScaling()
         applyPictureTransform()
+        schedulePictureRefresh()
     }
 
     /// A slider being dragged: apply without saving.
@@ -978,33 +1000,73 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         webView?.evaluateJavaScript(script)
     }
 
+    /// 8.18.0: RPG Maker sizes its picture in the page (PageScripts.rpgRuntime, window.__nexScale), live.
+    private func applyPageScaling() {
+        guard game.engine.isRPGMaker, let webView else { return }
+        let mode = ScreenScaling.effective(for: game, picture: picture)
+        webView.evaluateJavaScript("window.__nexScale && window.__nexScale('\(mode.rawValue)')", completionHandler: nil)
+    }
+
+    /// The page and the picture are measured again a moment after a size change (rotation, Whole Screen, a new
+    /// game resolution), when the game has laid itself out for the new size.
+    private func schedulePictureRefresh() {
+        pictureRefreshItems.forEach { $0.cancel() }
+        pictureRefreshItems = [0.12, 0.45, 1.2].map { delay in
+            let item = DispatchWorkItem { [weak self] in
+                guard let self, !self.isShutDown, let webView = self.webView else { return }
+                if self.game.engine.isRPGMaker {
+                    webView.evaluateJavaScript("window.__nexRelayout && window.__nexRelayout()") { [weak self] _, _ in
+                        self?.applyPictureTransform()
+                    }
+                } else {
+                    self.applyPictureTransform()
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+            return item
+        }
+    }
+
     /// Fit, Fill, Stretch and zoom: the web view is scaled so the game's main canvas covers the screen the chosen way.
     /// UIKit maps touches through the transform, so the game still gets the touch where it was drawn.
+    /// 8.18.0: RPG Maker games size themselves in the page (nothing outside the web view is cut off), so for them
+    /// only the magnifier and its offset use the transform. The canvas is measured in CSS pixels and converted to
+    /// points (they differed when a page was laid out wider than the screen). The target is the web view's own
+    /// area (the safe area, or the whole screen with Use the Whole Screen), not always the whole screen.
     private func applyPictureTransform() {
         guard let webView else { return }
         let options = picture
         let zoom = max(1, options.pictureZoom)
-        if options.pictureFit.isEmpty && zoom == 1 && options.pictureX == 0 && options.pictureY == 0 {
+        let fit = game.engine.isRPGMaker ? "" : options.pictureFit
+        if fit.isEmpty && zoom == 1 && options.pictureX == 0 && options.pictureY == 0 {
             if webView.transform != .identity { UIView.animate(withDuration: 0.2) { webView.transform = .identity } }
             return
         }
-        let script = "(function(){var best=null,area=0,list=document.querySelectorAll('canvas,video,iframe');for(var i=0;i<list.length;i++){var r=list[i].getBoundingClientRect();var a=r.width*r.height;if(a>area){area=a;best=r;}}return best?[best.left,best.top,best.width,best.height]:null;})()"
+        let script = "(function(){var best=null,area=0,list=document.querySelectorAll('canvas,video,iframe');for(var i=0;i<list.length;i++){var r=list[i].getBoundingClientRect();var a=r.width*r.height;if(a>area){area=a;best=r;}}var vw=window.innerWidth||document.documentElement.clientWidth||0;return best?[best.left,best.top,best.width,best.height,vw]:[0,0,0,0,vw];})()"
         webView.evaluateJavaScript(script) { [weak self] result, _ in
             guard let self, let webView = self.webView else { return }
             let bounds = webView.bounds
+            guard bounds.width > 0, bounds.height > 0 else { return }
             var rect = CGRect(origin: .zero, size: bounds.size)
             if let list = result as? [Any] {
                 let numbers = list.compactMap { ($0 as? NSNumber)?.doubleValue }
-                if numbers.count == 4, numbers[2] > 1, numbers[3] > 1 {
-                    rect = CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
+                if numbers.count == 5 {
+                    // CSS pixels to points.
+                    let k = numbers[4] > 1 ? bounds.width / CGFloat(numbers[4]) : 1
+                    if numbers[2] > 1, numbers[3] > 1 {
+                        rect = CGRect(x: numbers[0] * k, y: numbers[1] * k, width: numbers[2] * k, height: numbers[3] * k)
+                    }
                 }
             }
             guard rect.width > 0, rect.height > 0 else { return }
-            let target = self.view.bounds
+            // Where the web view sits without its transform.
+            let center = webView.center
+            let target = CGRect(x: center.x - bounds.width / 2, y: center.y - bounds.height / 2,
+                                width: bounds.width, height: bounds.height)
             var sx: CGFloat = 1
             var sy: CGFloat = 1
-            switch options.pictureFit {
-            case "fit":
+            switch fit {
+            case "fit", "pixel":
                 sx = min(target.width / rect.width, target.height / rect.height); sy = sx
             case "fill":
                 sx = max(target.width / rect.width, target.height / rect.height); sy = sx
@@ -1018,12 +1080,13 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             // The canvas's centre, relative to the web view's centre, and where it should end up.
             let cx = rect.midX - bounds.midX
             let cy = rect.midY - bounds.midY
-            let fitted = !options.pictureFit.isEmpty
-            let goalX = fitted ? target.midX : webView.center.x + cx
-            let goalY = fitted ? target.midY : webView.center.y + cy
-            let tx = (goalX - webView.center.x) - sx * cx + CGFloat(options.pictureX) * target.width * 0.35
-            let ty = (goalY - webView.center.y) - sy * cy + CGFloat(options.pictureY) * target.height * 0.35
+            let fitted = !fit.isEmpty
+            let goalX = fitted ? target.midX : center.x + cx
+            let goalY = fitted ? target.midY : center.y + cy
+            let tx = (goalX - center.x) - sx * cx + CGFloat(options.pictureX) * target.width * 0.35
+            let ty = (goalY - center.y) - sy * cy + CGFloat(options.pictureY) * target.height * 0.35
             let transform = CGAffineTransform(a: sx, b: 0, c: 0, d: sy, tx: tx, ty: ty)
+            if !transform.a.isFinite || !transform.d.isFinite || !transform.tx.isFinite || !transform.ty.isFinite { return }
             if webView.transform != transform { webView.transform = transform }
         }
     }
@@ -1645,6 +1708,9 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         content?.removeScriptMessageHandler(forName: "nexStats")
         content?.removeScriptMessageHandler(forName: "nexLog")
         content?.removeScriptMessageHandler(forName: "nexExit")
+        content?.removeScriptMessageHandler(forName: "nexSize")
+        pictureRefreshItems.forEach { $0.cancel() }
+        pictureRefreshItems = []
         for name in featureHandlerNames { content?.removeScriptMessageHandler(forName: name) }
         featureHandlerNames = []
         webView?.stopLoading()
@@ -1666,6 +1732,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         migrateSavesIfNeeded()
         features.forEach { $0.didFinishLoad() }
         applyPictureFilter()
+        applyPageScaling()
         // The game's canvas appears a moment after the page loads: measure it again a few times.
         for delay in [0.5, 2.0, 5.0] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.applyPictureTransform() }

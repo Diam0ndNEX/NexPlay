@@ -99,7 +99,7 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
                     "Resolution", "Frame Cap", "MetalFX", "Direct3D 9", "Screen Orientation", "Performance HUD",
                     "Wine Mono", ".NET", "Visual C++", "MFC", "Wine Gecko", "All Engine Options", "bcd.cfg"]
         case .translation:
-            return ["Translate MV/MZ Games", "MTool", "TranslateFile.json"]
+            return ["Translate MV/MZ Games", "English", "Machine Translation", "MTool", "TranslateFile.json", "Cheat Engine"]
         case .privacy:
             return ["Privacy Lock", "Hidden Games", "Face ID", "Unhide All Games"]
         case .backup:
@@ -252,7 +252,7 @@ struct SettingsView: View {
     private func resetDefaults() {
         let defaults = UserDefaults.standard
         let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys + SettingsKey.powerKeys + SettingsKey.hudKeys + SettingsKey.controllerKeys
-            + [SettingsKey.translationEnabled, SettingsKey.colorProfile, SettingsKey.colorProfileSeed]
+            + [SettingsKey.translationEnabled, SettingsKey.machineTranslation, SettingsKey.cheatEnglish, SettingsKey.colorProfile, SettingsKey.colorProfileSeed]
         for key in keys { defaults.removeObject(forKey: key) }
         OrientationManager.unlock()
         NexTheme.shared.reload()
@@ -681,11 +681,11 @@ struct GameplaySettings: View {
                 }
                 .onChange(of: autoRotateOutside) { _ in OrientationManager.unlock() }
                 VStack(alignment: .leading, spacing: 6) {
-                    SettingLabel("Screen Scaling", "How RPG Maker games fill a screen of another shape. Fit keeps black bars, Fill crops the edges, Stretch changes the aspect.")
+                    SettingLabel("Screen Scaling", (ScreenScaling(rawValue: screenScaling) ?? .fit).detail + " Each game can change it live in the Game Panel (Display > Screen Size).")
                     Picker("Screen Scaling", selection: $screenScaling) {
-                        ForEach(ScreenScaling.allCases) { mode in Text(mode.title).tag(mode.rawValue) }
+                        ForEach(ScreenScaling.allCases) { mode in Label(mode.title, systemImage: mode.symbol).tag(mode.rawValue) }
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                 }
                 ValueSlider(title: "Portrait Game Position", value: $offset, range: 0...0.3) { value in
                     value < 0.005 ? "Centered" : "−\(Int((value * 100).rounded()))%"
@@ -728,17 +728,25 @@ struct GameplaySettings: View {
 
 struct TranslationGlobalSettings: View {
     @AppStorage(SettingsKey.translationEnabled) private var translation = false
+    @AppStorage(SettingsKey.machineTranslation) private var machine = false
+    @AppStorage(SettingsKey.cheatEnglish) private var cheatEnglish = false
 
     var body: some View {
         NexForm {
             Section {
+                Toggle(isOn: $machine) {
+                    SettingLabel("English on This iPhone", "MV/MZ games are translated to English with Apple's on-device translation. Game Panel > Tools > Translation > Translate Whole Game does a game at once.")
+                }
+                Toggle(isOn: $cheatEnglish) {
+                    SettingLabel("English Names in the Cheat Engine", "Item, switch, variable, skill and map names are shown in English.")
+                }
                 Toggle(isOn: $translation) {
-                    SettingLabel("Translate MV/MZ Games", "Configure in-game text translation per game from the game menu (Translation…).")
+                    SettingLabel("MTool Dictionaries", "Use a TranslateFile.json from the game folder or imported in the game's Translation page.")
                 }
             } header: {
                 SettingsHeader(title: "Translation", symbol: "character.bubble.fill", color: .teal)
             } footer: {
-                Text("Uses an MTool TranslateFile.json from the game folder or imported in the game menu. Works offline; nothing is sent anywhere. Each game can override this. Turn it on before starting a game.")
+                Text("iOS downloads a language once (it asks first); after that translation works offline and nothing is sent anywhere. A dictionary wins over machine translation. Each game can override these. Changes apply the next time a game starts.")
             }
         }
     }
