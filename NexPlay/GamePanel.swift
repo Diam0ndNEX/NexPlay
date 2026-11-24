@@ -364,6 +364,21 @@ final class GamePanelModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { feature?.openEngine() }
     }
 
+    /// 8.18.2: the menu bar the game built for its PC window (GameMenuBar.swift).
+    func openGameMenuBar() {
+        guard let context = panel?.context else { return }
+        shouldClose = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            let host = UIHostingController(rootView: GameMenuBarView(model: GameMenuBarModel(context: context)))
+            host.modalPresentationStyle = .pageSheet
+            if let sheet = host.sheetPresentationController {
+                sheet.detents = [.medium(), .large()]
+                sheet.prefersGrabberVisible = true
+            }
+            context.present(host)
+        }
+    }
+
     func openTranslation() {
         let feature = panel?.translation
         shouldClose = true
@@ -777,6 +792,10 @@ struct GamePanelView: View {
                            symbol: "wand.and.stars", accessory: .chevron) { model.openCheats() }
                 NexMenuRow(title: "Translation", detail: "English on this iPhone (Apple Translation) or an MTool dictionary",
                            symbol: "character.bubble", accessory: .chevron) { model.openTranslation() }
+                if model.game.usesNWMode {
+                    NexMenuRow(title: "Game Menu Bar", detail: "The menus the game made for its PC window (File, Options...)",
+                               symbol: "menubar.rectangle", accessory: .chevron) { model.openGameMenuBar() }
+                }
             }
             NexMenuSection("Messages") {
                 NexMenuToggleRow(title: "Instant Text", symbol: "text.badge.checkmark", isOn: model.options.instantText) { value in

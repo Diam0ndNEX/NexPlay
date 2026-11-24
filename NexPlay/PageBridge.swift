@@ -860,29 +860,46 @@ enum PageScripts {
         // menu.append, win.menu = ...), register hot keys, read the clipboard or the screens stopped the game at
         // start with "undefined is not a constructor". Anything NexPlay doesn't know is a quiet stand-in that can be
         // called, constructed and read without throwing.
-        function quiet() {
+        // 8.18.2: every first use of a stand-in is written to the game log ("nw: ..."), so a later problem points
+        // at the part to build properly.
+        var told = {}, toldCount = 0;
+        function tell(text) {
+            if (told[text] || toldCount >= 40) return;
+            told[text] = true;
+            toldCount++;
+            try { window.webkit.messageHandlers.nexLog.postMessage('nw: ' + text + ' (no iPhone version, did nothing)'); } catch (e) {}
+        }
+        function quiet(path) {
             var target = function () {};
             return new Proxy(target, {
                 get: function (t, key) {
                     if (typeof key === 'symbol' || key === 'then') return undefined;
                     if (key in t) return t[key];
-                    t[key] = quiet();
+                    t[key] = quiet(path + '.' + String(key));
                     return t[key];
                 },
                 set: function (t, key, value) { t[key] = value; return true; },
-                apply: function () { return quiet(); },
-                construct: function () { return quiet(); }
+                apply: function () { tell('game called ' + path + '()'); return quiet(path + '()'); },
+                construct: function () { tell('game made new ' + path); return quiet('new ' + path); }
             });
         }
-        function withQuiet(base) {
+        function withQuiet(base, path, onSet) {
             return new Proxy(base, {
                 get: function (t, key) {
                     if (key in t || typeof key === 'symbol' || key === 'then') return t[key];
-                    t[key] = quiet();
+                    t[key] = quiet(path + '.' + String(key));
                     return t[key];
+                },
+                set: function (t, key, value) {
+                    t[key] = value;
+                    if (onSet) onSet(key, value);
+                    return true;
                 }
             });
         }
+        // 8.18.2: the game's own menu bar (win.menu = new nw.Menu({type: 'menubar'})) is kept so the Game Panel
+        // can show its items (window.__nexMenuJSON) and run them (window.__nexMenuClick).
+        var menuItems = {}, nextItem = 1, menuBar = null;
         function NwMenuItem(options) {
             options = options || {};
             for (var k in options) this[k] = options[k];
@@ -890,8 +907,10 @@ enum PageScripts {
             this.label = options.label || '';
             this.enabled = options.enabled !== false;
             this.checked = !!options.checked;
+            this.__id = nextItem++;
+            menuItems[this.__id] = this;
         }
-        NwMenuItem.prototype.on = noop;
+        NwMenuItem.prototype.on = function (name, fn) { if (name === 'click' && typeof fn === 'function') this.click = fn; return this; };
         NwMenuItem.prototype.removeAllListeners = noop;
         function NwMenu(options) { this.type = (options && options.type) || 'contextmenu'; this.items = []; }
         NwMenu.prototype.append = function (item) { this.items.push(item); };
@@ -900,6 +919,23 @@ enum PageScripts {
         NwMenu.prototype.removeAt = function (i) { this.items.splice(i, 1); };
         NwMenu.prototype.popup = noop;
         NwMenu.prototype.createMacBuiltin = noop;
+        function describe(menu, depth) {
+            if (!menu || !menu.items || depth > 4) return [];
+            return menu.items.map(function (item) {
+                return { id: item.__id || 0, label: String(item.label || ''), type: String(item.type || 'normal'),
+                    enabled: item.enabled !== false, checked: !!item.checked, key: String(item.key || ''),
+                    children: item.submenu ? describe(item.submenu, depth + 1) : [] };
+            });
+        }
+        window.__nexMenuJSON = function () { return JSON.stringify(menuBar ? describe(menuBar, 0) : []); };
+        window.__nexMenuClick = function (id) {
+            var item = menuItems[id];
+            if (!item) return 'That menu item is gone.';
+            if (item.enabled === false) return 'That menu item is turned off.';
+            if (item.type === 'checkbox') item.checked = !item.checked;
+            try { if (typeof item.click === 'function') item.click.call(item); } catch (e) { return String((e && e.message) || e); }
+            return 'ok';
+        };
         var nwWindow = withQuiet({
             x: 0, y: 0, width: window.innerWidth, height: window.innerHeight, title: document.title, menu: null,
             isFullscreen: true, isKioskMode: false, zoomLevel: 0, window: window,
@@ -912,24 +948,31 @@ enum PageScripts {
             showDevTools: noop, closeDevTools: noop, isDevToolsOpen: function () { return false; },
             reload: function () { location.reload(); }, reloadIgnoringCache: function () { location.reload(); },
             close: function (force) { exit(); }
+        }, 'nw.Window', function (key, value) {
+            if (key === 'menu') {
+                menuBar = value && value.items ? value : null;
+                if (menuBar) {
+                    try { window.webkit.messageHandlers.nexLog.postMessage('nw: the game made a menu bar (' + menuBar.items.length + ' menus); it is in the Game Panel > Tools > Game Menu Bar'); } catch (e) {}
+                }
+            }
         });
         var nwApp = withQuiet({ argv: [], fullArgv: [], manifest: {}, dataPath: '/', quit: exit, closeAllWindows: exit,
-            clearCache: noop, registerGlobalHotKey: noop, unregisterGlobalHotKey: noop, on: noop });
+            clearCache: noop, registerGlobalHotKey: noop, unregisterGlobalHotKey: noop, on: noop }, 'nw.App');
         var clipboardText = '';
         var nwClipboard = { get: function () { return clipboardText; }, set: function (t) { clipboardText = String(t || ''); }, clear: function () { clipboardText = ''; } };
         var nwGui = withQuiet({
             App: nwApp,
-            Window: withQuiet({ get: function () { return nwWindow; }, open: function () { return nwWindow; } }),
+            Window: withQuiet({ get: function () { return nwWindow; }, open: function () { return nwWindow; } }, 'nw.Window'),
             Menu: NwMenu,
             MenuItem: NwMenuItem,
             Shell: { openExternal: noop, openItem: noop, showItemInFolder: noop },
             Clipboard: { get: function () { return nwClipboard; } },
             Screen: withQuiet({ Init: noop, screens: [{ id: 1, bounds: { x: 0, y: 0, width: screen.width, height: screen.height },
                 work_area: { x: 0, y: 0, width: screen.width, height: screen.height }, scaleFactor: window.devicePixelRatio || 1 }],
-                on: noop, chooseDesktopMedia: noop }),
+                on: noop, chooseDesktopMedia: noop }, 'nw.Screen'),
             Shortcut: function (options) { this.key = options && options.key; this.active = noop; this.failed = noop; },
             Tray: function () { this.remove = noop; this.on = noop; }
-        });
+        }, 'nw');
         var os = {
             platform: function () { return 'linux'; },
             type: function () { return 'Linux'; },
