@@ -173,10 +173,10 @@ enum PlayAssist {
             var data = contents(true);
             if (!A.rewind) return;
             A.ring.push({ t: Date.now(), data: data, map: label || '' });
-            // 8.18.0: at most ~24 MB of snapshots (big saves times 20 snapshots ran the page out of memory).
+            // 8.18.0: at most ~12 MB of snapshots (8.18.3: was 24) (big saves times 20 snapshots ran the page out of memory).
             var total = 0;
             for (var i = 0; i < A.ring.length; i++) total += A.ring[i].data.length;
-            while (A.ring.length > A.max || (A.ring.length > 2 && total > 24e6)) total -= A.ring.shift().data.length;
+            while (A.ring.length > A.max || (A.ring.length > 2 && total > 12e6)) total -= A.ring.shift().data.length;
             // A slow save (big game) makes the frame stutter; take snapshots less often then.
             if (A.cost > 120) {
                 A.rewind = false;

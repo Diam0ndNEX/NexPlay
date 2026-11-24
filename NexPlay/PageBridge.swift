@@ -268,7 +268,7 @@ enum PageScripts {
     /// 8.18.0 RPG Maker MV/MZ speed-ups for iOS (menus opened with a delay and dropped frames):
     /// - Sound effects are kept after their first load: MV and MZ load (and MV decodes) the file again every time a
     ///   sound plays, so every cursor move in a menu was a file request plus a decode. MV keeps the decoded sound
-    ///   (up to ~48 MB), MZ the file bytes.
+    ///   (up to ~16 MB), MZ the file bytes.
     /// - A cheaper blur for the menu background (MV blurs the map picture with 26 full-screen canvas draws).
     /// - Videos: the .mp4 is used when the game has one (iOS decodes WebM in software), the other file is tried
     ///   when one fails, and a video that can't play is skipped instead of stopping the game with a load error.
@@ -289,7 +289,7 @@ enum PageScripts {
                 var hit = bytes[url];
                 if (hit) return Promise.resolve(new Response(hit.slice(0), { status: 200, headers: { 'Content-Type': 'application/octet-stream' } }));
                 return nativeFetch.apply(null, arguments).then(function (response) {
-                    if (!response.ok || bytesTotal > 32e6) return response;
+                    if (!response.ok || bytesTotal > 12e6) return response;
                     return response.arrayBuffer().then(function (buf) {
                         if (!bytes[url]) { bytes[url] = buf; bytesTotal += buf.byteLength; }
                         return new Response(buf.slice(0), { status: response.status, headers: { 'Content-Type': 'application/octet-stream' } });
@@ -306,7 +306,7 @@ enum PageScripts {
             decoded[key] = { raw: raw, buffer: buffer, size: size };
             order.push(key);
             decodedBytes += size;
-            while (decodedBytes > 48e6 && order.length > 1) {
+            while (decodedBytes > 16e6 && order.length > 1) {
                 var old = order.shift();
                 if (decoded[old]) { decodedBytes -= decoded[old].size; delete decoded[old]; }
             }
@@ -399,6 +399,79 @@ enum PageScripts {
                 } catch (e) {
                     return slowBlur.apply(this, arguments);
                 }
+            };
+        })();
+
+        // MARK: 8.18.3 media play() promises
+        // Pausing a game (Game Panel, cheat engine, going to the background) pauses its <audio>/<video>; a play()
+        // the game started then rejects with AbortError, and MZ stops the game on an unhandled rejection. The
+        // promise is returned unchanged; only an empty catch is added so the rejection counts as handled.
+        try {
+            var nativePlay = HTMLMediaElement.prototype.play;
+            HTMLMediaElement.prototype.play = function () {
+                var p = nativePlay.apply(this, arguments);
+                if (p && p.catch) p.catch(function () {});
+                return p;
+            };
+        } catch (e) {}
+
+        // MARK: 8.18.3 Script commands with a line break inside a string
+        // Event Script commands (355 + 655 lines) are joined with "\n"; a quoted text written over two lines then
+        // is not valid JavaScript ("SCRIPT CALL ERROR", the command does nothing, also on PC). When the joined
+        // script does not compile, but does with the line breaks inside quotes written as \n, the fixed script
+        // is used. The command count stays the same (655 lines become empty), so saved event positions still match.
+        function quoteBreaks(code) {
+            var out = '', quote = null;
+            for (var i = 0; i < code.length; i++) {
+                var c = code.charAt(i);
+                if (quote) {
+                    if (c === '\\') { out += c + code.charAt(i + 1); i++; continue; }
+                    if (c === quote) quote = null;
+                    else if (c === '\n' && quote !== '`') { out += '\\n'; continue; }
+                    else if (c === '\r') continue;
+                } else if (c === '"' || c === "'" || c === '`') {
+                    quote = c;
+                }
+                out += c;
+            }
+            return out;
+        }
+        function compiles(code) { try { new Function(code); return true; } catch (e) { return false; } }
+        var scriptFixes = 0;
+        function fixList(list) {
+            if (!list || !list.length) return;
+            for (var i = 0; i < list.length; i++) {
+                var cmd = list[i];
+                if (!cmd || cmd.code !== 355) continue;
+                var j = i + 1, lines = [String(cmd.parameters[0])];
+                while (list[j] && list[j].code === 655) { lines.push(String(list[j].parameters[0])); j++; }
+                if (lines.length < 2) continue;
+                var code = lines.join('\n');
+                if (compiles(code)) continue;
+                var fixed = quoteBreaks(code);
+                if (fixed === code || !compiles(fixed)) continue;
+                cmd.parameters[0] = fixed;
+                for (var k = i + 1; k < j; k++) list[k].parameters[0] = '';
+                if (++scriptFixes <= 10) note('fixed a Script command with a line break inside quotes: ' + fixed.slice(0, 80));
+            }
+        }
+        function fixPages(pages) { (pages || []).forEach(function (page) { if (page) fixList(page.list); }); }
+        (function hookData(tries) {
+            if (typeof DataManager === 'undefined' || !DataManager.onLoad) { if ((tries || 0) < 400) setTimeout(function () { hookData((tries || 0) + 1); }, 50); return; }
+            if (DataManager.__nexScripts) return;
+            DataManager.__nexScripts = true;
+            var onLoad = DataManager.onLoad;
+            DataManager.onLoad = function (object) {
+                try {
+                    if (object === window.$dataMap && object && object.events) {
+                        object.events.forEach(function (ev) { if (ev) fixPages(ev.pages); });
+                    } else if (object === window.$dataCommonEvents) {
+                        object.forEach(function (ce) { if (ce) fixList(ce.list); });
+                    } else if (object === window.$dataTroops) {
+                        object.forEach(function (troop) { if (troop) fixPages(troop.pages); });
+                    }
+                } catch (e) {}
+                return onLoad.apply(this, arguments);
             };
         })();
 
