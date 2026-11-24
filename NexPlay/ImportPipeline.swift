@@ -726,7 +726,8 @@ enum UnsupportedEngine {
             return "This is an Unreal Engine game for desktop. NexPlay can't run it."
         }
         if extensions.contains("exe") {
-            return "Only Windows program files were found: no web game, RPG Maker or Godot files. NexPlay can't run Windows programs."
+            let programs = WindowsGameFiles.allExecutables(in: root).prefix(6).joined(separator: ", ")
+            return "Only installers or runtime setups were found (\(programs)), no game program. Install the game on a PC and import the installed folder."
         }
         return nil
     }

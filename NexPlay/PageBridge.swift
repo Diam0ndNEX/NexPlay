@@ -856,12 +856,80 @@ enum PageScripts {
         fs.exists = function (p, callback) { setTimeout(function () { callback(fs.existsSync(p)); }, 0); };
 
         // MARK: NW.js
-        var nwWindow = new Proxy({}, { get: function (target, key) { return key in target ? target[key] : noop; } });
-        var nwApp = { argv: [], manifest: {}, dataPath: '/', quit: exit, closeAllWindows: exit };
-        function NwMenu() {}
+        // 8.18.1: the whole NW.js API answers. Plugins that build a PC menu bar (MenuBarAddition: new nw.MenuItem,
+        // menu.append, win.menu = ...), register hot keys, read the clipboard or the screens stopped the game at
+        // start with "undefined is not a constructor". Anything NexPlay doesn't know is a quiet stand-in that can be
+        // called, constructed and read without throwing.
+        function quiet() {
+            var target = function () {};
+            return new Proxy(target, {
+                get: function (t, key) {
+                    if (typeof key === 'symbol' || key === 'then') return undefined;
+                    if (key in t) return t[key];
+                    t[key] = quiet();
+                    return t[key];
+                },
+                set: function (t, key, value) { t[key] = value; return true; },
+                apply: function () { return quiet(); },
+                construct: function () { return quiet(); }
+            });
+        }
+        function withQuiet(base) {
+            return new Proxy(base, {
+                get: function (t, key) {
+                    if (key in t || typeof key === 'symbol' || key === 'then') return t[key];
+                    t[key] = quiet();
+                    return t[key];
+                }
+            });
+        }
+        function NwMenuItem(options) {
+            options = options || {};
+            for (var k in options) this[k] = options[k];
+            this.type = options.type || 'normal';
+            this.label = options.label || '';
+            this.enabled = options.enabled !== false;
+            this.checked = !!options.checked;
+        }
+        NwMenuItem.prototype.on = noop;
+        NwMenuItem.prototype.removeAllListeners = noop;
+        function NwMenu(options) { this.type = (options && options.type) || 'contextmenu'; this.items = []; }
+        NwMenu.prototype.append = function (item) { this.items.push(item); };
+        NwMenu.prototype.insert = function (item, i) { this.items.splice(i, 0, item); };
+        NwMenu.prototype.remove = function (item) { var i = this.items.indexOf(item); if (i >= 0) this.items.splice(i, 1); };
+        NwMenu.prototype.removeAt = function (i) { this.items.splice(i, 1); };
+        NwMenu.prototype.popup = noop;
         NwMenu.prototype.createMacBuiltin = noop;
-        NwMenu.prototype.append = noop;
-        var nwGui = { App: nwApp, Window: { get: function () { return nwWindow; } }, Menu: NwMenu, Shell: { openExternal: noop } };
+        var nwWindow = withQuiet({
+            x: 0, y: 0, width: window.innerWidth, height: window.innerHeight, title: document.title, menu: null,
+            isFullscreen: true, isKioskMode: false, zoomLevel: 0, window: window,
+            on: function () { return nwWindow; }, once: function () { return nwWindow; },
+            removeListener: noop, removeAllListeners: noop, show: noop, hide: noop, focus: noop, blur: noop,
+            maximize: noop, minimize: noop, restore: noop, resizeTo: noop, moveTo: noop, setPosition: noop,
+            enterFullscreen: noop, leaveFullscreen: noop, toggleFullscreen: noop, enterKioskMode: noop,
+            leaveKioskMode: noop, toggleKioskMode: noop, setAlwaysOnTop: noop, setResizable: noop,
+            setMinimumSize: noop, setMaximumSize: noop, requestAttention: noop, setProgressBar: noop,
+            showDevTools: noop, closeDevTools: noop, isDevToolsOpen: function () { return false; },
+            reload: function () { location.reload(); }, reloadIgnoringCache: function () { location.reload(); },
+            close: function (force) { exit(); }
+        });
+        var nwApp = withQuiet({ argv: [], fullArgv: [], manifest: {}, dataPath: '/', quit: exit, closeAllWindows: exit,
+            clearCache: noop, registerGlobalHotKey: noop, unregisterGlobalHotKey: noop, on: noop });
+        var clipboardText = '';
+        var nwClipboard = { get: function () { return clipboardText; }, set: function (t) { clipboardText = String(t || ''); }, clear: function () { clipboardText = ''; } };
+        var nwGui = withQuiet({
+            App: nwApp,
+            Window: withQuiet({ get: function () { return nwWindow; }, open: function () { return nwWindow; } }),
+            Menu: NwMenu,
+            MenuItem: NwMenuItem,
+            Shell: { openExternal: noop, openItem: noop, showItemInFolder: noop },
+            Clipboard: { get: function () { return nwClipboard; } },
+            Screen: withQuiet({ Init: noop, screens: [{ id: 1, bounds: { x: 0, y: 0, width: screen.width, height: screen.height },
+                work_area: { x: 0, y: 0, width: screen.width, height: screen.height }, scaleFactor: window.devicePixelRatio || 1 }],
+                on: noop, chooseDesktopMedia: noop }),
+            Shortcut: function (options) { this.key = options && options.key; this.active = noop; this.failed = noop; },
+            Tray: function () { this.remove = noop; this.on = noop; }
+        });
         var os = {
             platform: function () { return 'linux'; },
             type: function () { return 'Linux'; },

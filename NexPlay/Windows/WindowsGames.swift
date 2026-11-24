@@ -15,12 +15,19 @@ enum WindowsGameFiles {
                                   "cefsharp", "cefprocess", "subprocess", "steamerrorreporter", "easyanticheat", "be_service",
                                   "dowser", "zsync", "7z", "winrar", "update", "patch"]
 
+    /// Never a game: uninstallers and runtime installers.
+    private static let redistributables = ["unins", "uninstall", "vcredist", "vc_redist", "dxsetup", "dxwebsetup", "directx",
+                                           "dotnet", "netfx", "ndp4", "oalinst", "physx", "ue4prereq", "ueprereq", "prereq"]
+
     /// The game's main program, relative to its folder: the shallowest .exe that isn't a helper, the biggest at that
     /// depth. Nil when the folder has no Windows program or holds a Java game.
     static func mainExecutable(in root: URL) -> String? {
         let fm = FileManager.default
         var level = [root]
         var best: [(size: Int, url: URL)] = []
+        // 8.18.1: programs with helper-like names (setup, update, patch...) are the last choice, not refused: a
+        // game whose only .exe is called e.g. "Game_update.exe" was rejected as "only Windows program files".
+        var fallback: [(size: Int, url: URL)] = []
         var hasJava = false
         for _ in 0...4 {
             var next: [URL] = []
@@ -37,7 +44,10 @@ enum WindowsGameFiles {
                     if ext == "jar" { hasJava = true }
                     guard ext == "exe" else { continue }
                     let name = kid.deletingPathExtension().lastPathComponent.lowercased()
-                    if skipped.contains(where: { name.hasPrefix($0) || name.contains("crash") }) { continue }
+                    if skipped.contains(where: { name.hasPrefix($0) || name.contains("crash") }) {
+                        if !redistributables.contains(where: { name.hasPrefix($0) }) { fallback.append((values?.fileSize ?? 0, kid)) }
+                        continue
+                    }
                     best.append((values?.fileSize ?? 0, kid))
                 }
             }
@@ -45,7 +55,7 @@ enum WindowsGameFiles {
             level = next
         }
         if hasJava { return nil }
-        guard let pick = best.max(by: { $0.size < $1.size }) else { return nil }
+        guard let pick = best.max(by: { $0.size < $1.size }) ?? fallback.max(by: { $0.size < $1.size }) else { return nil }
         return GameScanner.relativePath(of: pick.url, in: root)
     }
 
