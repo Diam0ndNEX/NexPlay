@@ -86,7 +86,29 @@ enum WindowsGameFiles {
     static func program(for game: Game) -> String? {
         if let exe = game.exePath, !exe.isEmpty { return exe }
         if game.entry.lowercased().hasSuffix(".exe") { return game.entry }
-        return mainExecutable(in: Paths.folder(for: game))
+        // 8.19.0: the folder walk is remembered per game folder (routing asks while the library redraws);
+        // `forget` clears it when a game is installed, updated or deleted.
+        let folder = Paths.folder(for: game).path
+        cacheLock.lock()
+        if let known = programCache[folder] {
+            cacheLock.unlock()
+            return known.isEmpty ? nil : known
+        }
+        cacheLock.unlock()
+        let found = mainExecutable(in: Paths.folder(for: game))
+        cacheLock.lock()
+        programCache[folder] = found ?? ""
+        cacheLock.unlock()
+        return found
+    }
+
+    private static var programCache: [String: String] = [:]
+    private static let cacheLock = NSLock()
+
+    static func forget(_ game: Game) {
+        cacheLock.lock()
+        programCache[Paths.folder(for: game).path] = nil
+        cacheLock.unlock()
     }
 }
 

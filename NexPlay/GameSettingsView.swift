@@ -28,6 +28,8 @@ struct GameSettingsView: View {
     @State private var confirmDelete = false
     @State private var confirmWipe = false
     @State private var message: String?
+    /// 8.19.0: the game folder's programs, read once (the Form redraws on every keystroke in the name field).
+    @State private var windowsPrograms: [String]?
 
     private var game: Game? { store.game(id: gameID) }
 
@@ -402,12 +404,19 @@ struct GameSettingsView: View {
 
     /// 7.0.0: which program a Windows game starts.
     private func windowsSection(_ game: Game) -> some View {
-        let programs = WindowsGameFiles.allExecutables(in: Paths.folder(for: game))
+        let programs = windowsPrograms ?? []
         let current = WindowsGameFiles.program(for: game) ?? ""
+        let folder = Paths.folder(for: game)
         return Section {
             Picker(selection: Binding(
                 get: { current },
-                set: { value in store.mutate(gameID) { $0.exePath = value.isEmpty ? nil : value } }
+                set: { value in
+                    store.mutate(gameID) { game in
+                        game.exePath = value.isEmpty ? nil : value
+                        // The outlook belongs to the program: read it again for the new one.
+                        if !value.isEmpty { game.windowsInfo = WindowsPE.inspect(program: value, in: folder) }
+                    }
+                }
             )) {
                 if !programs.contains(current) { Text(current.isEmpty ? "None" : current).tag(current) }
                 ForEach(programs, id: \.self) { program in
@@ -419,6 +428,12 @@ struct GameSettingsView: View {
             }
         } header: {
             SettingsHeader(title: "Windows", symbol: "pc", color: .blue)
+                .task {
+                    guard windowsPrograms == nil else { return }
+                    windowsPrograms = await Task.detached(priority: .userInitiated) {
+                        WindowsGameFiles.allExecutables(in: folder)
+                    }.value
+                }
         } footer: {
             Text("The .exe the game starts with. Runs on the Windows engine with JIT on. Its engine settings (resolution, controls, FPS) are in the in-game menu while it runs.")
         }

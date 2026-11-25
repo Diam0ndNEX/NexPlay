@@ -37,8 +37,12 @@ struct GameScreen: UIViewControllerRepresentable {
 /// What the app needs from a Ruby (RPG Maker XP/VX/Ace) core. Builds without the core use `RubyCoreStub`.
 @MainActor
 protocol RubyGameRunner {
-    /// True when this build contains a working core.
+    /// True when a Ruby game can start now (core in the build and none ran this launch).
     var isAvailable: Bool { get }
+    /// 8.19.0: true when this build contains a working core, even if a game already ran this launch. Routing and the
+    /// library's "needs setup" marks use this: after one Ace game every XP/VX/Ace game was sent to the Windows runtime
+    /// (Game.exe) or marked as missing its runtime.
+    var isInBuild: Bool { get }
     /// A short reason shown when the core is missing or can't start another game.
     var unavailableReason: String { get }
     func makeViewController(game: Game, onExit: @escaping () -> Void) -> UIViewController
@@ -64,6 +68,7 @@ enum RubyCore {
 /// Used when the app is built without the mkxp core.
 struct RubyCoreStub: RubyGameRunner {
     var isAvailable: Bool { false }
+    var isInBuild: Bool { false }
 
     var unavailableReason: String {
         "This build has no mkxp core, so RPG Maker XP, VX and VX Ace games can't start yet. They stay in your library and will run once a build with the core is installed."

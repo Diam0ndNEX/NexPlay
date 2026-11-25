@@ -27,12 +27,13 @@ enum WindowsEngine {
     }
 
     /// The Windows files the engine needs at run time (DLL folders, prefix template) are in the app.
-    static var filesPresent: Bool {
+    /// 8.19.0: checked once (the app bundle can't change while it runs); the library asked for every game on every redraw.
+    static let filesPresent: Bool = {
         let fm = FileManager.default
         let base = Bundle.main.bundleURL
         return fm.fileExists(atPath: base.appendingPathComponent("aarch64-windows").path)
             && fm.fileExists(atPath: base.appendingPathComponent("prefix-template.tar.gz").path)
-    }
+    }()
 
     /// Why Windows games can't start in this build, or nil.
     static var unavailableReason: String? {

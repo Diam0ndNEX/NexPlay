@@ -399,7 +399,8 @@ enum NativePad {
     /// Saves a screenshot to the game's gallery and to Photos.
     static func save(screenshot image: UIImage, for game: Game) {
         Gallery.add(image, for: game)
-        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        // 8.19.0: follows Settings > Screenshots to Photos like the web player.
+        if PhotoSaver.screenshotsWanted { PhotoSaver.save(image) }
         AppLog.log("screenshot saved for \(game.name)")
     }
 }

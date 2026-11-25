@@ -209,7 +209,8 @@ struct WebGameRuntime: GameRuntime {
 /// The mkxp core, through `RubyCore.runner` (a stub in builds without NEXPLAY_MKXP).
 struct RubyGameRuntime: GameRuntime {
     var kind: RuntimeKind { .ruby }
-    var isAvailable: Bool { RubyCore.runner.isAvailable }
+    /// In the build (see RubyGameRunner.isInBuild); a second game in one launch gets the restart message when it starts.
+    var isAvailable: Bool { RubyCore.runner.isInBuild }
     var unavailableReason: String { RubyCore.runner.unavailableReason }
 
     func capabilities(for game: Game) -> RuntimeCapabilities {

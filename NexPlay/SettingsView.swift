@@ -257,7 +257,8 @@ struct SettingsView: View {
         OrientationManager.unlock()
         NexTheme.shared.reload()
         AppLog.log("settings reset to defaults")
-        message = "Settings are back to their defaults."
+        // 8.19.0: shown once the confirmation has closed (an alert asked for while it closes can be dropped).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { message = "Settings are back to their defaults." }
     }
 }
 

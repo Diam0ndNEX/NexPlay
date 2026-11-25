@@ -788,8 +788,10 @@ struct MediaViewer: View {
 
     private func saveToPhotos() {
         guard let image else { return }
-        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-        note = "Saved to Photos."
+        note = "Saving…"
+        PhotoSaver.save(image) { ok in
+            note = ok ? "Saved to Photos." : "Couldn't save to Photos. Allow NexPlay to add photos in the Settings app."
+        }
     }
 }
 

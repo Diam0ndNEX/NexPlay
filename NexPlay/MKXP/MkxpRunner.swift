@@ -127,6 +127,7 @@ final class MkxpRunner: RubyGameRunner {
     }
 
     var isAvailable: Bool { MkxpRunner.core() != nil && !MkxpRunner.hasRun }
+    var isInBuild: Bool { MkxpRunner.core() != nil }
 
     var unavailableReason: String {
         if MkxpRunner.core() == nil {
@@ -137,7 +138,8 @@ final class MkxpRunner: RubyGameRunner {
 
     func makeViewController(game: Game, onExit: @escaping () -> Void) -> UIViewController {
         guard let core = MkxpRunner.core(), !MkxpRunner.hasRun else {
-            return RubyCoreStub().makeViewController(game: game, onExit: onExit)
+            // 8.19.0: the real reason (a game already ran this launch), not the stub's "no core in this build".
+            return RuntimeUnavailableController.make(title: game.name, reason: unavailableReason, onExit: onExit)
         }
         return MkxpViewController(game: game, core: core, onExit: onExit)
     }

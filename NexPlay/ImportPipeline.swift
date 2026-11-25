@@ -126,7 +126,7 @@ enum PipelineError: LocalizedError {
         case .archive(let ext):
             return "NexPlay can't open .\(ext) archives. Unpack it in the Files app (or another app) and import the folder, or make a ZIP."
         case .archiveFailed(let name, let detail):
-            return "Couldn't unpack \(name) (\(detail)). The archive may be damaged, password-protected or split into parts (part1, part2…). Join or unpack it in another app and import the folder."
+            return "Couldn't unpack \(name) (\(detail)). The archive may be damaged, or split into parts (part1, part2… or .001, .002…): select every part together in the picker. If it still fails, unpack it in another app and import the folder."
         case .unknownType(let ext):
             let kind = ext.isEmpty ? "This file" : "A .\(ext) file"
             return "\(kind) can't be imported. Import a ZIP, 7z or RAR archive, a game folder, or an HTML file."
@@ -490,6 +490,12 @@ enum ImportPipeline {
             case .symlink:
                 continue
             }
+        }
+        // 8.19.0: ZIPFoundation leaves encrypted entries out of the listing without an error, so a password ZIP
+        // "extracted" to an empty folder and the import said no game was found. No files = let libarchive read it
+        // (it asks for the password).
+        if !entries.contains(where: { $0.type == .file }) {
+            throw ImportError.unsupported("zip")
         }
         if encoding != .utf8 {
             return "File names were decoded as \(label)."

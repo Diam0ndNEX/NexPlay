@@ -1256,9 +1256,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
                 self.showAlert("Screenshot failed", error?.localizedDescription ?? "No image.")
                 return
             }
-            if UserDefaults.standard.object(forKey: SettingsKey.screenshotsToPhotos) as? Bool ?? true {
-                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-            }
+            if PhotoSaver.screenshotsWanted { PhotoSaver.save(image) }
             let target = self.game
             Task.detached(priority: .utility) { Gallery.add(image, for: target) }
             self.gameLog.add("screenshot saved to the game's gallery")

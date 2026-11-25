@@ -3,7 +3,7 @@
 **Version history (what each version changed and why) is in `docs/CHANGELOG.md`, newest first. Read the entries for the files you touch before changing them, and add a short entry there for every push (not here).**
 
 Personal iPhone game player for RPG Maker MV/MZ and HTML5 games (SwiftUI + WKWebView, iOS 18+ since 8.0.0 (BCD's minimum)), with RPG Maker XP/VX/Ace through the mkxp-z core in builds that turn on `NEXPLAY_MKXP`.
-Not a general web browser: everything in here is treated as a game. Version 8.19.0 (build 182). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core; Windows games with BCD's engine compiled in (8.0.0).
+Not a general web browser: everything in here is treated as a game. Version 8.19.1 (build 183). Engines: RPG Maker MV/MZ, HTML5, Godot (Web exports and desktop .pck/.exe), Ren'Py (RenPyWeb), Flash (Ruffle), Construct, Twine, TyranoScript; XP/VX/Ace with the mkxp core; Windows games with BCD's engine compiled in (8.0.0).
 
 **Read `docs/SPEC.md` for the plan, `docs/RESEARCH.md` for what the reference apps do. Paste-ready prompt for new chats: `docs/PROMPT.md`.**
 

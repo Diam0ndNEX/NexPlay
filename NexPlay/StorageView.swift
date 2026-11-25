@@ -106,8 +106,13 @@ struct StorageView: View {
         .refreshable { await measure() }
         .confirmationDialog("Clear runtimes and Ren'Py packages?", isPresented: $confirmRuntime, titleVisibility: .visible) {
             Button("Clear", role: .destructive) {
-                for folder in runtimeFolders { try? FileManager.default.removeItem(at: folder) }
-                Task { await measure() }
+                let folders = runtimeFolders
+                Task {
+                    await Task.detached(priority: .userInitiated) {
+                        for folder in folders { try? FileManager.default.removeItem(at: folder) }
+                    }.value
+                    await measure()
+                }
             }
         }
         .confirmationDialog("Delete these rescued saves for good?", isPresented: Binding(
@@ -163,12 +168,17 @@ struct StorageView: View {
     }
 
     private func clearTemporary() {
-        let fm = FileManager.default
-        let temp = fm.temporaryDirectory
-        for url in (try? fm.contentsOfDirectory(at: temp, includingPropertiesForKeys: nil)) ?? [] {
-            try? fm.removeItem(at: url)
+        // 8.19.0: off the main thread (big leftover archives took seconds and froze the screen).
+        Task {
+            await Task.detached(priority: .userInitiated) {
+                let fm = FileManager.default
+                let temp = fm.temporaryDirectory
+                for url in (try? fm.contentsOfDirectory(at: temp, includingPropertiesForKeys: nil)) ?? [] {
+                    try? fm.removeItem(at: url)
+                }
+            }.value
+            await measure()
         }
-        Task { await measure() }
     }
 
     private func measure() async {

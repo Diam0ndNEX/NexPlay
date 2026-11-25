@@ -82,7 +82,11 @@ struct GameCollection: Codable, Identifiable, Hashable {
 /// Collections.json in Application Support/NexPlay.
 @MainActor
 final class CollectionStore: ObservableObject {
-    @Published private(set) var collections: [GameCollection] = []
+    @Published private(set) var collections: [GameCollection] = [] {
+        didSet { hiddenGameIDs = Set(collections.filter(\.isHidden).flatMap(\.gameIDs)) }
+    }
+    /// 8.19.0: games in hidden collections, kept up to date instead of rebuilt for every game on every redraw.
+    private(set) var hiddenGameIDs: Set<UUID> = []
     private let fileURL = Paths.support.appendingPathComponent("Collections.json")
 
     init() {
@@ -90,6 +94,8 @@ final class CollectionStore: ObservableObject {
            let list = try? JSONDecoder().decode([GameCollection].self, from: data) {
             collections = list
         }
+        // Property observers don't run in init.
+        hiddenGameIDs = Set(collections.filter(\.isHidden).flatMap(\.gameIDs))
     }
 
     private func save() {

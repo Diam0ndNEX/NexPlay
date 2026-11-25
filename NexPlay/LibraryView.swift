@@ -24,8 +24,13 @@ enum CoverCache {
         return image
     }
 
+    /// Posted with the game's id when its cover changed, so cards on screen load it again.
+    static let changed = Notification.Name("NexPlay.coverChanged")
+
     static func forget(_ game: Game) {
         cache.removeObject(forKey: game.id.uuidString as NSString)
+        // 8.19.0: a new cover (Files, Photos, Media's Set Cover) showed on the cards only after a restart.
+        NotificationCenter.default.post(name: changed, object: game.id)
     }
 }
 
@@ -51,6 +56,11 @@ struct CoverView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .task(id: game.id) { image = await CoverCache.load(for: game) }
+            .onReceive(NotificationCenter.default.publisher(for: CoverCache.changed)) { note in
+                guard (note.object as? UUID) == game.id else { return }
+                let target = game
+                Task { @MainActor in image = await CoverCache.load(for: target) }
+            }
             .accessibilityHidden(true)
     }
 }
@@ -346,9 +356,7 @@ struct LibraryView: View {
 
     private var sort: LibrarySortOrder { LibrarySortOrder(rawValue: sortRaw) ?? .playedRecent }
 
-    private var hiddenCollectionGames: Set<UUID> {
-        Set(collections.collections.filter { $0.isHidden }.flatMap { $0.gameIDs })
-    }
+    private var hiddenCollectionGames: Set<UUID> { collections.hiddenGameIDs }
 
     private func isVisible(_ game: Game) -> Bool {
         if privacy.isUnlocked { return true }
@@ -744,7 +752,7 @@ struct LibraryView: View {
     /// The floating + (Files, Folder, Folder of Games, Link).
     private var addMenu: some View {
         Menu {
-            Button { importFiles() } label: { Label("ZIP, 7z, RAR, HTML or SWF File…", systemImage: "doc.zipper") }
+            Button { importFiles() } label: { Label("Game File (ZIP, 7z, RAR, EXE, HTML)…", systemImage: "doc.zipper") }
             Button { importFolders() } label: { Label("Game Folder…", systemImage: "folder") }
             Button { importBulk() } label: { Label("Folder of Many Games…", systemImage: "folder.badge.gearshape") }
             Button {
@@ -1086,7 +1094,7 @@ struct LibraryView: View {
                 .font(.system(size: 54))
                 .foregroundStyle(NexColor.accentSoft)
             Text("No games yet").font(NexType.display(26)).foregroundStyle(NexColor.text)
-            Text("Add a game as a ZIP, 7z or RAR archive, or as a folder. NexPlay plays RPG Maker MV/MZ, Ren'Py, Godot, Flash, Twine, Construct, TyranoBuilder and other HTML5 games. XP/VX/Ace games need a build with the mkxp core. Tip: open an archive from the Files app with NexPlay.")
+            Text("Add a game as a ZIP, 7z or RAR archive (split parts too: pick them all), an .exe, or a folder. NexPlay plays RPG Maker XP to MZ and 2000/2003, Ren'Py, Godot, Flash, Twine, Construct, TyranoBuilder, other HTML5 games and Windows games. Tip: open an archive from the Files app with NexPlay.")
                 .font(NexType.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NexColor.textSoft)

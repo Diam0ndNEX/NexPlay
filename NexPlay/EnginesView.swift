@@ -51,8 +51,8 @@ struct EnginesSettingsView: View {
             Section {
                 engineRow("RPG Maker MV / MZ", symbol: GameEngine.rpgMV.symbol, detail: "Built in. NW.js mode keeps saves as files.", ok: true)
                 engineRow("RPG Maker XP / VX / Ace", symbol: GameEngine.rpgVXAce.symbol,
-                          detail: RubyCore.runner.isAvailable ? "mkxp core included in this build." : "Needs a build with the mkxp core.",
-                          ok: RubyCore.runner.isAvailable)
+                          detail: RubyCore.runner.isInBuild ? "mkxp core included in this build." : "Needs a build with the mkxp core.",
+                          ok: RubyCore.runner.isInBuild)
                 engineRow("Ren'Py", symbol: GameEngine.renpy.symbol,
                           detail: list(RenPyRuntime.bundled.map { $0.description }, empty: "No runtime in this build."),
                           ok: !RenPyRuntime.bundled.isEmpty)

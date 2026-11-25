@@ -208,6 +208,7 @@ final class LibraryStore: ObservableObject {
             try? FileManager.default.moveItem(at: parkedProfiles, to: target)
         }
         CoverCache.forget(game)
+        WindowsGameFiles.forget(game)
         try? FileManager.default.removeItem(at: Self.pendingURL(game.id))
         AppLog.log("deleted \(game.name)")
     }
@@ -417,6 +418,7 @@ final class LibraryStore: ObservableObject {
                 }
                 RenPyRuntime.clearPackage(for: existing)
                 CoverCache.forget(existing)
+                WindowsGameFiles.forget(existing)
                 lines.append("Updated \(staged.title). Saves and settings were kept.")
                 AppLog.log("updated \(staged.title) from \(url.lastPathComponent)")
             } else {
