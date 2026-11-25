@@ -563,24 +563,6 @@ struct LibraryView: View {
         } message: { offer in
             Text("Saves of a deleted copy of \(offer.gameName) were kept. Put them back into the game you just imported? Files that would be replaced are kept as .nex-displaced.bak copies.")
         }
-        .confirmationDialog("\(store.pendingUpdate?.title ?? "This game") is already in your library", isPresented: Binding(
-            get: { store.pendingUpdate != nil },
-            set: { shown in
-                // Runs after a button's own action; only a dismissal without a choice cancels.
-                if !shown {
-                    Task { @MainActor in
-                        await Task.yield()
-                        if store.pendingUpdate != nil { store.answerUpdate(.cancel) }
-                    }
-                }
-            }
-        ), titleVisibility: .visible) {
-            Button("Update It") { store.answerUpdate(.update) }
-            Button("Add as New Game") { store.answerUpdate(.addNew) }
-            Button("Cancel", role: .cancel) { store.answerUpdate(.cancel) }
-        } message: {
-            Text("Update keeps its saves, settings and layout and replaces the game files. A file in the new version that sits where a save is gets kept as a .nex-displaced.bak copy.")
-        }
         .confirmationDialog(deleteTitle, isPresented: Binding(
             get: { !pendingDelete.isEmpty },
             set: { if !$0 { pendingDelete = [] } }
@@ -1196,17 +1178,15 @@ struct LibraryView: View {
 
     private func importFiles() {
         ImportPicker.pickFiles { urls in
-            Task {
-                await store.importItems(urls)
-                urls.forEach { try? FileManager.default.removeItem(at: $0) }
-            }
+            Task { await store.importItems(urls) }
         }
     }
 
     private func importBulk() {
         ImportPicker.pickFolders { urls in
-            guard let parent = urls.first else { return }
-            Task { await store.importFolderOfGames(parent) }
+            Task {
+                for parent in urls { await store.importFolderOfGames(parent) }
+            }
         }
     }
 

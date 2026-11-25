@@ -22,9 +22,13 @@ enum OrientationManager {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else { return }
 
-        if var top = scene.windows.first(where: \.isKeyWindow)?.rootViewController {
-            while let next = top.presentedViewController { top = next }
-            top.setNeedsUpdateOfSupportedInterfaceOrientations()
+        // 8.19.0: every visible window's controllers (the key window can be a hidden game window after a native game).
+        for window in scene.windows where !window.isHidden {
+            var top = window.rootViewController
+            while let current = top {
+                current.setNeedsUpdateOfSupportedInterfaceOrientations()
+                top = current.presentedViewController
+            }
         }
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: mode.mask)) { _ in }
     }
@@ -157,6 +161,7 @@ struct NexPlayApp: App {
                     case .active:
                         AppLog.noteActive()
                     case .background:
+                        store.flushSave()
                         AppLog.noteBackground()
                         privacy.lock()
                         backUpAll()
@@ -193,10 +198,8 @@ struct NexPlayApp: App {
             return
         }
         if scoped { url.stopAccessingSecurityScopedResource() }
-        Task {
-            await store.importItems([url])
-            // Files opened from other apps are copied into an Inbox folder; remove that copy.
-            if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }
-        }
+        // Inbox copies (files opened from other apps) are deleted by the import queue when it is done with them.
+        AppLog.log("import: opened from another app: \(url.lastPathComponent)")
+        Task { await store.importItems([url]) }
     }
 }

@@ -21,6 +21,14 @@ enum ArchiveExtractor {
 
     /// Unpacks `url` into `destination`. Self-extracting .exe files work when the payload is 7z, RAR or ZIP.
     static func extract(_ url: URL, to destination: URL, cancel: ImportCancel, status: (String) -> Void) throws {
+        try extract([url], password: nil, to: destination, cancel: cancel, status: status)
+    }
+
+    /// 8.19.0: `parts` are the volumes of one archive in order (one URL for a normal archive); `password` is tried for
+    /// encrypted entries. An encrypted archive without the right password throws `PipelineError.needsPassword`.
+    static func extract(_ parts: [URL], password: String?, to destination: URL, cancel: ImportCancel,
+                        status: (String) -> Void) throws {
+        guard let url = parts.first else { throw PipelineError.archiveFailed("archive", "no file") }
         let archiveName = url.lastPathComponent
         guard let reader = archive_read_new() else {
             throw PipelineError.archiveFailed(archiveName, "libarchive could not start")
@@ -28,11 +36,30 @@ enum ArchiveExtractor {
         defer { _ = archive_read_free(reader) }
         _ = archive_read_support_filter_all(reader)
         _ = archive_read_support_format_all(reader)
-        let opened = url.path.withCString { archive_read_open_filename(reader, $0, 1 << 20) }
-        guard opened == ok else { throw PipelineError.archiveFailed(archiveName, errorText(reader)) }
+        if let password, !password.isEmpty {
+            _ = password.withCString { archive_read_add_passphrase(reader, $0) }
+        }
+        let opened: Int32
+        if parts.count == 1 {
+            opened = url.path.withCString { archive_read_open_filename(reader, $0, 1 << 20) }
+        } else {
+            // A NULL-terminated array of C strings that lives until the reader is freed.
+            let names = parts.map { strdup($0.path) }
+            var pointers: [UnsafePointer<CChar>?] = names.map { UnsafePointer($0) }
+            pointers.append(nil)
+            opened = pointers.withUnsafeMutableBufferPointer { buffer in
+                archive_read_open_filenames(reader, buffer.baseAddress, 1 << 20)
+            }
+            // libarchive copies the names when opening, so they can go now.
+            names.forEach { free($0) }
+        }
+        guard opened == ok else { throw failure(reader, archiveName, password: password) }
 
         let fm = FileManager.default
-        let archiveBytes = (try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+        var archiveBytes: Int64 = 0
+        for part in parts {
+            archiveBytes += (try? fm.attributesOfItem(atPath: part.path)[.size] as? NSNumber)?.int64Value ?? 0
+        }
         var entry: OpaquePointer?
         var entryCount = 0
         var fileCount = 0
@@ -41,7 +68,7 @@ enum ArchiveExtractor {
             let result = archive_read_next_header(reader, &entry)
             if result == eof { break }
             if result == retry { continue }
-            if result < warn { throw PipelineError.archiveFailed(archiveName, errorText(reader)) }
+            if result < warn { throw failure(reader, archiveName, password: password) }
             guard let entry else { continue }
             entryCount += 1
 
@@ -50,18 +77,18 @@ enum ArchiveExtractor {
                 continue
             }
             let relative = rawName.replacingOccurrences(of: "\\", with: "/")
-            let parts = relative.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-            if parts.isEmpty {
+            let pieces = relative.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+            if pieces.isEmpty {
                 _ = archive_read_data_skip(reader)
                 continue
             }
-            if parts.contains("..") || relative.hasPrefix("/") { throw PipelineError.unsafePath(relative) }
-            if parts.first == "__MACOSX" || parts.last == ".DS_Store" {
+            if pieces.contains("..") || relative.hasPrefix("/") { throw PipelineError.unsafePath(relative) }
+            if pieces.first == "__MACOSX" || pieces.last == ".DS_Store" {
                 _ = archive_read_data_skip(reader)
                 continue
             }
             var target = destination
-            for part in parts { target.appendPathComponent(part) }
+            for piece in pieces { target.appendPathComponent(piece) }
 
             let kind = Int(archive_entry_filetype(entry)) & 0o170000
             if kind == 0o040000 {
@@ -73,16 +100,34 @@ enum ArchiveExtractor {
                 _ = archive_read_data_skip(reader)
                 continue
             }
-            if fileCount % 25 == 0 { status("Unpacking \(parts.last ?? archiveName)…") }
+            if fileCount % 25 == 0 { status("Unpacking \(pieces.last ?? archiveName)…") }
             // How far into the archive file libarchive has read (-1 = the raw file), as the percentage.
             let consumed = archive_filter_bytes(reader, -1)
             let fraction: Double? = archiveBytes > 0 && consumed >= 0 ? Double(consumed) / Double(archiveBytes) : nil
-            cancel.report(.extracting, "\(parts.last ?? archiveName) · \(fileCount + 1) files", fraction)
+            cancel.report(.extracting, "\(pieces.last ?? archiveName) · \(fileCount + 1) files", fraction)
             fileCount += 1
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try writeEntry(reader, to: target, archiveName: archiveName)
+            do {
+                try writeEntry(reader, to: target, archiveName: archiveName)
+            } catch PipelineError.archiveFailed(_, _) {
+                throw failure(reader, archiveName, password: password)
+            }
         }
         if fileCount == 0 { throw PipelineError.archiveFailed(archiveName, "no files inside") }
+    }
+
+    /// The error for a failed read: a password problem when libarchive says so, else the plain failure.
+    private static func failure(_ reader: OpaquePointer, _ name: String, password: String?) -> Error {
+        let text = errorText(reader)
+        let lower = text.lowercased()
+        if lower.contains("passphrase") || lower.contains("password") || lower.contains("encrypt") || lower.contains("decrypt") {
+            return PipelineError.needsPassword(name, wrong: password?.isEmpty == false)
+        }
+        if lower.contains("truncated") || lower.contains("premature end") || lower.contains("multivolume")
+            || lower.contains("multi-volume") {
+            return PipelineError.archiveFailed(name, text + ". If it is split into parts, pick every part together")
+        }
+        return PipelineError.archiveFailed(name, text)
     }
 
     /// The entry's path as UTF-8 (7z and RAR5 store Unicode names), else the raw name.
@@ -127,5 +172,84 @@ enum ArchiveExtractor {
                 written += wrote
             }
         }
+    }
+}
+
+/// 8.19.0: volumes of split archives: "Game.part1.rar" + "Game.part2.rar", "Game.rar" + "Game.r00", "Game.7z.001" +
+/// "Game.7z.002", "Game.zip.001"... Picked together they become one import with the parts in order.
+enum ArchiveParts {
+    /// The set a file belongs to and its position, or nil for a file that is not a volume.
+    static func volume(_ url: URL) -> (key: String, index: Int)? {
+        let name = url.lastPathComponent.lowercased()
+        let folder = url.deletingLastPathComponent().path
+        // name.partN.rar
+        if let range = name.range(of: #"\.part(\d+)\.rar$"#, options: .regularExpression) {
+            let digits = name[range].dropFirst(5).dropLast(4)
+            return (folder + "/" + String(name[..<range.lowerBound]) + ".rar", Int(digits) ?? 0)
+        }
+        // name.rar (first) + name.r00, name.r01...
+        if let range = name.range(of: #"\.r(\d\d)$"#, options: .regularExpression) {
+            let digits = name[range].dropFirst(2)
+            return (folder + "/" + String(name[..<range.lowerBound]) + ".rar", (Int(digits) ?? 0) + 2)
+        }
+        // name.7z.001, name.zip.001, name.001
+        if let range = name.range(of: #"\.(\d{3})$"#, options: .regularExpression) {
+            let digits = name[range].dropFirst()
+            return (folder + "/" + String(name[..<range.lowerBound]), Int(digits) ?? 0)
+        }
+        return nil
+    }
+
+    /// True for a later volume (part2+, .r00+, .002+): imported only together with its first part.
+    static func isLaterVolume(_ url: URL) -> Bool {
+        guard let volume = volume(url) else { return false }
+        let name = url.lastPathComponent.lowercased()
+        if name.hasSuffix(".rar") && !name.contains(".part") { return false }
+        return volume.index > 1
+    }
+
+    /// Groups picked URLs: each split set becomes one entry (first part first); everything else stays on its own.
+    /// "Game.rar" is the first volume of a set when "Game.r00" was picked with it.
+    static func group(_ urls: [URL]) -> [[URL]] {
+        var sets: [String: [(Int, URL)]] = [:]
+        var order: [String] = []
+        var singles: [(String, URL)] = []
+        let rarKeys = Set(urls.compactMap { url -> String? in
+            guard let v = volume(url), url.lastPathComponent.lowercased().range(of: #"\.r\d\d$"#, options: .regularExpression) != nil else { return nil }
+            return v.key
+        })
+        for url in urls {
+            var entry = volume(url)
+            let lowerPath = url.deletingLastPathComponent().path + "/" + url.lastPathComponent.lowercased()
+            if entry == nil, url.pathExtension.lowercased() == "rar", rarKeys.contains(lowerPath) {
+                entry = (lowerPath, 1)
+            }
+            guard let entry else {
+                singles.append((url.path, url))
+                continue
+            }
+            if sets[entry.key] == nil { order.append(entry.key) }
+            sets[entry.key, default: []].append((entry.index, url))
+        }
+        var result: [[URL]] = order.compactMap { key in
+            let parts = (sets[key] ?? []).sorted { $0.0 < $1.0 }.map(\.1)
+            return parts.isEmpty ? nil : parts
+        }
+        result += singles.map { [$0.1] }
+        return result
+    }
+
+    /// The other volumes next to `first` that NexPlay can read (an Inbox or download folder), in order.
+    static func siblings(of first: URL) -> [URL] {
+        guard let mine = volume(first) ?? (first.pathExtension.lowercased() == "rar"
+              ? (first.deletingLastPathComponent().path + "/" + first.lastPathComponent.lowercased(), 1) : nil) else { return [first] }
+        let folder = first.deletingLastPathComponent()
+        let kids = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        var found: [(Int, URL)] = []
+        for kid in kids {
+            if let v = volume(kid), v.key == mine.key { found.append((v.index, kid)) }
+        }
+        if !found.contains(where: { $0.1.lastPathComponent == first.lastPathComponent }) { found.append((mine.index, first)) }
+        return found.sorted { $0.0 < $1.0 }.map(\.1)
     }
 }

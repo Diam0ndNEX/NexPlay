@@ -22,13 +22,17 @@ enum LinkError: LocalizedError {
 extension LibraryStore {
     /// Downloads `text` (a URL) and imports the file.
     func importFromLink(_ text: String) async {
-        guard !isImporting else { return }
+        guard !isImporting else {
+            importMessage = "Another import is running. Download the link when it has finished."
+            return
+        }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else {
             importMessage = LinkError.badLink.errorDescription
             return
         }
         isImporting = true
+        isDownloading = true
         importProgress = ImportProgress(stage: .downloading, detail: url.host ?? "", fraction: nil, item: 1, itemCount: 1,
                                         itemName: url.lastPathComponent)
         let progress: (Int64, Int64, String) -> Void = { [weak self] done, total, name in
@@ -49,13 +53,17 @@ extension LibraryStore {
                 Task { @MainActor in self?.downloadTask = task }
             }
             downloadTask = nil
+            isDownloading = false
             isImporting = false
             AppLog.log("downloaded \(file.lastPathComponent) from \(url.host ?? "a link")")
+            // The downloaded copy is deleted by the import queue when it is done with it.
             await importItems([file])
-            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
         } catch {
             downloadTask = nil
+            isDownloading = false
             isImporting = false
+            // Items picked while the download ran start now.
+            Task { await self.runQueue() }
             let ns = error as NSError
             if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled {
                 importMessage = "The download was cancelled."

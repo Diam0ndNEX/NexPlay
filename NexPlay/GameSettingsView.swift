@@ -20,7 +20,6 @@ struct GameSettingsView: View {
     var embedded = false
 
     @State private var cover: UIImage?
-    @State private var pickingFile = false
     @State private var pickingPhoto = false
     @State private var pickingFromGame = false
     @State private var showControllerMap = false
@@ -64,9 +63,6 @@ struct GameSettingsView: View {
             }
         }
         .task { await loadCover() }
-        .fileImporter(isPresented: $pickingFile, allowedContentTypes: [.image]) { result in
-            if case .success(let url) = result { setCover(fromFile: url) }
-        }
         .sheet(isPresented: $pickingPhoto) {
             PhotoPicker { image in
                 pickingPhoto = false
@@ -159,7 +155,9 @@ struct GameSettingsView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
             }
-            Button { pickingFile = true } label: { Label("From Files", systemImage: "folder.fill.badge.plus") }
+            Button {
+                ImportPicker.pickCopy(types: [.image]) { urls in if let url = urls.first { setCover(fromFile: url) } }
+            } label: { Label("From Files", systemImage: "folder.fill.badge.plus") }
             Button { pickingPhoto = true } label: { Label("From Photos", systemImage: "photo.on.rectangle") }
             Button { pickingFromGame = true } label: { Label("From Game Folder", systemImage: "shippingbox.fill") }
             if CoverStore.hasCustomCover(game) {

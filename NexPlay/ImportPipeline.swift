@@ -115,6 +115,8 @@ enum PipelineError: LocalizedError {
     case emptyFolder
     case desktopGodot
     case unsupportedEngine(String)
+    /// 8.19.0: an encrypted archive; `wrong` when a password was given and did not open it.
+    case needsPassword(String, wrong: Bool)
 
     var errorDescription: String? {
         switch self {
@@ -134,6 +136,8 @@ enum PipelineError: LocalizedError {
             return "The folder is empty or its files couldn't be read. If it's in iCloud Drive, long-press it in the Files app, tap Download Now, then import it again."
         case .unsupportedEngine(let reason):
             return reason
+        case .needsPassword(let name, let wrong):
+            return wrong ? "The password did not open \(name)." : "\(name) is protected with a password."
         }
     }
 }
@@ -175,10 +179,19 @@ enum ImportPipeline {
 
     // MARK: - Stage
 
-    static func stage(_ url: URL, cancel: ImportCancel, status: @escaping (String) -> Void) throws -> StagedImport {
+    /// `parts` are the other volumes of a split archive (after `url`, in order); `password` opens encrypted archives.
+    static func stage(_ url: URL, parts: [URL] = [], password: String? = nil, cancel: ImportCancel,
+                      status: @escaping (String) -> Void) throws -> StagedImport {
         let fm = FileManager.default
         var isDirectory: ObjCBool = false
-        guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory) else { throw ImportError.missing }
+        if !fm.fileExists(atPath: url.path, isDirectory: &isDirectory) {
+            // 8.19.0: a file picked in place that is still in iCloud (or another provider) only exists as a
+            // placeholder until it is read through NSFileCoordinator below, which downloads it.
+            let placeholder = url.deletingLastPathComponent().appendingPathComponent("." + url.lastPathComponent + ".icloud")
+            let ubiquitous = (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]).isUbiquitousItem) ?? false
+            guard ubiquitous || fm.fileExists(atPath: placeholder.path) else { throw ImportError.missing }
+            isDirectory = false
+        }
 
         let folder = staging.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -187,29 +200,88 @@ enum ImportPipeline {
             var fallbackName = url.deletingPathExtension().lastPathComponent
             var encodingNote: String?
 
-            if isDirectory.boolValue {
+            if !parts.isEmpty || ArchiveParts.volume(url) != nil && !isDirectory.boolValue && !["zip", "exe"].contains(ext) {
+                // 8.19.0: a split archive (part1.rar + part2.rar, .7z.001 + .002...) is read as one stream.
+                let volumes = [url] + parts
+                fallbackName = splitBaseName(url)
+                status("Unpacking \(url.lastPathComponent)…")
+                cancel.report(.extracting, "\(volumes.count) parts", 0, force: true)
+                AppLog.log("import: \(url.lastPathComponent) read as \(volumes.count) volume(s)")
+                try readCoordinatedAll(volumes) { readable in
+                    try ArchiveExtractor.extract(readable, password: password, to: folder, cancel: cancel, status: status)
+                }
+            } else if isDirectory.boolValue {
                 fallbackName = url.lastPathComponent
                 status("Copying \(url.lastPathComponent)…")
                 cancel.report(.copying, "Counting files…", nil, force: true)
                 let total = max(countFiles(in: url), 1)
                 var copied = 0
-                try copyFolder(url, to: folder, cancel: cancel, status: status, copied: &copied, total: total)
+                // 8.19.0: a local folder (On My iPhone) is copied directly (APFS clones the files, no download
+                // coordination per file); only provider folders (iCloud Drive and others) go through NSFileCoordinator.
+                // A file another provider has not materialized yet does not exist on disk: it is coordinated too.
+                let remote = (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]).isUbiquitousItem) ?? false
+                try copyFolder(url, to: folder, cancel: cancel, status: status, copied: &copied, total: total, coordinated: remote)
                 if copied == 0 { throw PipelineError.emptyFolder }
             } else if ext == "zip" || ext == "jgp" {
                 status("Unpacking \(url.lastPathComponent)…")
                 cancel.report(.extracting, url.lastPathComponent, 0, force: true)
-                do {
-                    encodingNote = try extractZip(url, to: folder, cancel: cancel)
-                } catch ImportError.unsupported(_) {
-                    // A ZIP that ZIPFoundation can't open (or a renamed archive): let libarchive try.
-                    try ArchiveExtractor.extract(url, to: folder, cancel: cancel, status: status)
+                encodingNote = try readCoordinated(url) { readable in
+                    if password != nil {
+                        try ArchiveExtractor.extract([readable], password: password, to: folder, cancel: cancel, status: status)
+                        return nil
+                    }
+                    do {
+                        return try extractZip(readable, to: folder, cancel: cancel)
+                    } catch let error as PipelineError {
+                        switch error {
+                        case .cancelled, .outOfSpace, .unsafePath: throw error
+                        default: break
+                        }
+                    } catch {
+                        // A ZIP ZIPFoundation can't open or read (encrypted, zip64 variants, a renamed archive).
+                        AppLog.log("import: ZIP reader failed (\(error.localizedDescription)), trying libarchive")
+                    }
+                    try clear(folder)
+                    try ArchiveExtractor.extract([readable], password: password, to: folder, cancel: cancel, status: status)
+                    return nil
                 }
             } else if ["html", "htm", "swf"].contains(ext) {
-                try mapSpace { try fm.copyItem(at: url, to: folder.appendingPathComponent(url.lastPathComponent)) }
+                try readCoordinated(url) { readable in
+                    try mapSpace { try fm.copyItem(at: readable, to: folder.appendingPathComponent(url.lastPathComponent)) }
+                }
+            } else if ext == "exe" {
+                // 8.19.0: a self-extracting archive is unpacked; any other program (a one-file Windows game, a
+                // Godot .exe with its .pck inside) is imported as it is. Before, a plain .exe failed with
+                // "Couldn't unpack".
+                status("Reading \(url.lastPathComponent)…")
+                cancel.report(.extracting, url.lastPathComponent, 0, force: true)
+                try readCoordinated(url) { readable in
+                    do {
+                        try ArchiveExtractor.extract(readable, to: folder, cancel: cancel, status: status)
+                    } catch PipelineError.cancelled {
+                        throw PipelineError.cancelled
+                    } catch PipelineError.outOfSpace {
+                        throw PipelineError.outOfSpace
+                    } catch {
+                        try clear(folder)
+                        try mapSpace { try fm.copyItem(at: readable, to: folder.appendingPathComponent(url.lastPathComponent)) }
+                        AppLog.log("import: \(url.lastPathComponent) is not a self-extracting archive, imported the program itself")
+                    }
+                }
             } else if ArchiveExtractor.extensions.contains(ext) {
                 status("Unpacking \(url.lastPathComponent)…")
                 cancel.report(.extracting, url.lastPathComponent, 0, force: true)
-                try ArchiveExtractor.extract(url, to: folder, cancel: cancel, status: status)
+                try readCoordinated(url) { readable in
+                    try ArchiveExtractor.extract([readable], password: password, to: folder, cancel: cancel, status: status)
+                }
+            } else if let sniffed = sniffArchive(url) {
+                // 8.19.0: an archive without the right extension (a download named "file" or "game.bin").
+                status("Unpacking \(url.lastPathComponent)…")
+                cancel.report(.extracting, url.lastPathComponent, 0, force: true)
+                AppLog.log("import: \(url.lastPathComponent) has no archive extension but is a \(sniffed) archive")
+                try readCoordinated(url) { readable in
+                    try ArchiveExtractor.extract(readable, to: folder, cancel: cancel, status: status)
+                }
             } else {
                 throw PipelineError.unknownType(ext)
             }
@@ -244,7 +316,7 @@ enum ImportPipeline {
     /// are not downloaded yet (iCloud shows them as hidden ".name.icloud" placeholders); each file is read through
     /// NSFileCoordinator, which downloads it first.
     private static func copyFolder(_ source: URL, to target: URL, cancel: ImportCancel,
-                                   status: (String) -> Void, copied: inout Int, total: Int) throws {
+                                   status: (String) -> Void, copied: inout Int, total: Int, coordinated: Bool) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: target, withIntermediateDirectories: true)
         let kids = try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey], options: [])
@@ -260,14 +332,76 @@ enum ImportPipeline {
             let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             let destination = target.appendingPathComponent(name)
             if isDirectory {
-                try copyFolder(item, to: destination, cancel: cancel, status: status, copied: &copied, total: total)
-            } else {
+                try copyFolder(item, to: destination, cancel: cancel, status: status, copied: &copied, total: total,
+                               coordinated: coordinated)
+            } else if coordinated || !FileManager.default.fileExists(atPath: item.path) {
                 try coordinatedCopy(item, to: destination)
+                copied += 1
+                if copied % 50 == 0 { status("Copying… \(copied) files") }
+                cancel.report(.copying, "\(name) · \(copied)/\(total)", Double(copied) / Double(total))
+            } else {
+                try mapSpace { try fm.copyItem(at: item, to: destination) }
                 copied += 1
                 if copied % 50 == 0 { status("Copying… \(copied) files") }
                 cancel.report(.copying, "\(name) · \(copied)/\(total)", Double(copied) / Double(total))
             }
         }
+    }
+
+    /// "Game.part1.rar" -> "Game", "Game.7z.001" -> "Game".
+    private static func splitBaseName(_ url: URL) -> String {
+        var name = url.lastPathComponent
+        for pattern in [#"\.part\d+\.rar$"#, #"\.r\d\d$"#, #"\.\d{3}$"#] {
+            if let range = name.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                name = String(name[..<range.lowerBound])
+                break
+            }
+        }
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ["7z", "zip", "rar", "tar"].contains(ext) ? (name as NSString).deletingPathExtension : name
+    }
+
+    /// `readCoordinated` for several files (the volumes of a split archive), in order.
+    private static func readCoordinatedAll<T>(_ urls: [URL], done: [URL] = [], _ work: ([URL]) throws -> T) throws -> T {
+        guard let next = urls.first else { return try work(done) }
+        return try readCoordinated(next) { readable in
+            try readCoordinatedAll(Array(urls.dropFirst()), done: done + [readable], work)
+        }
+    }
+
+    /// Runs `work` on a readable copy of `url`: NSFileCoordinator downloads a file that is still in iCloud Drive
+    /// or another storage provider first. For a local file it is the same URL.
+    private static func readCoordinated<T>(_ url: URL, _ work: (URL) throws -> T) throws -> T {
+        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        var coordinationError: NSError?
+        var result: Result<T, Error>?
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [.withoutChanges],
+                                                         error: &coordinationError) { readable in
+            result = Result { try work(readable) }
+        }
+        if let result { return try result.get() }
+        throw coordinationError ?? ImportError.missing
+    }
+
+    /// Empties a staging folder (a failed first extraction attempt may have left files).
+    private static func clear(_ folder: URL) throws {
+        let fm = FileManager.default
+        for kid in (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
+            try fm.removeItem(at: kid)
+        }
+    }
+
+    /// The archive kind from the first bytes, for files whose extension does not say it.
+    static func sniffArchive(_ url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 8), head.count >= 4 else { return nil }
+        let b = [UInt8](head)
+        if b[0] == 0x50 && b[1] == 0x4B && (b[2] == 0x03 || b[2] == 0x05) { return "ZIP" }
+        if b.count >= 6 && b[0] == 0x37 && b[1] == 0x7A && b[2] == 0xBC && b[3] == 0xAF { return "7z" }
+        if b[0] == 0x52 && b[1] == 0x61 && b[2] == 0x72 && b[3] == 0x21 { return "RAR" }
+        if b[0] == 0x1F && b[1] == 0x8B { return "gzip" }
+        return nil
     }
 
     /// Counts the files in a picked folder (iCloud placeholders included) so copying can show a percentage.

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import ZIPFoundation
 
 @MainActor
@@ -97,11 +98,54 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    /// Writes library.json now (adding and removing games: a crash right after must not lose the change).
     private func save() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        let snapshot = games
+        let url = fileURL
+        // On the same serial queue as delayed writes, so an older delayed write can never land after this one.
+        Self.saveQueue.sync { Self.write(snapshot, to: url) }
+        PendingLibraryWrite.shared.clearAll()
+    }
+
+    /// 8.19.0: small changes (a name typed letter by letter, play time, settings toggles) are written once, 0.4 s
+    /// after the last one, off the main thread. Before, every keystroke encoded and wrote the whole library.
+    private func saveSoon() {
+        pendingSave?.cancel()
+        let snapshot = games
+        let url = fileURL
+        let token = PendingLibraryWrite.shared.set(snapshot, url)
+        let work = DispatchWorkItem {
+            Self.write(snapshot, to: url)
+            PendingLibraryWrite.shared.clear(token)
+        }
+        pendingSave = work
+        Self.saveQueue.asyncAfter(deadline: .now() + 0.4, execute: work)
+    }
+
+    /// Writes a pending change now (the app goes to the background).
+    func flushSave() {
+        guard let work = pendingSave else { return }
+        work.cancel()
+        pendingSave = nil
+        let snapshot = games
+        let url = fileURL
+        Self.saveQueue.sync { Self.write(snapshot, to: url) }
+        PendingLibraryWrite.shared.clearAll()
+    }
+
+    private var pendingSave: DispatchWorkItem?
+    private static let saveQueue = DispatchQueue(label: "NexPlay.library-save", qos: .utility)
+
+    nonisolated static func write(_ games: [Game], to url: URL) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        if let data = try? encoder.encode(games) {
-            try? data.write(to: fileURL, options: .atomic)
+        do {
+            let data = try encoder.encode(games)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            AppLog.log("library.json could not be written: \(error.localizedDescription)")
         }
     }
 
@@ -111,7 +155,7 @@ final class LibraryStore: ObservableObject {
     func mutate(_ id: UUID, _ change: (inout Game) -> Void) {
         guard let index = games.firstIndex(where: { $0.id == id }) else { return }
         change(&games[index])
-        save()
+        saveSoon()
     }
 
     func game(id: UUID) -> Game? {
@@ -188,58 +232,117 @@ final class LibraryStore: ObservableObject {
     @Published var importStatus = ""
     /// Stage, detail and percentage for the floating import card.
     @Published var importProgress = ImportProgress()
-    /// Asks whether an import with the title of an installed game updates it or is added as a new game.
-    @Published var pendingUpdate: PendingUpdate?
     private var importCancel: ImportCancel?
     /// A download from a link (LinkImport.swift), cancelled with the import card's X.
     var downloadTask: URLSessionTask?
+    /// True while a link download runs (the queue waits for it).
+    var isDownloading = false
+    /// 8.19.0: items picked while another import runs wait here instead of being dropped.
+    private var importQueue: [ImportJob] = []
+    private var queueRunning = false
+    /// Items of the current run (done + waiting), for "2 of 5" on the card.
+    private var runTotal = 0
+    private var runDone = 0
 
     func cancelImport() {
         importCancel?.cancel()
         downloadTask?.cancel()
+        if !importQueue.isEmpty {
+            AppLog.log("import: cancelled, \(importQueue.count) waiting item(s) dropped")
+            for job in importQueue { ([job.url] + job.parts).forEach { Self.removeTemporary($0) } }
+            importQueue.removeAll()
+        }
     }
 
-    func answerUpdate(_ choice: UpdateChoice) {
-        let request = pendingUpdate
-        pendingUpdate = nil
-        request?.continuation.resume(returning: choice)
-    }
-
+    /// 8.19.0: asked with a UIKit alert over whatever is on screen. The SwiftUI dialog sat on the library and never
+    /// appeared while a game page or sheet was open, so the import waited forever and every later import was ignored.
     private func askUpdate(title: String, existing: Game) async -> UpdateChoice {
-        await withCheckedContinuation { continuation in
-            pendingUpdate = PendingUpdate(title: title, existing: existing, continuation: continuation)
+        await withCheckedContinuation { (continuation: CheckedContinuation<UpdateChoice, Never>) in
+            var answered = false
+            func answer(_ choice: UpdateChoice) {
+                guard !answered else { return }
+                answered = true
+                continuation.resume(returning: choice)
+            }
+            let alert = UIAlertController(
+                title: "\(title) is already in your library",
+                message: "Update keeps its saves, settings and layout and replaces the game files. A file in the new version that sits where a save is gets kept as a .nex-displaced.bak copy.",
+                preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Update It", style: .default) { _ in answer(.update) })
+            alert.addAction(UIAlertAction(title: "Add as New Game", style: .default) { _ in answer(.addNew) })
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in answer(.cancel) })
+            TopController.present(alert)
         }
     }
 
     /// 7.4.0 bulk import: every game folder and archive one level inside a picked folder, in one queue.
     func importFolderOfGames(_ parent: URL) async {
-        let scoped = parent.startAccessingSecurityScopedResource()
-        defer { if scoped { parent.stopAccessingSecurityScopedResource() } }
-        let archives: Set<String> = ["zip", "7z", "rar", "tar", "gz", "tgz", "xz", "bz2", "html", "htm", "swf", "exe", "iso"]
+        let access = ScopedAccess(parent)
+        let archives: Set<String> = ["zip", "7z", "rar", "tar", "gz", "tgz", "xz", "bz2", "html", "htm", "swf", "exe", "iso", "jgp"]
         let keys: [URLResourceKey] = [.isDirectoryKey, .isHiddenKey]
-        let children = (try? FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: keys,
+        let children = await Task.detached(priority: .userInitiated) { () -> [URL] in
+            let found = (try? FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: keys,
                                                                        options: [.skipsHiddenFiles])) ?? []
-        let items = children.filter { url in
-            let values = try? url.resourceValues(forKeys: Set(keys))
-            if values?.isDirectory == true { return true }
-            return archives.contains(url.pathExtension.lowercased())
-        }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-        guard !items.isEmpty else {
+            return found.filter { url in
+                let values = try? url.resourceValues(forKeys: Set(keys))
+                if values?.isDirectory == true { return true }
+                return archives.contains(url.pathExtension.lowercased()) || ArchiveParts.volume(url) != nil
+            }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        }.value
+        guard !children.isEmpty else {
             importMessage = "No game folders or archives were found inside \(parent.lastPathComponent)."
             return
         }
-        AppLog.log("bulk import: \(items.count) item(s) from \(parent.lastPathComponent)")
-        await importItems(items)
+        AppLog.log("bulk import: \(children.count) item(s) from \(parent.lastPathComponent)")
+        enqueue(ArchiveParts.group(children).compactMap { group in
+            guard let first = group.first else { return nil }
+            return ImportJob(url: first, parts: Array(group.dropFirst()), access: [access])
+        })
+        await runQueue()
     }
 
+    /// Imports picked files and folders (security-scoped URLs from Files are fine) and downloaded or Inbox copies,
+    /// which are deleted afterwards. While another import runs the items are queued behind it.
     func importItems(_ urls: [URL]) async {
-        guard !urls.isEmpty, !isImporting else { return }
+        let accesses = urls.map { ScopedAccess($0) }
+        var jobs: [ImportJob] = []
+        for group in ArchiveParts.group(urls) {
+            guard var first = group.first else { continue }
+            var parts = Array(group.dropFirst())
+            // One volume picked alone: the other volumes are used when they sit next to it and can be read
+            // (downloads, Inbox copies, a folder picked for bulk import).
+            if parts.isEmpty, ArchiveParts.volume(first) != nil || first.pathExtension.lowercased() == "rar" {
+                let all = ArchiveParts.siblings(of: first)
+                if all.count > 1, let head = all.first {
+                    first = head
+                    parts = Array(all.dropFirst())
+                }
+            }
+            jobs.append(ImportJob(url: first, parts: parts, access: accesses))
+        }
+        enqueue(jobs)
+        await runQueue()
+    }
+
+    private func enqueue(_ jobs: [ImportJob]) {
+        guard !jobs.isEmpty else { return }
+        if queueRunning || isDownloading {
+            AppLog.log("import: \(jobs.count) item(s) queued behind the current import")
+        }
+        importQueue += jobs
+        runTotal += jobs.count
+        if queueRunning { importProgress.itemCount = runTotal }
+    }
+
+    /// Runs the queue unless it is already running (a link download that is still running starts it when done).
+    func runQueue() async {
+        guard !queueRunning, !importQueue.isEmpty else { return }
+        if isDownloading { return }
+        queueRunning = true
         isImporting = true
         let cancel = ImportCancel()
         importCancel = cancel
         var notes: [String] = []
-        importProgress = ImportProgress(stage: .preparing, detail: "", fraction: 0, item: 1, itemCount: urls.count,
-                                        itemName: urls.first?.lastPathComponent ?? "")
         cancel.onProgress { stage, detail, fraction in
             Task { @MainActor in
                 self.importProgress.stage = stage
@@ -248,91 +351,222 @@ final class LibraryStore: ObservableObject {
             }
         }
 
-        for (index, url) in urls.enumerated() {
+        while !importQueue.isEmpty {
             if cancel.isCancelled { break }
-            importProgress = ImportProgress(stage: .preparing, detail: url.lastPathComponent, fraction: 0,
-                                            item: index + 1, itemCount: urls.count, itemName: url.lastPathComponent)
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            do {
-                importStatus = "Preparing \(url.lastPathComponent)…"
-                let staged = try await Task.detached(priority: .userInitiated) {
-                    try ImportPipeline.stage(url, cancel: cancel) { text in
-                        Task { @MainActor in self.importStatus = text }
-                    }
-                }.value
-
-                var choice = UpdateChoice.addNew
-                let existing = games.first { $0.name.caseInsensitiveCompare(staged.title) == .orderedSame && $0.engine == staged.found.engine }
-                if let existing {
-                    choice = await askUpdate(title: staged.title, existing: existing)
-                }
-                if choice == .cancel || cancel.isCancelled {
-                    try? FileManager.default.removeItem(at: staged.folder)
-                    continue
-                }
-
-                importStatus = "Installing \(staged.title)…"
-                importProgress.itemName = staged.title
-                importProgress.stage = choice == .update ? .updating : .installing
-                importProgress.detail = staged.title
-                importProgress.fraction = ImportStage.installing.span.0
-                var lines: [String] = []
-                if choice == .update, let existing {
-                    let updated = try await Task.detached(priority: .userInitiated) {
-                        try ImportPipeline.update(existing, with: staged)
-                    }.value
-                    mutate(existing.id) { game in
-                        game.engine = updated.engine
-                        game.entry = updated.entry
-                    }
-                    RenPyRuntime.clearPackage(for: existing)
-                    lines.append("Updated \(staged.title). Saves and settings were kept.")
-                    AppLog.log("updated \(staged.title) from \(url.lastPathComponent)")
-                } else {
-                    let game = try await Task.detached(priority: .userInitiated) {
-                        try ImportPipeline.install(staged)
-                    }.value
-                    games.append(game)
-                    save()
-                    AppLog.log("imported \(game.name) (\(game.engine.badge)) from \(url.lastPathComponent)")
-                    if game.engine.isRPGMaker, let folder = SaveArchive.rescued(forTitle: game.name) {
-                        rescueOffer = RescueOffer(gameID: game.id, gameName: game.name, folder: folder)
-                    }
-                }
-                importProgress.fraction = 1
-                if let note = staged.encodingNote { lines.append(note) }
-                lines += staged.warnings
-                if !lines.isEmpty || urls.count > 1 {
-                    notes.append(([staged.title + ":"] + (lines.isEmpty ? ["Imported."] : lines)).joined(separator: "\n"))
-                }
-            } catch PipelineError.cancelled {
-                notes.append("\(url.lastPathComponent): cancelled.")
-            } catch {
-                notes.append("\(url.lastPathComponent): \(error.localizedDescription)")
-                AppLog.log("import failed for \(url.lastPathComponent): \(error.localizedDescription)")
-            }
+            let job = importQueue.removeFirst()
+            runDone += 1
+            if let note = await importOne(job, cancel: cancel, multiple: runTotal > 1) { notes.append(note) }
+            Self.removeTemporary(job.url)
+            job.parts.forEach { Self.removeTemporary($0) }
         }
 
         importCancel = nil
         importStatus = ""
+        queueRunning = false
+        runTotal = 0
+        runDone = 0
         isImporting = false
         if !notes.isEmpty {
-            importMessage = notes.joined(separator: "\n\n")
+            let text = notes.joined(separator: "\n\n")
+            importMessage = importMessage.map { $0 + "\n\n" + text } ?? text
+        }
+        // Items picked after a cancel stopped the loop start their own run.
+        if !importQueue.isEmpty {
+            runTotal = importQueue.count
+            Task { await self.runQueue() }
         }
     }
+
+    /// One item: stage, ask about an existing copy, install or update. Returns the line for the summary alert.
+    private func importOne(_ job: ImportJob, cancel: ImportCancel, multiple: Bool) async -> String? {
+        let url = job.url
+        importProgress = ImportProgress(stage: .preparing, detail: url.lastPathComponent, fraction: 0,
+                                        item: runDone, itemCount: max(runTotal, runDone), itemName: url.lastPathComponent)
+        do {
+            importStatus = "Preparing \(url.lastPathComponent)…"
+            AppLog.log("import: start \(url.lastPathComponent)")
+            let staged = try await stageAsking(job, cancel: cancel)
+
+            var choice = UpdateChoice.addNew
+            let existing = games.first { $0.name.caseInsensitiveCompare(staged.title) == .orderedSame && $0.engine == staged.found.engine }
+            if let existing {
+                choice = await askUpdate(title: staged.title, existing: existing)
+            }
+            if choice == .cancel || cancel.isCancelled {
+                try? FileManager.default.removeItem(at: staged.folder)
+                return cancel.isCancelled ? "\(url.lastPathComponent): cancelled." : nil
+            }
+
+            importStatus = "Installing \(staged.title)…"
+            importProgress.itemName = staged.title
+            importProgress.stage = choice == .update ? .updating : .installing
+            importProgress.detail = staged.title
+            importProgress.fraction = ImportStage.installing.span.0
+            var lines: [String] = []
+            if choice == .update, let existing {
+                let updated = try await Task.detached(priority: .userInitiated) {
+                    try ImportPipeline.update(existing, with: staged)
+                }.value
+                mutate(existing.id) { game in
+                    game.engine = updated.engine
+                    game.entry = updated.entry
+                    if updated.engine == .windows {
+                        game.exePath = staged.found.entry
+                        game.windowsInfo = WindowsPE.inspect(program: staged.found.entry, in: Paths.folder(for: existing))
+                    }
+                }
+                RenPyRuntime.clearPackage(for: existing)
+                CoverCache.forget(existing)
+                lines.append("Updated \(staged.title). Saves and settings were kept.")
+                AppLog.log("updated \(staged.title) from \(url.lastPathComponent)")
+            } else {
+                let game = try await Task.detached(priority: .userInitiated) {
+                    try ImportPipeline.install(staged)
+                }.value
+                games.append(game)
+                save()
+                AppLog.log("imported \(game.name) (\(game.engine.badge)) from \(url.lastPathComponent)")
+                if game.engine.isRPGMaker, let folder = SaveArchive.rescued(forTitle: game.name) {
+                    rescueOffer = RescueOffer(gameID: game.id, gameName: game.name, folder: folder)
+                }
+            }
+            importProgress.fraction = 1
+            if let note = staged.encodingNote { lines.append(note) }
+            lines += staged.warnings
+            if !lines.isEmpty || multiple {
+                return ([staged.title + ":"] + (lines.isEmpty ? ["Imported."] : lines)).joined(separator: "\n")
+            }
+            return nil
+        } catch PipelineError.cancelled {
+            return "\(url.lastPathComponent): cancelled."
+        } catch {
+            AppLog.log("import failed for \(url.lastPathComponent): \(error.localizedDescription)")
+            return "\(url.lastPathComponent): \(error.localizedDescription)"
+        }
+    }
+
+    /// Stages a job; an encrypted archive asks for its password (up to three tries) and is read again with it.
+    private func stageAsking(_ job: ImportJob, cancel: ImportCancel) async throws -> StagedImport {
+        var password: String?
+        var tries = 0
+        let url = job.url
+        let parts = job.parts
+        while true {
+            let given = password
+            do {
+                return try await Task.detached(priority: .userInitiated) {
+                    try ImportPipeline.stage(url, parts: parts, password: given, cancel: cancel) { text in
+                        Task { @MainActor in self.importStatus = text }
+                    }
+                }.value
+            } catch PipelineError.needsPassword(let name, let wrong) {
+                tries += 1
+                guard tries <= 3, let answer = await askPassword(name: name, wrong: wrong) else {
+                    throw PipelineError.needsPassword(name, wrong: wrong)
+                }
+                AppLog.log("import: trying a password for \(name)")
+                password = answer
+            }
+        }
+    }
+
+    private func askPassword(name: String, wrong: Bool) async -> String? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            var answered = false
+            let alert = UIAlertController(
+                title: wrong ? "Wrong Password" : "Password Needed",
+                message: "\(name) is protected. Enter its password (F95zone and other sites often list it next to the download).",
+                preferredStyle: .alert)
+            alert.addTextField { field in
+                field.placeholder = "Password"
+                field.autocapitalizationType = .none
+                field.autocorrectionType = .no
+            }
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+                guard !answered else { return }
+                answered = true
+                continuation.resume(returning: nil)
+            })
+            alert.addAction(UIAlertAction(title: "Unpack", style: .default) { [weak alert] _ in
+                guard !answered else { return }
+                answered = true
+                let text = alert?.textFields?.first?.text ?? ""
+                continuation.resume(returning: text.isEmpty ? nil : text)
+            })
+            TopController.present(alert)
+        }
+    }
+
+    /// Deletes copies iOS or NexPlay made only for importing (Inbox copies, picker copies, link downloads).
+    /// Never touches a file the user picked in place.
+    nonisolated static func removeTemporary(_ url: URL) {
+        let path = url.resolvingSymlinksInPath().path
+        let temp = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path
+        let parent = url.deletingLastPathComponent()
+        if parent.lastPathComponent.hasPrefix("LinkImport-") {
+            try? FileManager.default.removeItem(at: parent)
+        } else if path.contains("/Inbox/") || path.hasPrefix(temp + "/") {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+}
+
+/// 8.19.0: the newest library change not on disk yet. NexPlay calls exit(0) in a few places (Windows games need a
+/// fresh launch); an atexit handler writes this first, so a change made just before is not lost.
+final class PendingLibraryWrite: @unchecked Sendable {
+    static let shared = PendingLibraryWrite()
+    private let lock = NSLock()
+    private var games: [Game]?
+    private var url: URL?
+    private var token = 0
+
+    private init() {
+        atexit {
+            PendingLibraryWrite.shared.writeIfNeeded()
+        }
+    }
+
+    func set(_ games: [Game], _ url: URL) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        token += 1
+        self.games = games
+        self.url = url
+        return token
+    }
+
+    /// Clears the pending write if no newer one came after `token`.
+    func clear(_ token: Int) {
+        lock.lock(); defer { lock.unlock() }
+        if token == self.token { games = nil }
+    }
+
+    func clearAll() {
+        lock.lock(); defer { lock.unlock() }
+        games = nil
+    }
+
+    private func writeIfNeeded() {
+        lock.lock()
+        let pending = games
+        let target = url
+        games = nil
+        lock.unlock()
+        if let pending, let target { LibraryStore.write(pending, to: target) }
+    }
+}
+
+/// One queued import and the security-scoped access it needs.
+struct ImportJob {
+    let url: URL
+    /// The other volumes of a split archive, in order.
+    var parts: [URL] = []
+    let access: [ScopedAccess]
 }
 
 enum UpdateChoice {
     case update, addNew, cancel
 }
 
-struct PendingUpdate: Identifiable {
-    let id = UUID()
-    let title: String
-    let existing: Game
-    let continuation: CheckedContinuation<UpdateChoice, Never>
-}
 
 struct RescueOffer: Identifiable {
     let id = UUID()

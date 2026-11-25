@@ -82,10 +82,8 @@ struct GameSavesView: View {
     @State private var selected: Set<String> = []
     @State private var shareURLs: [URL] = []
     @State private var sharing = false
-    @State private var pickingSaves = false
     /// 7.13.3: a picker that allows folders and files at once makes "Open" open the folder, so a picked ZIP did
     /// nothing. Import asks which first.
-    @State private var savesFolder = false
     @State private var askImportKind = false
     @State private var pendingBackup: BackupEntry?
     @State private var confirmDelete = false
@@ -140,20 +138,17 @@ struct GameSavesView: View {
         // ZIPs, loose .rpgsave/.rmmzsave files (from a PC's www/save folder) or a whole save folder. No confirmation
         // dialog: one shown while the picker is still closing never appears. The import backs up first anyway.
         .confirmationDialog("Import Saves", isPresented: $askImportKind, titleVisibility: .visible) {
-            Button("Save Files or ZIP") { savesFolder = false; pickingSaves = true }
-            Button("A Save Folder") { savesFolder = true; pickingSaves = true }
+            // 8.19.0: UIKit pickers, presented once the dialog has closed (a SwiftUI fileImporter opened from a
+            // dialog button was often dropped while the dialog animated away).
+            Button("Save Files or ZIP") {
+                ImportPicker.pickCopy(types: [.zip, .item], multiple: true) { urls in if !urls.isEmpty { importSaves(urls) } }
+            }
+            Button("A Save Folder") {
+                ImportPicker.pickFolders { urls in if !urls.isEmpty { importSaves(urls) } }
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Saves from another device: .rpgsave/.rmmzsave files, a ZIP of them, or a whole save folder.")
-        }
-        .fileImporter(isPresented: $pickingSaves, allowedContentTypes: savesFolder ? [.folder] : [.zip, .item],
-                      allowsMultipleSelection: true) { result in
-            switch result {
-            case .success(let urls):
-                if !urls.isEmpty { importSaves(urls) }
-            case .failure(let error):
-                message = "Couldn't open the files: \(error.localizedDescription)"
-            }
         }
         .confirmationDialog("Restore this backup?", isPresented: Binding(get: { pendingBackup != nil }, set: { if !$0 { pendingBackup = nil } }),
                             titleVisibility: .visible) {
@@ -809,8 +804,6 @@ struct ModsView: View {
 
     @State private var mods: [ModEntry] = []
     @State private var useGlobal = true
-    @State private var pickingFiles = false
-    @State private var pickingFolder = false
     @State private var showGlobal = false
     @State private var message: String?
     @State private var pendingDelete: ModEntry?
@@ -827,8 +820,8 @@ struct ModsView: View {
                     }
                 } trailing: {
                     Menu {
-                        Button { pickingFolder = true } label: { Label("Add Mod Folder…", systemImage: "folder") }
-                        Button { pickingFiles = true } label: { Label("Add ZIP or Plugin (.js)…", systemImage: "doc.zipper") }
+                        Button { pickModFolder() } label: { Label("Add Mod Folder…", systemImage: "folder") }
+                        Button { pickModFiles() } label: { Label("Add ZIP or Plugin (.js)…", systemImage: "doc.zipper") }
                     } label: {
                         Image(systemName: "plus").font(.system(size: 20, weight: .heavy)).foregroundStyle(.white)
                             .frame(width: 48, height: 48)
@@ -853,13 +846,6 @@ struct ModsView: View {
         .font(.system(size: 16, weight: .medium, design: .rounded))
         .environment(\.colorScheme, .dark)
         .onAppear { reload() }
-        // One importer for both kinds: two fileImporter modifiers on one view don't work together.
-        .fileImporter(isPresented: Binding(get: { pickingFiles || pickingFolder },
-                                           set: { if !$0 { pickingFiles = false; pickingFolder = false } }),
-                      allowedContentTypes: pickingFolder ? [.folder] : [.zip, .javaScript, UTType(filenameExtension: "js") ?? .sourceCode],
-                      allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { add(urls) }
-        }
         .fullScreenCover(isPresented: $showGlobal, onDismiss: reload) { ModsView(game: nil) }
         .confirmationDialog("Delete \(pendingDelete?.name ?? "")?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
                             titleVisibility: .visible) {
@@ -908,8 +894,8 @@ struct ModsView: View {
             Text(game == nil ? "Global mods apply to every game that uses them." : "Add a mod folder, a ZIP, or a plugin .js.")
                 .font(.system(size: 13, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
             Menu {
-                Button { pickingFolder = true } label: { Label("Mod Folder…", systemImage: "folder") }
-                Button { pickingFiles = true } label: { Label("ZIP or Plugin (.js)…", systemImage: "doc.zipper") }
+                Button { pickModFolder() } label: { Label("Mod Folder…", systemImage: "folder") }
+                Button { pickModFiles() } label: { Label("ZIP or Plugin (.js)…", systemImage: "doc.zipper") }
             } label: {
                 Label("Add Mod", systemImage: "plus").font(.system(size: 18, weight: .medium, design: .rounded)).foregroundStyle(.white)
                     .padding(.horizontal, 30).padding(.vertical, 15)
@@ -951,7 +937,18 @@ struct ModsView: View {
         useGlobal = game.map { ModStore.config($0).useGlobal } ?? true
     }
 
+    private func pickModFolder() {
+        ImportPicker.pickFolders { urls in add(urls) }
+    }
+
+    private func pickModFiles() {
+        var types: [UTType] = [.zip, .javaScript]
+        if let js = UTType(filenameExtension: "js") { types.append(js) }
+        ImportPicker.pickCopy(types: types, multiple: true) { urls in add(urls) }
+    }
+
     private func add(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
         let target = game
         Task {
             var added: [String] = []

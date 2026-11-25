@@ -23,6 +23,9 @@ struct archive *archive_read_new(void);
 int archive_read_support_filter_all(struct archive *);
 int archive_read_support_format_all(struct archive *);
 int archive_read_open_filename(struct archive *, const char *_filename, size_t _block_size);
+// 8.19.0: split archives (part1.rar + part2.rar, .7z.001 + .7z.002) are read as one, and passwords.
+int archive_read_open_filenames(struct archive *, const char **_filenames, size_t _block_size);
+int archive_read_add_passphrase(struct archive *, const char *);
 int archive_read_next_header(struct archive *, struct archive_entry **);
 int archive_read_data_block(struct archive *a, const void **buff, size_t *size, int64_t *offset);
 int archive_read_data_skip(struct archive *);

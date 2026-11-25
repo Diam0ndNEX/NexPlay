@@ -166,7 +166,8 @@ struct GameDetailView: View {
             if let info = profileInfo {
                 Button("Rename") {
                     renameText = info.profile.name
-                    renaming = info
+                    // 8.19.0: after the dialog has closed; an alert asked for while it closes is dropped.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { renaming = info }
                 }
                 if !info.isActive {
                     Button("Delete Profile", role: .destructive) { deleteProfile(info) }

@@ -412,7 +412,6 @@ struct TranslationSettingsView: View {
     @State private var machineCount = 0
     @State private var hasDictionary = false
     @State private var untranslatedCount = 0
-    @State private var importing = false
     @State private var shareURL: URL?
     @State private var message: String?
     @State private var working = false
@@ -476,7 +475,9 @@ struct TranslationSettingsView: View {
                     ))
                     LabeledContent("Dictionary", value: hasDictionary ? "TranslateFile.json" : "None")
                     LabeledContent("Collected untranslated lines", value: "\(untranslatedCount)")
-                    Button("Import TranslateFile.json…") { importing = true }
+                    Button("Import TranslateFile.json…") {
+                        ImportPicker.pickCopy(types: [.json, .plainText, .item]) { urls in if let url = urls.first { importDictionary(url) } }
+                    }
                     Button("Export Untranslated Lines…") { exportLines() }
                         .disabled(untranslatedCount == 0)
                     Button("Clear Collected Lines", role: .destructive) {
@@ -504,9 +505,6 @@ struct TranslationSettingsView: View {
             .onAppear { refresh() }
             .onDisappear { jobs.cancel() }
             .translationJobs(jobs)
-            .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .plainText]) { result in
-                if case .success(let url) = result { importDictionary(url) }
-            }
             .sheet(item: Binding(
                 get: { shareURL.map { ShareItem(url: $0) } },
                 set: { if $0 == nil { shareURL = nil } }
