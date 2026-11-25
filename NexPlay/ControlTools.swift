@@ -101,15 +101,10 @@ enum ProblemReport {
     static func share() -> String? {
         do {
             let url = try SelfTest.exportLogsZIP(selfTest: [])
-            let root = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .flatMap { $0.windows }
-                .first { $0.isKeyWindow }?.rootViewController
-            guard let top = NativePad.top(root) else { return "Couldn't open the share sheet." }
+            // 8.20.2: through TopController (a visible window, waits while the menu closes, never twice).
+            guard TopController.find() != nil else { return "Couldn't open the share sheet." }
             let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-            sheet.popoverPresentationController?.sourceView = top.view
-            sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 1, height: 1)
-            top.present(sheet, animated: true)
+            TopController.present(sheet)
             return nil
         } catch {
             return "Couldn't make the logs: \(error.localizedDescription)"

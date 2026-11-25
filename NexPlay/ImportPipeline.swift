@@ -84,7 +84,7 @@ final class ImportCancel: @unchecked Sendable {
         let handler = progressHandler
         lock.unlock()
         var overall: Double?
-        if let fraction {
+        if let fraction, fraction.isFinite {
             let span = stage.span
             overall = span.0 + (span.1 - span.0) * min(max(fraction, 0), 1)
         }

@@ -33,7 +33,8 @@ struct ProgressRing: View {
         ZStack {
             Circle()
                 .stroke(Color.white.opacity(0.12), lineWidth: lineWidth)
-            if let fraction {
+            // 8.20.2: a NaN/infinite fraction is drawn as "unknown" (Int(NaN) below would stop the app).
+            if let fraction, fraction.isFinite {
                 Circle()
                     .trim(from: 0, to: CGFloat(min(max(fraction, 0.001), 1)))
                     .stroke(NexStyle.accentGradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
@@ -119,7 +120,7 @@ struct ImportProgressCard: View {
         HStack(spacing: 8) {
             ProgressRing(fraction: progress.fraction, lineWidth: 3, showsPercent: false)
                 .frame(width: 18, height: 18)
-            Text(progress.fraction.map { "\(Int(($0 * 100).rounded(.down)))%" } ?? "…")
+            Text(progress.fraction.flatMap { $0.isFinite ? "\(Int((min(max($0, 0), 1) * 100).rounded(.down)))%" : nil } ?? "…")
                 .font(.caption.weight(.bold).monospacedDigit())
                 .foregroundStyle(.white)
             Text(progress.stage.title)

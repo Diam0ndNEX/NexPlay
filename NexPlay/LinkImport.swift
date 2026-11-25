@@ -42,7 +42,7 @@ extension LibraryStore {
                 if total > 0 {
                     let whole = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
                     self.importProgress.detail = "\(name) · \(size) of \(whole)"
-                    self.importProgress.fraction = Double(done) / Double(total)
+                    self.importProgress.fraction = min(1, Double(done) / Double(total))
                 } else {
                     self.importProgress.detail = "\(name) · \(size)"
                 }

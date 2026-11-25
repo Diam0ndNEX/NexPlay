@@ -1636,9 +1636,20 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
 
     // MARK: - Alerts
 
-    private func presentOnTop(_ controller: UIViewController) {
+    /// 8.20.2: skips a screen that is closing (the Game Panel or the game menu that was just used) and waits for it,
+    /// never presents the same controller twice, and gives share sheets their anchor.
+    private func presentOnTop(_ controller: UIViewController, attempt: Int = 0) {
+        if controller.presentingViewController != nil || controller.isBeingPresented { return }
         var top: UIViewController = self
-        while let next = top.presentedViewController { top = next }
+        while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+        let busy = top.isBeingPresented || top.transitionCoordinator != nil || top.presentedViewController?.isBeingDismissed == true
+        if busy && attempt < 12 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+                self?.presentOnTop(controller, attempt: attempt + 1)
+            }
+            return
+        }
+        TopController.prepareForPhone(controller, on: top)
         top.present(controller, animated: true)
     }
 

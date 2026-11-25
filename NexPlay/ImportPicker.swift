@@ -28,30 +28,33 @@ enum TopController {
     }
 
     /// Presents `controller` once nothing is closing any more (a menu, a sheet or a dialog that was just tapped is
-    /// usually still animating away, and UIKit drops a presentation started on top of it). Tries for about 2 s.
+    /// usually still animating away, and UIKit drops a presentation started on top of it). Waits up to about 2 s.
+    /// 8.20.2: never presents the same controller twice. 8.20.1 tried again when presentingViewController was still
+    /// nil right after present(), but UIKit queues a presentation asked for while a menu closes, so the second
+    /// present() of a controller that was already on its way stopped the app ("already being presented").
     static func present(_ controller: UIViewController, attempt: Int = 0) {
+        if controller.presentingViewController != nil || controller.isBeingPresented { return }
         guard let top = find() else {
             AppLog.log("ui: no screen to present \(type(of: controller)) on")
             return
         }
+        if top === controller { return }
         let busy = top.isBeingDismissed || top.isBeingPresented || top.transitionCoordinator != nil
             || top.presentedViewController?.isBeingDismissed == true
         if busy && attempt < 12 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { present(controller, attempt: attempt + 1) }
             return
         }
-        if let popover = controller.popoverPresentationController {
+        prepareForPhone(controller, on: top)
+        top.present(controller, animated: true)
+    }
+
+    /// A share sheet or other popover-style screen needs an anchor on iPad (UIKit stops the app without one).
+    static func prepareForPhone(_ controller: UIViewController, on top: UIViewController) {
+        if let popover = controller.popoverPresentationController, popover.sourceView == nil, popover.barButtonItem == nil {
             popover.sourceView = top.view
             popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 1, height: 1)
             popover.permittedArrowDirections = []
-        }
-        top.present(controller, animated: true)
-        // UIKit sets presentingViewController at once when it accepts a presentation; a refused one (something else
-        // was still being presented) leaves it nil: try again a little later. Checked right away, not later, so a
-        // picker the user cancels quickly is not shown again.
-        if controller.presentingViewController == nil && attempt < 12 {
-            AppLog.log("ui: \(type(of: controller)) was not shown, trying again")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { present(controller, attempt: attempt + 1) }
         }
     }
 }

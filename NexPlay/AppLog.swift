@@ -75,6 +75,27 @@ final class AppLog {
     private static let sessionOpenKey = "appSessionOpen"
     private static let sessionGameKey = "appSessionGame"
 
+    /// 8.20.2: writes an Objective-C exception (UIKit's "already being presented", a bad layout constraint, an
+    /// invalid argument...) with its call stack to the log file *synchronously*, just before the app stops, so the
+    /// next Export Logs says exactly what crashed. Any handler set before (BCD's) still runs afterwards.
+    static func installCrashRecorder() {
+        previousHandler = NSGetUncaughtExceptionHandler()
+        NSSetUncaughtExceptionHandler { exception in
+            let stack = exception.callStackSymbols.prefix(40).joined(separator: "\n    ")
+            let text = "CRASH: uncaught \(exception.name.rawValue): \(exception.reason ?? "no reason")\n    \(stack)\n"
+            AppLog.shared.writeNow(text)
+            AppLog.previousHandler?(exception)
+        }
+    }
+
+    private static var previousHandler: (@convention(c) (NSException) -> Void)?
+
+    /// Appends straight to the file on the calling thread (the queue may never run again during a crash).
+    func writeNow(_ text: String) {
+        let line = "\(formatter.string(from: Date()))  \(text)"
+        appendToFile(line + "\n")
+    }
+
     /// Call once at launch. Logs a note when the previous session did not end cleanly.
     static func noteLaunch() {
         let defaults = UserDefaults.standard

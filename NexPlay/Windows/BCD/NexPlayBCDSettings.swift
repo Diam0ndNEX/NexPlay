@@ -780,18 +780,24 @@ struct NexBCDStoragePage: View {
             ActivityView(items: item.urls)
                 .onDisappear { item.urls.forEach(backend.discardBackup) }
         }
-        .fileImporter(isPresented: $showPicker, allowedContentTypes: picking == .backup ? [.zip] : [.folder]) { result in
-            let mode = picking
-            switch result {
-            case .success(let url):
-                if mode == .drive {
+        // 8.20.2: the UIKit pickers (ImportPicker) instead of SwiftUI's fileImporter (NexPlay's rule since 7.13.5: it was
+        // dropped when opened from a dialog and showed but ignored taps on some screens).
+        .onChange(of: showPicker) { shown in
+            guard shown else { return }
+            showPicker = false
+            if picking == .drive {
+                ImportPicker.pickFolders { urls in
+                    guard let url = urls.first else {
+                        backend.noteExternalPicker("cancelled")
+                        return
+                    }
                     backend.noteExternalPicker("answered")
                     backend.addExternalDrive(url)
-                } else {
-                    restore(url)
                 }
-            case .failure(let error):
-                if mode == .drive { backend.noteExternalPicker("failed: \(error.localizedDescription)") }
+            } else {
+                ImportPicker.pickCopy(types: [.zip]) { urls in
+                    if let url = urls.first { restore(url) }
+                }
             }
         }
         .confirmationDialog(question?.title ?? "", isPresented: Binding(get: { question != nil }, set: { if !$0 { question = nil } }),
