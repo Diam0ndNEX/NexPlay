@@ -165,7 +165,8 @@ final class EasyRPGLoop {
                 return
             }
             DispatchQueue.main.async { loaded(nil) }
-            let interval = 1.0 / max(nexretro_fps(), 1)
+            let reported = nexretro_fps()
+            let interval = 1.0 / (reported.isFinite && reported >= 1 ? reported : 60)   // 8.20.1: max(NaN, 1) is NaN
             var next = CACurrentMediaTime()
             while let self, !self.shouldStop {
                 if self.isPaused {
@@ -317,7 +318,7 @@ final class EasyRPGViewController: UIViewController {
             return
         }
         message.isHidden = true
-        AppLog.log("easyrpg: running on \(String(cString: nexretro_core_name())), \(Int(nexretro_fps())) fps")
+        AppLog.log("easyrpg: running on \(String(cString: nexretro_core_name())), \(nexretro_fps().isFinite ? Int(nexretro_fps()) : 0) fps")
         startAudio(rate: nexretro_sample_rate())
         let link = CADisplayLink(target: self, selector: #selector(drawFrame))
         link.add(to: .main, forMode: .common)

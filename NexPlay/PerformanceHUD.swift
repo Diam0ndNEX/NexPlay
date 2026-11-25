@@ -95,9 +95,12 @@ enum PerfSampler {
                 total += Double(info.cpu_usage) / Double(TH_USAGE_SCALE) * 100
             }
         }
+        // 8.20.1: task_threads hands over a send right per thread; without giving them back, the once-a-second HUD
+        // leaked one port per thread per second until the app's port space ran out on long sessions.
+        for index in 0..<threadCount { mach_port_deallocate(mach_task_self_, list[index]) }
         let bytes = vm_size_t(threadCount * MemoryLayout<thread_t>.stride)
         vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: list)), bytes)
-        return total
+        return total.isFinite ? total : 0
     }
 
     static func footprintMB() -> Int {

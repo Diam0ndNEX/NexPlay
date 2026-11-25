@@ -40,11 +40,9 @@ enum ArchiveExtractor {
             _ = password.withCString { archive_read_add_passphrase(reader, $0) }
         }
         // 8.20.0 (after Empo #311): a zip made on a Japanese/Chinese/Korean Windows PC stores its names in that code
-        // page without the UTF-8 flag; libarchive converts them when told which one.
-        let nameCharset = parts.count == 1 ? legacyZipCharset(url, password: password) : nil
-        if let nameCharset {
-            _ = nameCharset.withCString { archive_read_set_format_option(reader, "zip", "hdrcharset", $0) }
-        }
+        // page without the UTF-8 flag. NexPlay decodes those names itself: libarchive's own conversion (hdrcharset)
+        // converts into the process's C locale and gives no name at all there (checked on Linux).
+        let legacyEncoding = parts.count == 1 ? legacyZipEncoding(url) : nil
         let opened: Int32
         if parts.count == 1 {
             opened = url.path.withCString { archive_read_open_filename(reader, $0, 1 << 20) }
@@ -78,7 +76,7 @@ enum ArchiveExtractor {
             guard let entry else { continue }
             entryCount += 1
 
-            guard let rawName = entryName(of: entry, converted: nameCharset != nil) else {
+            guard let rawName = entryName(of: entry, legacy: legacyEncoding) else {
                 _ = archive_read_data_skip(reader)
                 continue
             }
@@ -136,9 +134,9 @@ enum ArchiveExtractor {
         return PipelineError.archiveFailed(name, text)
     }
 
-    /// The code page ("CP932", "GB18030", "BIG5", "CP949") of a zip's names that are not UTF-8, or nil (not a zip,
-    /// no such names, or none fits all of them). Reads only the headers.
-    private static func legacyZipCharset(_ url: URL, password: String?) -> String? {
+    /// The code page of a zip's names that are not UTF-8 (Shift-JIS, GB18030, Big5, Korean), or nil: not a zip, no such
+    /// names, or no code page reads all of them. Reads only the headers.
+    private static func legacyZipEncoding(_ url: URL) -> String.Encoding? {
         guard let reader = archive_read_new() else { return nil }
         defer { _ = archive_read_free(reader) }
         _ = archive_read_support_filter_all(reader)
@@ -162,27 +160,34 @@ enum ArchiveExtractor {
         func cf(_ value: CFStringEncodings) -> String.Encoding {
             String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(value.rawValue)))
         }
-        // libarchive turns a 0x5C byte into "/" in a name without "/"; in Shift-JIS 0x5C is the second byte of ソ, 表, 能.
-        func decode(_ bytes: Data, _ encoding: String.Encoding) -> String? {
-            if let name = String(data: bytes, encoding: encoding) { return name }
-            return String(data: Data(bytes.map { $0 == 0x2F ? 0x5C : $0 }), encoding: encoding)
-        }
-        let candidates: [(String, String.Encoding)] = [("CP932", .shiftJIS), ("GB18030", cf(.GB_18030_2000)),
-                                                       ("BIG5", cf(.big5)), ("CP949", cf(.dosKorean))]
-        let fitting = candidates.filter { candidate in legacy.allSatisfy { decode($0, candidate.1) != nil } }
+        let candidates: [String.Encoding] = [.shiftJIS, cf(.GB_18030_2000), cf(.big5), cf(.dosKorean)]
+        let fitting = candidates.filter { encoding in legacy.allSatisfy { decodeLegacy($0, encoding) != nil } }
         // Japanese names nearly always have kana; GB18030 decodes almost anything, so it is not the first guess.
-        if let sjis = fitting.first(where: { $0.0 == "CP932" }),
+        if fitting.contains(.shiftJIS),
            legacy.contains(where: { data in
-               (decode(data, .shiftJIS) ?? "").unicodeScalars.contains { (0x3040...0x30FF).contains($0.value) }
+               (decodeLegacy(data, .shiftJIS) ?? "").unicodeScalars.contains { (0x3040...0x30FF).contains($0.value) }
            }) {
-            return sjis.0
+            return .shiftJIS
         }
-        return fitting.first(where: { $0.0 == "GB18030" })?.0 ?? fitting.first?.0
+        return fitting.first { $0 == cf(.GB_18030_2000) } ?? fitting.first
     }
 
-    /// The entry's path as UTF-8 (7z and RAR5 store Unicode names), else the raw name. With `converted` (hdrcharset
-    /// set) libarchive gives the converted names through the UTF-8 getter.
-    private static func entryName(of entry: OpaquePointer, converted: Bool = false) -> String? {
+    /// A legacy name in `encoding`. libarchive turns a 0x5C byte into "/" in a zip name without "/"; in Shift-JIS
+    /// 0x5C is the second byte of ソ, 表, 能, so a failed read is tried again with those bytes put back.
+    private static func decodeLegacy(_ bytes: Data, _ encoding: String.Encoding) -> String? {
+        if let name = String(data: bytes, encoding: encoding) { return name }
+        guard !bytes.contains(0x5C) else { return nil }
+        return String(data: Data(bytes.map { $0 == 0x2F ? 0x5C : $0 }), encoding: encoding)
+    }
+
+    /// The entry's path: UTF-8 when it is (7z and RAR5 store Unicode names, flagged zip names), else the zip's legacy
+    /// code page, else the raw bytes read leniently.
+    private static func entryName(of entry: OpaquePointer, legacy: String.Encoding? = nil) -> String? {
+        if let raw = archive_entry_pathname(entry) {
+            let bytes = Data(bytes: raw, count: strlen(raw))
+            if let utf8 = String(data: bytes, encoding: .utf8) { return utf8 }
+            if let legacy, let name = decodeLegacy(bytes, legacy) { return name }
+        }
         if let utf8 = archive_entry_pathname_utf8(entry) { return String(cString: utf8) }
         if let plain = archive_entry_pathname(entry) { return String(cString: plain) }
         return nil

@@ -26,9 +26,8 @@ int archive_read_open_filename(struct archive *, const char *_filename, size_t _
 // 8.19.0: split archives (part1.rar + part2.rar, .7z.001 + .7z.002) are read as one, and passwords.
 int archive_read_open_filenames(struct archive *, const char **_filenames, size_t _block_size);
 int archive_read_add_passphrase(struct archive *, const char *);
-// 8.20.0: the code page of zip names without the UTF-8 flag (hdrcharset), after Empo #311.
+// 8.20.0: the archive format (zip names without the UTF-8 flag are read in their code page, after Empo #311).
 int archive_format(struct archive *);
-int archive_read_set_format_option(struct archive *, const char *m, const char *o, const char *v);
 int archive_read_next_header(struct archive *, struct archive_entry **);
 int archive_read_data_block(struct archive *a, const void **buff, size_t *size, int64_t *offset);
 int archive_read_data_skip(struct archive *);

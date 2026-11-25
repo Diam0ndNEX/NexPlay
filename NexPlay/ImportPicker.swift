@@ -46,12 +46,12 @@ enum TopController {
             popover.permittedArrowDirections = []
         }
         top.present(controller, animated: true)
-        // A presentation UIKit refused leaves presentingViewController nil: try again a little later.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if controller.presentingViewController == nil && attempt < 12 {
-                AppLog.log("ui: \(type(of: controller)) was not shown, trying again")
-                present(controller, attempt: attempt + 1)
-            }
+        // UIKit sets presentingViewController at once when it accepts a presentation; a refused one (something else
+        // was still being presented) leaves it nil: try again a little later. Checked right away, not later, so a
+        // picker the user cancels quickly is not shown again.
+        if controller.presentingViewController == nil && attempt < 12 {
+            AppLog.log("ui: \(type(of: controller)) was not shown, trying again")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { present(controller, attempt: attempt + 1) }
         }
     }
 }

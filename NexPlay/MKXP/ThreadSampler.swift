@@ -22,6 +22,7 @@ enum ThreadSampler {
             describe(thread, number: index)
         }
         mach_port_deallocate(mach_task_self_, me)
+        for index in 0..<Int(count) { mach_port_deallocate(mach_task_self_, list[index]) }   // 8.20.1: the thread send rights
         vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: list)), vm_size_t(Int(count) * MemoryLayout<thread_t>.stride))
     }
 

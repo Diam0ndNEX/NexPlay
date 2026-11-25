@@ -201,6 +201,8 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
     private var hudTimer: Timer?
     private var watchdog: DispatchSourceTimer?
     private var fpsTimer: DispatchSourceTimer?
+    /// 8.20.1: the 30 s heartbeat, stopped with the game (it kept firing for the rest of the launch).
+    private var heartbeat: Timer?
     /// 8.15.9: the core's frame rate, read on a background thread once a second. The main thread (HUD, heartbeat) only
     /// reads this box and never calls into the core's frame counter (its lock is shared with the game thread).
     private let fpsBox = NexAtomicDouble()
@@ -396,6 +398,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
             AppLog.log("mkxp: alive \(Int(Date().timeIntervalSince(startedAt))) s, fps \(fps), paused \(self.paused), panel \(self.panelController != nil), editing \(self.overlay?.isEditing == true)")
         }
         RunLoop.main.add(beat, forMode: .common)
+        heartbeat = beat
         // 8.15.3: a watchdog on its own thread. The core runs on the main thread, so when the main thread stops serving
         // UIKit (touches, timers) the heartbeat above goes silent; this one keeps writing and says how long the main
         // queue has been stuck, with the core's frame rate.
@@ -907,6 +910,13 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
 
     func shutdownRuby() {
         ScreenRate.set(gameRate: 0)
+        // 8.20.1: the heartbeat, the main-thread watchdog and the fps sampler kept running after the game closed.
+        heartbeat?.invalidate()
+        heartbeat = nil
+        watchdog?.cancel()
+        watchdog = nil
+        fpsTimer?.cancel()
+        fpsTimer = nil
         hudTimer?.invalidate()
         hudTimer = nil
         controllers?.stop()
