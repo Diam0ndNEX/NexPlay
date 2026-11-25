@@ -5,6 +5,7 @@
 import Combine
 import Foundation
 import ImageIO
+import Metal
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -66,7 +67,9 @@ import UniformTypeIdentifiers
             // An installed Epic game is the library entry its install made (BCDLiveStoreEpic).
             if let id = BCDLiveStore.shared.epicEntryID(game.id) { return library.entries.first { $0.id == id } }
             // An installed itch.io game, and one of the experimental EA store, is the library entry its install made (BCDLiveStoreItch, BCDLiveStoreEA).
-            if let id = BCDLiveStore.shared.itchEntryID(game.id) ?? BCDLiveStore.shared.eaEntryID(game.id) { return library.entries.first { $0.id == id } }
+            if let id = BCDLiveStore.shared.itchEntryID(game.id) ?? BCDLiveStore.shared.eaEntryID(game.id) ?? BCDLiveStore.shared.amazonEntryID(game.id) {
+                return library.entries.first { $0.id == id }
+            }
             guard game.store == .local else { return nil }
             return library.entries.first { $0.desktop != true && $0.steamAppID == nil && $0.title == game.title }
         }
@@ -135,7 +138,7 @@ import UniformTypeIdentifiers
         d.readiness = BCDReadinessLive.shared.note(for: entry) { [weak self] in self?.onChange?() }   // round 604: what the game's programs import that this device lacks
         // GOG's runtimes the game's build names that BCD does not install yet.
         d.storeNote = BCDLiveStore.shared.gogNote(game.id) ?? BCDLiveStore.shared.epicNote(game.id)
-            ?? BCDLiveStore.shared.itchNote(game.id) ?? BCDLiveStore.shared.eaNote(game.id)
+            ?? BCDLiveStore.shared.itchNote(game.id) ?? BCDLiveStore.shared.eaNote(game.id) ?? BCDLiveStore.shared.amazonNote(game.id)
         // The sections only while Options is open: nothing is built for what is not on screen.
         if settings {
             d.groups = [display(entry, profile), direct3D(entry, profile), compatibility(entry), controls(entry, profile), gyro(entry)]
@@ -146,13 +149,15 @@ import UniformTypeIdentifiers
             if let id { d.groups.append(steamGroup(entry, id)) }
             if let dlc = dlcGroup(game) { d.groups.append(dlc) }
             if let version = versionGroup(game) { d.groups.append(version) }   // the game's version (BCDSteamBranches/BCDGamePageLiveVersion.swift): only for a game Steam lists a beta for
+            if !desktop, let galaxy = galaxyGroup(game, entry) { d.groups.append(galaxy) }   // GOG Galaxy features, only for a GOG game BCD installed (BCDGOG/Galaxy/BCDGamePageLiveGalaxy.swift)
             if !desktop { d.groups.append(midiGroup(entry)) }   // round 603: BCDMidi/BCDGamePageLiveMidi.swift
             if !desktop, let sound = d.groups.lastIndex(where: { $0.id == "sound" }) { d.groups[sound].settings += soundSettings(entry) }   // round 604: BCDGamePageLiveSound.swift (audio delay, volume, resume)
             if !desktop { d.groups.append(saveBackupsGroup(game, entry)) }   // round 603: BCDSaveBackups/BCDGamePageLiveSaves.swift
             if !desktop { d.groups.append(helpGroup(game, entry)) }   // round 604: BCDGamePageLiveHelp.swift (debug run, game feedback, launch check)
             if !desktop { d.groups.append(libraryGroup(entry, gog: game.store == .gog || game.store == .epic)) }
             // An itch.io or EA game's name and pictures are the store's too: its Library group is GOG's and Epic's (no Name or Find on Steam row).
-            if !desktop, game.store == .itch || game.store == .ea, let at = d.groups.lastIndex(where: { $0.id == "library" }) { d.groups[at] = libraryGroup(entry, gog: true) }
+            if !desktop, game.store == .itch || game.store == .ea || game.store == .amazon,
+               let at = d.groups.lastIndex(where: { $0.id == "library" }) { d.groups[at] = libraryGroup(entry, gog: true) }
             if !desktop, let location = locationGroup(game, entry) { d.groups.append(location) }   // external drives: where the game is, Move to
         }
         if let id {
@@ -172,7 +177,7 @@ import UniformTypeIdentifiers
                 d.canRepair = BCDGOG.enabled && BCDGOG.shared.signedIn && !d.updating
             }
             storeCloudDetails(game, entry, into: &d)   // build 632: another store's cloud saves (off until the player turns them on)
-        } else if game.store == .itch || game.store == .ea {
+        } else if game.store == .itch || game.store == .ea || game.store == .amazon {   // madeira-bcd (Porthole port, item 13): Amazon's too
             // The same for an itch.io or EA game (BCDLiveStoreItch, BCDLiveStoreEA). The EA store checks every installed file against EA's
             // current build (Check files); GOG's Repair is above (build 632), Epic and itch.io have no such check.
             d.removal = .uninstall(frees: entry.folderBytes ?? game.size)
@@ -235,6 +240,38 @@ import UniformTypeIdentifiers
             : ""
     }
 
+    /// madeira-bcd (KosmicKrisp): gl/libvulkan_kosmickrisp.dylib is in this build and this device can load it. The library is written
+    /// against Metal 4: iOS 26 and a GPU of the Metal 4 family (WineProcessBridge.m bcd_kosmickrisp_unusable asks the same at a start).
+    static let kosmicKrispUsable: Bool = {
+        guard let folder = Bundle.main.resourceURL?.appendingPathComponent("gl", isDirectory: true),
+              FileManager.default.isReadableFile(atPath: folder.appendingPathComponent("libvulkan_kosmickrisp.dylib").path) else { return false }
+        if #available(iOS 26.0, *) { return MTLCreateSystemDefaultDevice()?.supportsFamily(.metal4) ?? false }
+        return false
+    }()
+
+    /// madeira-bcd (patched MoltenVK, build 669): gl/libMoltenVK_patched.dylib is in this build (build/moltenvk-ios/build-patched.sh; its CI step only
+    /// warns when it fails, so a build may not have it). WineProcessBridge.m asks the same at a start and keeps Vulkan off, with a log line, where it is missing.
+    static let patchedMoltenVKBundled: Bool = {
+        guard let folder = Bundle.main.resourceURL?.appendingPathComponent("gl", isDirectory: true) else { return false }
+        return FileManager.default.isReadableFile(atPath: folder.appendingPathComponent("libMoltenVK_patched.dylib").path)
+    }()
+
+    /// The Vulkan driver of a game, where there is a choice (kosmicKrispUsable): Off, MoltenVK, MoltenVK (patched, where this build has it), KosmicKrisp.
+    /// It is the game's `vulkan` line.
+    private static func vulkanChoice(_ profile: GameProfile) -> BCDGameSetting {
+        let value = profile.get("vulkan") ?? ""
+        var choices = [BCDGameChoice(value: "", label: "Off"), BCDGameChoice(value: "moltenvk", label: "MoltenVK"),
+                       BCDGameChoice(value: "kosmickrisp", label: "KosmicKrisp")]
+        if patchedMoltenVKBundled { choices.insert(BCDGameChoice(value: "moltenvk-patched", label: "MoltenVK (patched)"), at: 2) }
+        if !choices.contains(where: { $0.value == value }) { choices.append(BCDGameChoice(value: value, label: value)) }
+        return BCDGameSetting(id: "vulkan.driver", title: "Vulkan (experimental)", kind: .choice(choices), value: value, defaultValue: "",
+                              note: "For a game that needs Vulkan, 64-bit (Detroit: Become Human) or 32-bit: Wine's Vulkan on Metal, drawn into the game's window. "
+                                + "MoltenVK is the one to try first. MoltenVK (patched) is MoltenVK with later fixes and the changes made for Enshrouded; it is "
+                                + "less tried, and OpenGL through Zink in the same game uses it too. KosmicKrisp is Mesa's newer driver (iOS 26): it has "
+                                + "geometry shaders and transform feedback, which MoltenVK lacks, and is less tried. Off, the game finds no Vulkan driver, "
+                                + "as before. Takes effect at the game's next start.")
+    }
+
     /// A choice kept in the game's own file; a value typed into the file by hand is listed too.
     private static func line(_ key: String, _ title: String, _ profile: GameProfile, _ labels: [(String, String)],
                              note: String) -> BCDGameSetting {
@@ -293,12 +330,21 @@ import UniformTypeIdentifiers
             BCDGameSetting(id: "fps", title: "Frame-rate limit", kind: .choice(rates), value: String(entry.fpsMode), defaultValue: "1",
                            note: "The most frames a second the game shows. 30 and 40 keep the device cooler; No limit lets the game run as fast as it can."),
             Self.line("metalfx-upscale", "MetalFX upscaling", profile, Self.named(GameProfile.metalFXChoices, ["": "Off"]),
-                      note: "Direct3D 11 and 12 games draw at the resolution above, and Apple's MetalFX enlarges the picture by this much. Pair it with a small resolution for more frames."),
+                      note: "Direct3D 11 and 12 games draw at the resolution above, and Apple's MetalFX enlarges the picture by this much. To the screen picks the size that fills this screen, at most twice the game's. Pair it with a small resolution for more frames."),
+            // madeira-bcd (Porthole port): Lossless Scaling frame generation, the game's own line `lossless-scaling` (BCDLossless.swift).
+            Self.line(BCDLossless.key, BCDLossless.title, profile, BCDLossless.choices, note: BCDLossless.note),
+            // madeira-bcd (Porthole port): env.MADEIRA_PRESENT_FX, the game's own line; without one, Settings' switch for every game applies.
+            Self.toggle("presentfx", BCDFrameGenMenu.switchTitle, (profile.get("env.MADEIRA_PRESENT_FX") ?? MadeiraConfig.get("env.MADEIRA_PRESENT_FX")) == "1",
+                        note: BCDFrameGenMenu.switchNote),
         ]
         // MetalFX frame interpolation needs iOS 26; below it the switch is not offered (check-frame-gen-ios26.py).
         if #available(iOS 26.0, *) {
             settings.append(Self.toggle("framegen", "Frame generation (experimental)", profile.get("env.MADEIRA_FRAMEGEN") == "1",
                                         note: "MetalFX makes up a frame between every two the game draws: twice the frames, for GPU time, a little delay and some smearing at edges and the HUD. The frame-rate limit is ignored while it is on. Turn it off if the game runs below about 40 FPS without it: it waits for screen buffers and can hold such a game at 20 FPS."))
+        }
+        if #available(iOS 26.0, *) {
+            // madeira-bcd (Porthole port, item 3): Apple frame interpolation, an experiment; the game's own line `vt-interpolation` (BCDVTInterp.swift).
+            settings.append(Self.line(BCDVTInterp.key, BCDVTInterp.title, profile, BCDVTInterp.choices, note: BCDVTInterp.note))
         }
         return BCDGameSettingGroup(id: "display", title: "Display", symbol: "display", settings: settings,
                                    headline: entry.resolution.replacingOccurrences(of: "x", with: " × ") + " · " + fps)
@@ -346,15 +392,18 @@ import UniformTypeIdentifiers
                       note: BCDOpenGL.pageNote),
             // Windows Vulkan (docs/VULKAN.md; owner 2026-11-09: a switch on the game's page, not a typed line): on writes
             // `vulkan = moltenvk` into the game's own file, off takes the line out; the bridge reads it at the next start.
-            Self.toggle("vulkan", "Vulkan (experimental)", profile.get("vulkan") == "moltenvk",
-                        note: "For a 64-bit game that needs Vulkan (Detroit: Become Human): Wine's Vulkan on Metal (MoltenVK), drawn into the game's window. Off, the game finds no Vulkan driver, as before. Takes effect at the game's next start."),
+            // madeira-bcd (KosmicKrisp): where this build bundles Mesa's KosmicKrisp and the device can run it (iOS 26, a Metal 4 GPU), the switch
+            // is a choice of the Vulkan driver instead (Self.vulkanChoice, the same line of the game's file). Everywhere else: the switch, as before.
+            Self.kosmicKrispUsable ? Self.vulkanChoice(profile) :
+            Self.toggle("vulkan", "Vulkan (experimental)", profile.get("vulkan") == "moltenvk" || profile.get("vulkan") == "moltenvk-patched",
+                        note: "For a game that needs Vulkan, 64-bit (Detroit: Become Human) or 32-bit: Wine's Vulkan on Metal (MoltenVK), drawn into the game's window. Off, the game finds no Vulkan driver, as before. Takes effect at the game's next start."),
             Self.toggle("nvidia", "Show the game an NVIDIA card", LibraryPrefs.nvidia(entry.windowsPath),
                         note: "For games that stop with \"no graphics card\" or \"failed to get GPU driver info\": Windows then reports an NVIDIA card and driver."),
             // madeira-bcd (2026-10-25, round 603): the same, for any maker (BCDGPUCards.swift), and the video memory a game is told it has.
             Self.line(BCDGPUCards.key, "Look like this GPU", profile, BCDGPUCards.choices,
                       note: "The graphics card the game is told it has: its name, maker and model, the same in Direct3D 9, 10, 11 and 12 and in Windows. For a game that quits with \"unsupported GPU\" or only knows some makers. Nothing runs faster: the phone's GPU does the drawing. NVIDIA GeForce RTX 3060 is the card the switch above reports, and a card chosen here wins over that switch. A game may then load the maker's own helper libraries. From the next start."),
             Self.line(BCDGPUCards.memoryKey, "Video memory", profile, BCDGPUCards.memoryChoices(RuntimeMemorySyncSettings.vramChoices),
-                      note: "The video memory the game is told it has. Games size their texture pools from it, so more than this phone can hold can end with iOS closing the game; Automatic follows what the phone can afford. Settings › Memory sets it for every game. From the next start."),
+                      note: "The video memory the game is told it has. Games size their texture pools from it, so more than this phone can hold can end with iOS closing the game; Automatic follows what the phone can afford. Settings › Memory & performance sets it for every game. From the next start."),
         ])
     }
 
@@ -363,9 +412,9 @@ import UniformTypeIdentifiers
     private func compatibility(_ entry: LibraryEntry) -> BCDGameSettingGroup {
         let path = entry.windowsPath
         let fastsync = SyncEngine.current == .fastsync
-        let lock = fastsync ? nil : "This belongs to Fastsync: choose it in Settings › Memory & sync to change it."
+        let lock = fastsync ? nil : "This belongs to Fastsync: choose it in Settings › Memory & performance to change it."
         let cpus = [BCDGameChoice(value: "0", label: "This device's")] + [1, 2, 4, 6].map { BCDGameChoice(value: "\($0)", label: "\($0)") }
-        return BCDGameSettingGroup(id: "compat", title: "Compatibility", symbol: "cpu", settings: [
+        var settings = [
             Self.toggle("avx", "AVX and AVX2", LibraryPrefs.avx(path),
                         note: "For a 64-bit game that quits at start with an illegal instruction (c000001d), or says it needs AVX or that the processor does not meet its requirements, because it expects AVX. The emulator then emulates AVX, which is slower."),
             Self.toggle("x87", "Faster x87 math", entry.reducedX87,
@@ -374,12 +423,25 @@ import UniformTypeIdentifiers
                            defaultValue: "0", note: "How many processors Windows tells the game about."),
             Self.toggle("winevcrt", "Wine's C++ runtime", LibraryPrefs.wineVCRT(path),
                         note: "Wine's own C++ runtime libraries in place of Microsoft's, for a game that crashes right after loading them."),
+        ]
+        // Japanese locale (upstream Madeira #567 by nekodesusan-prog; BCDJapanese.c): the line env.MADEIRA_JAPANESE = 1 in the game's own
+        // file, off unless switched on; the bridge reads it at the next start. Only in a build that has the font (its fetch can fail).
+        if Self.japaneseFontBundled {
+            settings.append(Self.toggle("japanese", "Japanese locale", GameProfile(windowsPath: path).get("env.MADEIRA_JAPANESE") == "1",
+                        note: "For a Japanese game or visual novel whose text comes out as boxes or garbled characters, or that will not start: Windows runs it with a Japanese system locale (Shift-JIS, code page 932) and a Japanese font that answers to MS Gothic, Meiryo and the other Japanese font names. Other games keep their own locale. For this game it replaces a locale its own settings or its list row set (env.LC_ALL: a few rows run a game in US English because it does not start otherwise). From the next start."))
+        }
+        settings += [
             Self.toggle("fastsync", "Fast synchronization", entry.fastSync ?? true, default: true,
                         note: "Fastsync handles this game's events inside its own process instead of in the Wine server.", locked: lock),
             Self.toggle("semaphores", "Fast semaphore waits (experimental)", entry.semaphoreFastPath ?? false,
                         note: "Fastsync also handles semaphores inside the game's process.", locked: lock),
-        ])
+        ]
+        return BCDGameSettingGroup(id: "compat", title: "Compatibility", symbol: "cpu", settings: settings)
     }
+
+    /// The Japanese locale exists only in a build whose font fetch worked (tools/fetch-japanese-font.sh; BCDJapanese.c
+    /// bcd_japanese_font_in says the same to the bridge).
+    private static let japaneseFontBundled = Bundle.main.path(forResource: "NotoSansJP-Regular", ofType: "otf", inDirectory: "fonts-ja") != nil
 
     // MARK: Controls and the screen during play
 
@@ -414,6 +476,8 @@ import UniformTypeIdentifiers
                                                value: changed == 0 ? "BCD's layout" : "\(changed) changed", defaultValue: "BCD's layout",
                                                note: "What each stick and button presses in keyboard-and-mouse mode."))
             }
+            // madeira-bcd (Porthole port, item 8): the game's own line `pad-auto` (BCDPadAuto.swift); off unless switched on.
+            settings.append(Self.toggle("padauto", BCDPadAuto.title, BCDPadAuto.on(profile.get(BCDPadAuto.key)), note: BCDPadAuto.note))
         }
         settings += [
             BCDGameSetting(id: "hud", title: "Performance HUD", kind: .choice(BCDHUDLayout.allCases.map { BCDGameChoice(value: $0.rawValue, label: $0.title) }),
@@ -538,8 +602,8 @@ import UniformTypeIdentifiers
     // MARK: Launch
 
     /// How the program starts, for a game BCD starts itself (a game added from Files, or a Steam
-    /// game started as its own program); nil for a Steam game started through BCD Dock and for
-    /// the Wine desktop.
+    /// game started as its own program); for a Steam game started through BCD Dock only its Launch
+    /// arguments (2026-11-20); nil for the Wine desktop.
     private func launch(_ entry: LibraryEntry) -> BCDGameSettingGroup? {
         var settings: [BCDGameSetting] = []
         if entry.usesLaunchOptions {
@@ -555,9 +619,15 @@ import UniformTypeIdentifiers
                             note: "Starts Windows' services before the game, for launchers that need them (Steam-style COM). BCD writes a small batch file for it."),
             ]
         }
-        if entry.desktop != true && entry.steamAppID == nil {
+        // 2026-11-20 (a Discord request: Steam launch options): a Steam game has them too. Through BCD Dock, Steam hands them to the game
+        // (Valve's LaunchApp, tools/patch-dock-user-args.py); started as "The game", they follow Steam's own arguments for the program.
+        let dock = entry.steamAppID != nil && !entry.startsSteamGameDirectly
+        if entry.desktop != true {
+            let note = entry.steamAppID == nil ? "Handed to the program each time it starts."
+                : dock ? "Steam hands them to the game when it starts it, like Steam's own Launch Options."
+                : "Added after the arguments Steam gives this program."
             settings.append(BCDGameSetting(id: "arguments", title: "Launch arguments", kind: .text(prompt: "-windowed -nosplash"),
-                                           value: entry.arguments, note: "Handed to the program each time it starts.",
+                                           value: entry.arguments, note: note,
                                            chips: BCDLaunchFlags.quick))
             let words = ["-dx12": "Ask for Direct3D 12", "-dx11": "Ask for Direct3D 11", "-dx10": "Ask for Direct3D 10",
                          "-dx9": "Ask for Direct3D 9", "-windowed": "Ask for a window", "-fullscreen": "Ask for full screen",
@@ -568,11 +638,14 @@ import UniformTypeIdentifiers
             }
         }
         guard !settings.isEmpty else { return nil }
-        settings.append(BCDGameSetting(id: "command", title: "What starts", kind: .info, value: entry.commandPreview))
+        settings.append(BCDGameSetting(id: "command", title: "What starts", kind: .info,
+                                       value: dock ? "Steam starts the game (BCD Dock)" + (entry.arguments.isEmpty ? "" : " with " + entry.arguments) : entry.commandPreview))
         let warning = entry.usesLaunchOptions && !entry.runsInDesktop && (entry.isBatch || entry.startServices == true)
         return BCDGameSettingGroup(id: "launch", title: "Launch", symbol: "play.rectangle", settings: settings,
                                    note: warning ? "Started on its own, Wine stops as soon as its first program ends: a batch file that starts the game and exits ends the game too. Choose In a Wine desktop." : nil,
-                                   headline: entry.runsInDesktop ? "In a Wine desktop" : (entry.arguments.isEmpty ? "On its own" : "On its own · " + entry.arguments))
+                                   headline: entry.runsInDesktop ? "In a Wine desktop"
+                                       : dock ? (entry.arguments.isEmpty ? "Through Steam" : "Through Steam · " + entry.arguments)
+                                       : (entry.arguments.isEmpty ? "On its own" : "On its own · " + entry.arguments))
     }
 
     // MARK: Steam
@@ -726,7 +799,7 @@ import UniformTypeIdentifiers
         }
         let missing = !direct && !dock.clientInstalled
         return BCDGameSettingGroup(id: "steam", title: "Steam", symbol: "arrow.down.app", settings: settings,
-                                   note: missing ? "BCD Dock needs Valve's client components first: download them in Settings › Steam › BCD Dock." : nil,
+                                   note: missing ? "BCD Dock needs Valve's client components first: download them in Settings › BCD Dock." : nil,
                                    headline: direct ? "The game's own program" : "Through BCD Dock")
     }
 
@@ -817,6 +890,7 @@ import UniformTypeIdentifiers
     private func cloud(_ appID: Int, into d: inout BCDGameDetails) {
         let steam = SteamOwnedLibrary.shared
         guard steam.signedIn else { d.cloud = .signedOut; return }
+        d.cloudCanCheck = true   // madeira-bcd: Steam's cloud can be compared again without moving anything
         guard let state = steam.cloud[appID] else { d.cloud = .notChecked; return }
         d.cloudProblem = state.problem
         if let last = state.lastDownload {
@@ -836,6 +910,9 @@ import UniformTypeIdentifiers
                                  deviceDate: save.kind == .cloudOnly ? nil : (seconds(save.localTime) ?? .distantPast),
                                  deviceBytes: Int64(clamping: save.localSize))
             }
+            // madeira-bcd: what the next sync would move, for the page's list
+            d.cloudPending = state.pendingUp.map { BCDCloudPending(name: $0.name, bytes: Int64(clamping: $0.localSize), up: true) }
+                + state.pendingDown.map { BCDCloudPending(name: $0.name, bytes: Int64(clamping: $0.cloudSize), up: false) }
             let audit = state.audit
             let waiting = audit.count(.differ) + audit.count(.cloudOnly) + audit.count(.localOnly)
             if !state.conflicts.isEmpty {
@@ -890,7 +967,16 @@ import UniformTypeIdentifiers
             }
         default: status = "Play once: the first start is the baseline."
         }
-        d.tuning = BCDGameTuning(on: tuned.on, status: tuned.on || history ? status : nil, canUndo: history, found: state.kept, history: steps)
+        // madeira-bcd (Porthole port, item 10): Ask before trying a fix: the fix that waits for the player's yes.
+        var waiting = tuned.on ? AutoTuneAsk.waiting(state, path) : []
+        if !waiting.isEmpty { status = AutoTuneAsk.pageStatus(waiting) }
+        // Round 670 (owner 2026-11-18, I1): the game played and auto-tune suggests a line; the page keeps it after Not now too.
+        if tuned.on, waiting.isEmpty, let lines = state.suggestion, !lines.isEmpty {
+            waiting = lines
+            status += " " + "Auto-tune suggests trying \(lines.joined(separator: "; ")) at the next start: it may make the game run better. Nothing changes until you choose Try the suggested fix."
+        }
+        d.tuning = BCDGameTuning(on: tuned.on, status: tuned.on || history ? status : nil, canUndo: history, found: state.kept, history: steps,
+                                 waiting: waiting)
         if tuned.on && history { d.settings = "Auto-tune on" }   // on for every game now: the label says so only once it has a search or kept lines, so "Recommended" and "Your own" stay visible
     }
 
@@ -1000,6 +1086,10 @@ import UniformTypeIdentifiers
     }
 
     func set(_ setting: String, to value: String, for game: BCDGame) {
+        if setting == BCDCloudPendingList.checkAction {   // madeira-bcd: the cloud page's Check again: Steam's comparison, which moves nothing
+            if !storeCloudOwns(game), let id = appID(game) { Task { await SteamOwnedLibrary.shared.checkCloud(id) } }
+            return
+        }
         if helpSet(setting, to: value, for: game) { return }   // round 604: the "Help with this game" section's rows (BCDGamePageLiveHelp.swift)
         if soundSet(setting, to: value, for: game) { return }   // round 604: the Sound section's audio delay, volume and resume rows (BCDGamePageLiveSound.swift)
         if dlcSet(setting, to: value, for: game) { return }
@@ -1009,6 +1099,7 @@ import UniformTypeIdentifiers
         if inputSet(setting, to: value, for: game) { return }   // round 604: BCDInputPage.swift's rows (turbo and macros, ...)
         if setupSet(setting, to: value, for: game) { return }   // round 604: the setup sections' rows (BCDGameSetup/BCDGamePageLiveSetup.swift)
         if storeCloudSet(setting, to: value, for: game) { return }   // build 632: a store's cloud saves on or off (the game's own config line)
+        if galaxySet(setting, to: value, for: game) { return }   // GOG Galaxy features of a GOG game, off by default (BCDGOG/Galaxy/BCDGamePageLiveGalaxy.swift)
         let on = value == "1"
         switch setting {
         case "resolution": change(game) { $0.resolution = value }
@@ -1021,16 +1112,35 @@ import UniformTypeIdentifiers
             change(game) { $0.orientationLock = value.isEmpty ? nil : value }
         case "metalfx-upscale", "dxil-tess-max-factor", "async-submit", "fence-chain", GamepadInput.padModeKey, BCDGPUCards.key, BCDGPUCards.memoryKey:
             setLine(game, setting, value)
+        case BCDLossless.key:
+            // madeira-bcd: Lossless Scaling frame generation, a plain line in the game's own file like the choices above.
+            setLine(game, setting, value)
+        case "padauto":
+            setLine(game, BCDPadAuto.key, on ? "1" : "")
+        case BCDVTInterp.key:
+            // madeira-bcd: Apple frame interpolation works on the picture the live present path holds, so choosing it switches that
+            // path on for this game too (its own switch on this page then shows it); Off leaves that switch as it is.
+            setLine(game, BCDVTInterp.key, value)
+            if BCDVTInterp.frames(value) > 0, let entry = entry(for: game),
+               (GameProfile(windowsPath: entry.windowsPath).get(BCDVTInterp.presentKey) ?? MadeiraConfig.get(BCDVTInterp.presentKey)) != "1" {
+                setLine(game, BCDVTInterp.presentKey, "1")
+            }
         case BCDOpenGL.key:
             // OpenGL (docs/OPENGL.md): a plain line in the game's own file, like the Direct3D choices above.
             setLine(game, setting, value)
         case "vulkan":
             // Windows Vulkan (docs/VULKAN.md): the switch is the line `vulkan = moltenvk` in the game's own file.
             setLine(game, "vulkan", on ? "moltenvk" : "")
+        case "vulkan.driver":
+            // madeira-bcd (KosmicKrisp): the driver choice (Self.vulkanChoice) writes the same line; anything but the three drivers takes it out.
+            setLine(game, "vulkan", value == "moltenvk" || value == "moltenvk-patched" || value == "kosmickrisp" ? value : "")
         case "framegen":
             if #available(iOS 26.0, *) {
                 setLine(game, "env.MADEIRA_FRAMEGEN", on ? "1" : "")
             }
+        case "presentfx":
+            // Off while Settings has it on for every game needs a line of its own ("0"); otherwise off is no line at all.
+            setLine(game, "env.MADEIRA_PRESENT_FX", on ? "1" : (MadeiraConfig.get("env.MADEIRA_PRESENT_FX") == "1" ? "0" : ""))
         case "gyro-aim", "gyro-sens", "gyro-hold", "gyro-invert", "gyro-deadzone", "gyro-turn":
             // madeira-bcd (2026-10-25, round 603): gyro aim, kept for the game by its path (BCDGyroStore).
             if let entry = entry(for: game) {
@@ -1041,6 +1151,7 @@ import UniformTypeIdentifiers
         case "nvidia": entry(for: game).map { LibraryPrefs.setNvidia(on, for: $0.windowsPath) }
         case "avx": entry(for: game).map { LibraryPrefs.setAVX(on, for: $0.windowsPath) }
         case "winevcrt": entry(for: game).map { LibraryPrefs.setWineVCRT(on, for: $0.windowsPath) }
+        case "japanese": setLine(game, "env.MADEIRA_JAPANESE", on ? "1" : "")   // Japanese locale (#567): a line in the game's own file
         case "x87": change(game) { $0.reducedX87 = on }
         case "cpus": change(game) { $0.cpuCount = Int(value).flatMap { $0 == 0 ? nil : $0 } }
         case "fastsync": change(game) { $0.fastSync = on }
@@ -1225,6 +1336,15 @@ import UniformTypeIdentifiers
     func undoTuning(_ game: BCDGame) {
         guard let path = entry(for: game)?.windowsPath else { return }
         if AutoTune.enabled { AutoTune.reset(path) }
+        AutoTuneAsk.forget(path)   // madeira-bcd (Porthole port, item 10): the player's answers go with the lines
+    }
+
+    /// madeira-bcd (Porthole port, item 10): Try the suggested fix (Ask before trying a fix).
+    func approveTuning(_ game: BCDGame) {
+        guard let path = entry(for: game)?.windowsPath, AutoTune.enabled else { return }
+        // Round 670 (I1): a suggestion for a game that played becomes the next start's line; otherwise the waiting fix gets its yes.
+        if AutoTune.state(path).suggestion?.isEmpty == false { AutoTune.approveSuggestion(path); return }
+        AutoTuneAsk.approve(AutoTune.state(path), path)
     }
 
     /// Each line auto-tune kept goes into the game's own file, then auto-tune starts over.
@@ -1427,6 +1547,7 @@ import UniformTypeIdentifiers
             storeCloudChanges,   // build 632: a sync of another store's cloud saves moved on
             BCDLiveStore.shared.itchDetailChanges,
             BCDLiveStore.shared.eaDetailChanges,
+            BCDLiveStore.shared.amazonDetailChanges,
             GameMover.shared.$moving.dropFirst().map { _ in () }.eraseToAnyPublisher(),   // Location › Move to
             ExternalDrives.shared.$mounted.dropFirst().map { _ in () }.eraseToAnyPublisher(),
         ]

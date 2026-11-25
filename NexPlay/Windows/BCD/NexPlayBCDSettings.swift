@@ -279,6 +279,16 @@ struct NexBCDMemoryPage: View {
                                  symbol: "speaker.wave.2.fill", isOn: backend.backgroundSound, enabled: backend.backgroundGame != "") {
                     backend.setBackgroundSound($0)
                 }
+                // 8.20.0 (BCD v0.1.721, BCDBackgroundCPU.swift): how much of one core a game kept running may use.
+                NexBCDLinkRow(title: "CPU Limit in the Background", detail: NexBCDWords.nexplay(BCDBackgroundCPU.note),
+                              symbol: "gauge.with.dots.needle.33percent",
+                              value: BCDBackgroundCPU.choices(current: backend.backgroundCPU).first { $0.value == backend.backgroundCPU }?.label,
+                              enabled: backend.backgroundGame != "") {
+                    NexBCDChoicePage(backend: backend, title: "CPU Limit in the Background",
+                                     note: NexBCDWords.nexplay(BCDBackgroundCPU.note),
+                                     choices: { live in BCDBackgroundCPU.choices(current: live.backgroundCPU).map { BCDSettingsChoice(value: $0.value, label: $0.label) } },
+                                     value: { $0.backgroundCPU }, set: { $0.setBackgroundCPU($1) })
+                }
             }
             if backend.extensionTestAvailable {
                 NexMenuSection("Experiments") {
@@ -856,6 +866,10 @@ struct NexBCDStoragePage: View {
                     }
                 }))
             }
+            if drive.connected {
+                // 8.20.0 (BCD v0.1.721, BCDDriveSpeed.swift): about 70 MB written and read; the result shows under the list.
+                answers.append(("Test Speed", false, { backend.testSpeed(ofDrive: drive.id) }))
+            }
             answers.append(("Remove", true, {
                 // A second question once the first one has closed.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
@@ -939,12 +953,21 @@ struct NexBCDLogsPage: View {
                 }
                 NexMenuToggleRow(title: "Performance Trace", detail: "A line a second (frame rate, CPU, memory, heat) in the session's log. Off unless turned on.",
                                  symbol: "waveform.path.ecg", isOn: backend.perfTrace) { backend.setPerfTrace($0) }
+                // 8.20.0 (BCD v0.1.721, BCDLogThin.swift).
+                NexMenuToggleRow(title: "Make Big Logs Smaller", detail: "Repeated lines are folded before a log is shared, so a long session's log stays small enough to send.",
+                                 symbol: "arrow.down.right.and.arrow.up.left", isOn: backend.thinsLogs) { backend.setThinsLogs($0) }
             }
             NexMenuSection("After a Crash") {
                 NexMenuToggleRow(title: "AutoTune After a Crash",
                                  detail: backend.crashTuningRunning ? "On this run. Tries other settings at the next start of a game that crashed."
                                      : "Tries other settings at the next start of a game that crashed. Applies from the next start of NexPlay.",
                                  symbol: "dial.medium", isOn: backend.crashTuning) { backend.setCrashTuning($0) }
+                // 8.20.0 (BCD v0.1.721, AutoTuneAsk.swift).
+                NexMenuToggleRow(title: "Ask Before Trying a Fix",
+                                 detail: "AutoTune shows the change it wants to try and waits for Apply; you can take it back, and the next run judges it.",
+                                 symbol: "questionmark.bubble", isOn: backend.asksBeforeFix, enabled: backend.crashTuning) {
+                    backend.setAsksBeforeFix($0)
+                }
             }
             NexMenuSection("Screenshots") {
                 NexMenuToggleRow(title: "Windows Screenshots to Photos", detail: "A screenshot from a Windows game's menu is also added to Photos.",

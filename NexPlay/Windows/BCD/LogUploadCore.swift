@@ -138,7 +138,10 @@ enum LogUploadCore {
 
     /// `trailer`: lines that follow the log's last line (the performance trace, BCDPerfTraceCore.swift): after it, so no line number of the
     /// log moves. Scrubbed like every other line. Empty: nothing is added.
+    /// madeira-bcd (Porthole port, item 11): `head`, lines after the comment and before the log (the thinned log's note), and `keep`, asked
+    /// once for every line of the log in order: false leaves the line out (BCDLogThin.swift). By default nothing is added and every line goes.
     static func pack(_ source: URL, to dest: URL, comment: String? = nil, trailer: [String] = [],
+                     head: [String] = [], keep: ((UnsafeRawBufferPointer) -> Bool)? = nil,
                      progress: ((Double) -> Void)? = nil) throws -> (raw: Int, packed: Int) {
         guard let input = try? FileHandle(forReadingFrom: source) else { throw PackError.read }
         defer { try? input.close() }
@@ -187,6 +190,12 @@ enum LogUploadCore {
         }
         // The sender's comment goes first, so whoever opens the log reads it before anything else.
         for line in commentLines(comment) { Data(line.utf8).withUnsafeBytes { emit($0) } }
+        for line in head { Data(line.utf8).withUnsafeBytes { emit($0) } }
+        /// A line of the log itself (not the comment, the head or the trailer).
+        func emitLine(_ line: UnsafeRawBufferPointer) {
+            if let keep, !keep(line) { return }
+            emit(line)
+        }
         while true {
             let chunk = (try? input.read(upToCount: 1 << 20)) ?? nil
             guard let chunk, !chunk.isEmpty else { break }
@@ -200,10 +209,10 @@ enum LogUploadCore {
                     }
                     let end = UnsafeRawPointer(nl) - raw.baseAddress!
                     if carry.isEmpty {
-                        emit(UnsafeRawBufferPointer(rebasing: raw[start..<end]))
+                        emitLine(UnsafeRawBufferPointer(rebasing: raw[start..<end]))
                     } else {
                         carry.append(contentsOf: UnsafeRawBufferPointer(rebasing: raw[start..<end]))
-                        carry.withUnsafeBytes { emit($0) }
+                        carry.withUnsafeBytes { emitLine($0) }
                         carry.removeAll(keepingCapacity: true)
                     }
                     start = end + 1
@@ -217,12 +226,27 @@ enum LogUploadCore {
             }
         }
         if !carry.isEmpty {
-            carry.withUnsafeBytes { emit($0) }
-            if trailer.isEmpty { pending.removeLast() }   // the source did not end with a newline (with a trailer, that line is ended here and the trailer follows)
+            let before = pending.count
+            carry.withUnsafeBytes { emitLine($0) }
+            if trailer.isEmpty, pending.count > before { pending.removeLast() }   // the source did not end with a newline (with a trailer, that line is ended here and the trailer follows)
         }
         for line in trailer { Data(line.utf8).withUnsafeBytes { emit($0) } }
         try pending.withUnsafeBytes { try deflateChunk($0, flush: Z_FINISH) }
         progress?(1)
         return (read, packed)
+    }
+
+    /// Round 677 (agent R1 S5; Send Logs ES44C0, J5BBE4, RC31BA, G43MB9): the build that wrote the log, from its own "[build] v0.1.N (N)" line in
+    /// the first 256 KB. The upload used the sender's build, so a player who updated and then sent an older run had it filed under the new
+    /// build (633 logs read as 665 in round 677's triage). nil when the log names none (very old builds): the sender's build is used then.
+    static func ownBuild(of log: URL) -> String? {
+        guard let h = try? FileHandle(forReadingFrom: log) else { return nil }
+        defer { try? h.close() }
+        guard let data = try? h.read(upToCount: 256 * 1024), !data.isEmpty else { return nil }
+        let text = String(decoding: data, as: UTF8.self)
+        guard let re = try? NSRegularExpression(pattern: #"\[build\] v0\.1\.(\d+) \((\d+)\)"#),
+              let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let r = Range(m.range(at: 2), in: text) else { return nil }
+        return String(text[r])
     }
 }

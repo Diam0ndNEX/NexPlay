@@ -1,4 +1,6 @@
 // Modified for NexPlay (November 2026, NexPlay 8.0.0): see NEXPLAY-CHANGES.md in this folder.
+// Portions copyright 2026 sky9662: the touch-control editor's group selection, guides and group pinch, from thebcd69/bcd-games
+// pull request #69 (GPL-3.0-only). See THIRD-PARTY-NOTICES.md.
 // Portions copyright 2026 alantangok, 125hz and wamei: code taken from https://github.com/willfaust/Madeira (pull request #244; commits abca30a, facd2cc and bbe0b12)
 // under GPL-3.0-or-later and modified for BCD in October and November 2026. See THIRD-PARTY-NOTICES.md.
 // Portions copyright 2026 Connor Gow: code taken from https://github.com/willfaust/Madeira (pull request #464)
@@ -684,7 +686,27 @@ final class MetalBackedView: UIView {
         return CGPoint(x: x / n, y: y / n)
     }
     private func activeTouches(_ event: UIEvent?) -> [UITouch] {
-        (event?.allTouches ?? []).filter { $0.phase != .ended && $0.phase != .cancelled }
+        // A touchpad gesture counts only its own fingers: a control held in the controls window is not a second finger on the pad.
+        let all = padGesture ? (event?.touches(for: self) ?? []) : (event?.allTouches ?? [])
+        return all.filter { $0.phase != .ended && $0.phase != .cancelled }
+    }
+
+    /// madeira-bcd (2026-11-20, the owner): iPhone Duo's touchpad below the fold (BCDTabletopTouchpad, BCDFoldable.swift). A gesture
+    /// whose first finger lands below the fold takes the trackpad path below, whatever the pointer mode (Tap to click, the direct
+    /// launch's Windows touch) and the touch-to-mouse gate say, until its last finger lifts. Without the tabletop pose, on any other
+    /// device or with the touchpad off, `padGesture` stays false and every path is what it was.
+    private var padGesture = false
+    private static var padLogged = false
+    private func padBegins(_ touches: Set<UITouch>, _ event: UIEvent?) -> Bool {
+        guard BCDFoldable.active, let below = FoldTabletop.shared.bottom, let w = window, let t = touches.first else { return false }
+        let mine = (event?.touches(for: self) ?? []).filter { $0.phase != .ended && $0.phase != .cancelled }
+        guard mine.count == touches.count,   // the first finger(s) of a gesture
+              BCDTabletopTouchpad.owns(t.location(in: w), below: below, on: BCDTabletopTouchpad.on) else { return false }
+        if !Self.padLogged {
+            Self.padLogged = true
+            fputs("[fold] touchpad: a gesture below the fold drives the pointer like a trackpad (below=\(below))\n", stderr)
+        }
+        return true
     }
 
     // Direct touches that began while TouchMouseGate was suppressing stay
@@ -716,9 +738,11 @@ final class MetalBackedView: UIView {
         BCDTouchFeelModel.shared.gameTouched()   // madeira-bcd (round 604): a touch brings back touch controls that auto-hid (before the pad overlay's filter below drops it); nothing with auto-hide off
         guard let touches = BCDTouchExtras.filter(self, touches, .began) else { return }   // madeira-bcd (round 604): aim mode, touch gestures, the Pencil; one static flag when off
         if HardwareInput.shared.interceptTouches(touches, event, .began) { return }
-        guard let touches = tmgFilter(touches, .began) else { return }
-        if touchPointerMode { touchModeBegan(touches); return }
-        guard desktopMode || !InputSettings.shared.directTouch else {
+        if !padGesture && padBegins(touches, event) { padGesture = true }   // madeira-bcd (2026-11-20): iPhone Duo's touchpad below the fold
+        let pad = padGesture
+        guard let touches = pad ? touches : tmgFilter(touches, .began) else { return }
+        if touchPointerMode && !pad { touchModeBegan(touches); return }
+        guard pad || desktopMode || !InputSettings.shared.directTouch else {
             guard let t = touches.first else { return }
             let (x, y) = mapTouch(t)
             winios_post_touch_down(x, y)
@@ -764,9 +788,10 @@ final class MetalBackedView: UIView {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touches = BCDTouchExtras.filter(self, touches, .moved) else { return }   // madeira-bcd (round 604)
         if HardwareInput.shared.interceptTouches(touches, event, .moved) { return }
-        guard let touches = tmgFilter(touches, .moved) else { return }
-        if touchPointerMode { touchModeMoved(touches, event); return }
-        guard desktopMode || !InputSettings.shared.directTouch else {
+        let pad = padGesture   // madeira-bcd (2026-11-20): iPhone Duo's touchpad below the fold
+        guard let touches = pad ? touches : tmgFilter(touches, .moved) else { return }
+        if touchPointerMode && !pad { touchModeMoved(touches, event); return }
+        guard pad || desktopMode || !InputSettings.shared.directTouch else {
             guard let t = touches.first else { return }
             let (x, y) = mapTouch(t)
             winios_post_touch_move(x, y)
@@ -829,7 +854,11 @@ final class MetalBackedView: UIView {
             let iy = Int32(max(-30000, min(30000, relCarryY)))
             relCarryX -= CGFloat(ix)
             relCarryY -= CGFloat(iy)
-            if ix != 0 || iy != 0 { winios_pointer(ix, iy, F_MOVE, 0) }
+            if ix != 0 || iy != 0 {
+                winios_pointer(ix, iy, F_MOVE, 0)
+                // madeira-bcd (round 714, A1 S10): env.MADEIRA_RELATIVE_CURSOR = 1: the drawn cursor follows Wine's, shown only while the program shows its own.
+                if !desktopMode && HardwareInput.relativeCursorEnabled { HardwareInput.shared.stickMoved() }
+            }
             return
         }
 
@@ -843,9 +872,11 @@ final class MetalBackedView: UIView {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touches = BCDTouchExtras.filter(self, touches, .ended) else { return }   // madeira-bcd (round 604)
         if HardwareInput.shared.interceptTouches(touches, event, .ended) { return }
-        guard let touches = tmgFilter(touches, .ended) else { return }
-        if touchPointerMode { touchModeEnded(touches, event); return }
-        guard desktopMode || !InputSettings.shared.directTouch else {
+        let pad = padGesture   // madeira-bcd (2026-11-20): iPhone Duo's touchpad below the fold, until its last finger lifts
+        defer { if pad && activeTouches(event).isEmpty { padGesture = false } }
+        guard let touches = pad ? touches : tmgFilter(touches, .ended) else { return }
+        if touchPointerMode && !pad { touchModeEnded(touches, event); return }
+        guard pad || desktopMode || !InputSettings.shared.directTouch else {
             guard let t = touches.first else { return }
             let (x, y) = mapTouch(t)
             winios_post_touch_up(x, y)
@@ -889,9 +920,11 @@ final class MetalBackedView: UIView {
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touches = BCDTouchExtras.filter(self, touches, .cancelled) else { return }   // madeira-bcd (round 604)
         if HardwareInput.shared.interceptTouches(touches, event, .cancelled) { return }
-        guard let touches = tmgFilter(touches, .cancelled) else { return }
-        if touchPointerMode { touchModeCancelled(touches); return }
-        guard desktopMode || !InputSettings.shared.directTouch else {
+        let pad = padGesture   // madeira-bcd (2026-11-20): iPhone Duo's touchpad below the fold; a cancel ends the gesture
+        defer { if pad { padGesture = false } }
+        guard let touches = pad ? touches : tmgFilter(touches, .cancelled) else { return }
+        if touchPointerMode && !pad { touchModeCancelled(touches); return }
+        guard pad || desktopMode || !InputSettings.shared.directTouch else {
             guard let t = touches.first else { return }
             let (x, y) = mapTouch(t)
             winios_post_touch_up(x, y)
@@ -1405,6 +1438,12 @@ struct ContentView: View {
     /// applies the entry's launch profile and runs the same full sequence as the
     /// developer interface's buttons.
     private func launchLibraryEntry(_ entry: LibraryEntry) {
+        // Round 660 (M140, owner 2026-11-15): a game whose earlier session ended unclean and whose verdict is still being written waits for
+        // it first, off the main thread and at most 5 s, then comes back here once (AutoTune.holdPlayForVerdict); any other Play goes on.
+        let spinner: (Bool) -> Void = { on in   // the Play button's spinner; the JIT step after the wait sets it again when JIT is off
+            if on { library.startingJIT = entry.id } else if library.startingJIT == entry.id { library.startingJIT = nil }
+        }
+        if AutoTune.holdPlayForVerdict(entry, spinner: spinner, then: { launchLibraryEntry(entry) }) { return }
         // A game on an external drive (Settings › Storage › External drives): when the drive is not open, its saved folder is
         // opened again without the picker; if the program is still out of reach, say so. Nothing here for any other game.
         if let drive = ExternalDrives.driveName(library: entry.relativePath) {
@@ -1425,6 +1464,19 @@ struct ContentView: View {
         var entry = entry
         let isNew = !library.entries.contains { $0.id == entry.id }
         if GameRecommendations.prepare(&entry, new: isNew) { library.save(entry) }
+        // madeira-bcd (2026-11-22): X-Plane 12 at its lowest graphics when the game's settings say `xplane-graphics = lowest`
+        // (XPlaneGraphics.swift): its Resources/settings.txt defaults are lowered before the start, and put back when the line
+        // goes. A Steam game's install folder, else the program's folder; nothing for a game without X-Plane's settings file.
+        do {
+            let folder = entry.steamAppID != nil ? entry.relativePath : (entry.relativePath as NSString).deletingLastPathComponent
+            let root = LibraryModel.drive.appendingPathComponent(folder, isDirectory: true)
+            let own = (entry.gameConfigText ?? "") + "\n" + GameProfile(windowsPath: entry.windowsPath).text
+            let wanted = XPlaneGraphics.wanted(settings: own)
+            let kept = root.appendingPathComponent(XPlaneGraphics.settingsRelative + XPlaneGraphics.originalSuffix).path
+            if wanted || FileManager.default.fileExists(atPath: kept), let line = XPlaneGraphics.prepare(folder: root, wanted: wanted) {
+                LogStore.shared.log(line)
+            }
+        }
         // A Steam game starts through Madeira Dock with its own launch profile (SteamGames.swift),
         // unless its Game details page chose "The game": then its own program starts below, like
         // any library game (SteamDirectStart).
@@ -1508,6 +1560,16 @@ struct ContentView: View {
         guard entry.launchWindowsPath.utf8.count < 1024, entry.launchArguments.utf8.count < 4096 else {
             library.error = "The program path or its launch arguments are longer than BCD allows."; return
         }
+        // madeira-bcd (GOG Galaxy features, per game and off by default: env.BCD_GOG_GALAXY; BCDGOG/Galaxy/BCDGOGGalaxy.swift): a GOG game BCD installed
+        // whose switch is on gets BCD's answer on the Galaxy SDK's local port while it runs. The first such start of a build reads the game's
+        // Galaxy client from GOG first and runs this start again. Any other start goes straight on and opens nothing.
+        let galaxyEntry = entry
+        guard BCDGOGGalaxy.shared.preLaunch(galaxyEntry, retry: { startLibraryEntry(galaxyEntry) }) else { return }
+        // madeira-bcd (branch steam-client, 2026-11-21, milestone M1): Steam for Windows (Valve's own steam.exe in the Wine desktop; experimental,
+        // off unless Settings › BCD Dock › Steam for Windows turns it on; BCDSteamDesktopLive.swift). Its start first waits for BCD's own Steam
+        // connection to log off (it stays off until the session has ended) and writes the registry values, then comes back here once. Last
+        // before the launch is set up, so nothing after it can stop the start and leave the account held. Any other entry goes straight on.
+        guard BCDSteamDesktopLive.preLaunch(&entry, retry: { startLibraryEntry($0) }) else { return }
         entry.configureLaunch()
         if BCDEpic.enabled { BCDEpic.shared.applyLaunch(entry) }   // madeira-bcd (2026-10-22): an Epic game's signed-in start goes through BCD Host (BCDEpicStart.swift)
         // madeira-bcd: the game's own options (LibraryBCD.swift); this run's
@@ -1625,7 +1687,7 @@ struct ContentView: View {
         }
 
         // Night round 2026-11-11 (M7): the JIT method as the main thread reads it (the pool request's log fields and its caption rule use it).
-        StikJITHelper.noteRequestMethod(jitCoordinator.resolvedMethod)
+        StikJITHelper.noteRequestMethod(jitCoordinator.requestMethod)   // round 660 (M138): the method that attached, not the one an attach would use
 
         // Pause UI flushing — prevents ALL SwiftUI re-renders during Wine execution,
         // so zero main thread hang time accumulates while debugger is attached
@@ -1640,6 +1702,9 @@ struct ContentView: View {
         let paradoxLauncherSession = MadeiraDock.paradoxLauncherSession   // night round 2026-11-11 (D S2): read here, on the main thread
         let eaInstallLines = DockInstallers.eaInstallSession ? BCDLauncherSpec.eaInstallerSessionLines : []   // round 630 (A1 S12): read here, on the main thread
         let windowsDesktopEntry = profile?.desktop == true   // madeira-bcd (2026-10-23): the library's "Windows desktop" entry (no game), for the msiexec line below
+        // madeira-bcd (branch steam-client, 2026-11-21, M1): this launch is a Steam for Windows session (the entry's program is Valve's own
+        // steam.exe in its own folder). False for every other launch, a Dock start included, and then nothing below differs.
+        let steamDesktopSession = profile.map(BCDSteamDesktopLive.isSession) ?? false
         // Link external drives before the server lists dosdevices (Madeira #464 does it in startWineserver; here it runs on the main
         // thread, where ExternalDrives and the Steam models it refreshes live, before the sequence below starts the server).
         ExternalDrives.shared.mountAll()
@@ -1654,6 +1719,10 @@ struct ContentView: View {
                 // writes those). Either one turns a switch on.
                 Self.reassertBCDSwitches(profile)
                 logStore.log("[launch-route] library profile applied")
+                // madeira-bcd (branch steam-client, M1): a Steam for Windows session reads BCD's settings for it (SteamDesktopProfile: the
+                // JIT pool, the swap file, the memory Steam's web helper is told, its Chromium's address slots), with the entry's own lines
+                // after them, from a file of this session's own. Before the pool request below, which reads three of them.
+                if steamDesktopSession { for line in BCDSteamDesktopLive.applySessionSettings() { logStore.log(line) } }
                 // madeira-bcd: a Dock session of one-time installs runs without the game's
                 // address-space holds, which leave its 32-bit setups no room.
                 let installSession = DockInstallers.applyInstallSessionConfig(extra: eaInstallLines)
@@ -1773,6 +1842,14 @@ struct ContentView: View {
             } else {
                 unsetenv("MADEIRA_DOCK_SESSION")
             }
+            // madeira-bcd (branch steam-client, M1): a Steam for Windows session publishes no fixed Steam game identity either
+            // (WineProcessBridge.m): Valve's client gives each game it starts that game's own. Never together with a Dock start; every
+            // other launch clears the flag and is unchanged.
+            if steamDesktopSession && !dockLaunch.dock {
+                setenv(SteamDesktop.sessionVariable, "1", 1)
+            } else {
+                unsetenv(SteamDesktop.sessionVariable)
+            }
             // madeira-bcd (2026-10-22): an Epic game's session gets msiexec in the 64-bit system32 (WineProcessBridge.m):
             // Paradox's launcher stub (Cities: Skylines on Epic, dowser.exe) installs its launcher by running "msiexec"
             // from PATH, and only the 32-bit msiexec is bundled ("executable file not found in %PATH%", build 585).
@@ -1830,7 +1907,10 @@ struct ContentView: View {
             // Off, the game's file has no say, as before.
             let poolAbove = ["1", "on", "true", "yes"].contains((MadeiraConfig.gameValue("pool-above-window") ?? MadeiraConfig.get("pool-above-window") ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
-            let gamePool = poolAbove ? MadeiraConfig.gameValue("pool") : nil
+            // madeira-bcd (branch steam-client, M1): in a Steam for Windows session the pool line of the session's own file counts by
+            // itself (BCD's 1152, or the entry's own line): the session needs the largest pool, and pool-above-window's other half, the
+            // placement of a pair above the window, stays at its default.
+            let gamePool = (poolAbove || steamDesktopSession) ? MadeiraConfig.gameValue("pool") : nil
             if let txt = gamePool ?? MadeiraConfig.get("pool"),
                let mb = Int(txt.trimmingCharacters(in: .whitespacesAndNewlines)),
                mb >= 256, mb <= 1152 {
@@ -1905,6 +1985,24 @@ struct ContentView: View {
             // upscaling writes it to the game's own lines). The D3D12 runtime reads
             // the key itself; D3D11 games get DXMT's MetalFX swapchain at the same
             // factor (DXMT takes 1 to 2).
+            // madeira-bcd Lossless Scaling frame generation (BCDLosslessLive.swift): only a game whose own line `lossless-scaling` asks
+            // for it gets the shaders and the control file in its prefix; nil (and nothing exported) for every other game.
+            if let line = BCDLosslessLive.launch() { logStore.log(line) }
+            // madeira-bcd Apple frame interpolation, an experiment (BCDVTInterpLive.swift): only a game whose own line `vt-interpolation`
+            // asks for it gets the engine's variable; nil (and nothing exported) for every other game.
+            if let line = BCDVTInterpLive.launch() { logStore.log(line) }
+            // madeira-bcd scheduler hints, an experiment (BCDSchedHintsLive.swift): only with bcd.cfg's or the game's `sched-hints`;
+            // without the key nothing is asked of iOS and nothing is logged.
+            BCDSchedHintsLive.launch()
+            // madeira-bcd a game that never asks for a controller, an experiment (BCDPadAutoLive.swift): only with the game's own line
+            // `pad-auto = 1`; without it no timer runs and nothing is read.
+            BCDPadAutoLive.launch()
+            // madeira-bcd present-fx: with env.MADEIRA_PRESENT_FX = 1 the presenter enlarges the picture, and "to the screen" without it
+            // becomes a factor here (BCDPresentFXLive.launch); nil for every other choice, which is handled as before.
+            if let fx = BCDPresentFXLive.launch() {
+                if let option = fx.option { dxmtOptions.append(option) }
+                logStore.log(fx.log)
+            } else
             if let txt = MadeiraConfig.gameValue("metalfx-upscale") ?? MadeiraConfig.get("metalfx-upscale"),
                let factor = Double(txt), factor >= 1.1 {
                 setenv("DXMT_METALFX_SPATIAL_SWAPCHAIN", "1", 1)
@@ -2236,6 +2334,8 @@ struct ContentView: View {
                 // ml1330: the pool is allocated once per app run and reused, so this is
                 // the actual size, which the unix side records if a session runs it dry.
                 setenv("MADEIRA_POOL_MB", String(pool.size / 1024 / 1024), 1)
+                // madeira-bcd (branch steam-client, M1): what a Steam for Windows session asked for and got, in one line.
+                if steamDesktopSession { logStore.log(BCDSteamDesktopLive.poolLine(askedMB: poolSizeMB, gotMB: pool.size >> 20)) }
             } else {
                 // ml596: ABORT. "Continuing without it" produced ml595 — a run that
                 // looked like an ARM64EC/optimizer regression but was only Wine
@@ -2483,17 +2583,19 @@ struct ContentView: View {
             let installFolder = MadeiraDock.drive.appendingPathComponent(game.library + "/common/" + game.installDir)
             // madeira-bcd (2026-10-24): a game whose page chose a Steam launch option (profile.steamLaunchOption) asks for that
             // entry; a game that never did gets exactly the key and the line it got before (SteamDirectStart.dockLaunch).
-            // madeira-bcd exe-window-auto = 1 (the game's file or bcd.cfg; off unless set): measure the game's own fixed-base exe now, so
-            // the JIT pool is placed above it (StikJITHelper.allocatePool reads this once). Off, nothing is measured and the window is
+            // madeira-bcd exe-window-auto (the game's file or bcd.cfg; on unless 0 from round 677): measure the game's own fixed-base exe now,
+            // so the JIT pool is placed above it (StikJITHelper.allocatePool reads this once). Off, nothing is measured and the window is
             // what exe-window-mb says, or 128MB.
             StikJITHelper.exeWindowAutoMB = 0
-            let autoWindow = ((profile.map { GameProfile(windowsPath: $0.windowsPath).get("exe-window-auto") } ?? nil)
-                              ?? MadeiraConfig.get("exe-window-auto") ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if ["1", "on", "true", "yes"].contains(autoWindow), let need = StikJITHelper.fixedBaseWindowMB(in: installFolder) {
+            let autoWindow = (profile.map { GameProfile(windowsPath: $0.windowsPath).get("exe-window-auto") } ?? nil) ?? MadeiraConfig.get("exe-window-auto")
+            if StikJITHelper.exeWindowAutoWanted(autoWindow), let need = StikJITHelper.fixedBaseWindowMB(in: installFolder) {
                 StikJITHelper.exeWindowAutoMB = need.mb
                 LogStore.shared.log("[exe-window] \(need.exe) is a fixed-base image ending \(need.mb)MB above 0x140000000: "
                     + "the executable window is widened to \(need.mb)MB for this session (exe-window-auto; exe-window-mb in the game's file overrides)")
             }
+            // Round 677 (agent S1 S1-S8): the Steam game's own folder decides Wine's wintypes.dll (BCDWinTypesAuto; the game's file wins).
+            BCDWinTypesAuto.prepare(folder: installFolder,
+                                    gameValue: profile.map { GameProfile(windowsPath: $0.windowsPath).get("env.MADEIRA_WINTYPES") } ?? nil)
             let dockLaunch = SteamDirectStart.dockLaunch(chosen: profile?.steamLaunchOption, options: options, installFolder: installFolder)
             let launchOption = dockLaunch.index
             MadeiraDock.paradoxLauncherSession = options?.first(where: { $0.index == launchOption }).map { MadeiraDock.isParadoxLauncher(executable: $0.executable) } ?? false   // night round 2026-11-11 (D S2)
@@ -2513,7 +2615,7 @@ struct ContentView: View {
                 }
                 try MadeiraDock.writeHandoff(account: signIn.accountName, token: signIn.refreshToken, appID: game.id)
             } catch { fail(error); return }
-            MadeiraDock.configure(game, launchOption: launchOption)
+            MadeiraDock.configure(game, launchOption: launchOption, arguments: profile?.arguments ?? "")
             // The game's one-time installs (its Steam install script) run first, in the same
             // session. No session runs yet, so the registry files can be read and written.
             // madeira-bcd: they run in a session of their own (DockInstallers.installsOnly), and
@@ -2805,6 +2907,10 @@ struct TouchControl: Codable, Identifiable, Equatable {
     /// Optional and written only when set, so a layout saved before it existed, and any layout without
     /// them, is the same file as always.
     var face: Face?
+    /// madeira-bcd (build 666, issue #45): the control holds its key or button from one press to the next (BCD's
+    /// editor: Tap to hold). Optional and written only when set, so a layout saved before it existed, and any layout
+    /// without it, is the same file as always.
+    var latch: Bool?
 }
 
 extension TouchControl {
@@ -2850,13 +2956,23 @@ final class TouchControlsModel: ObservableObject {
     @Published var editing = false {            // transient, never persisted
         didSet {
             // ml1970: an ended edit is written back to the custom layout it came from.
-            if !oldValue && editing { editBaseline = controls }
+            if !oldValue && editing {
+                editBaseline = controls
+                selectedIDs = []; alignmentX = nil; alignmentY = nil
+            }
+            if oldValue && !editing {
+                selectedIDs = []; alignmentX = nil; alignmentY = nil
+            }
             if oldValue && !editing { ControlPresetsModel.shared.editingEnded(baseline: editBaseline) }
         }
     }
     /// The Session panel card is open on this window: it takes every touch.
     @Published var sessionPanel = false         // transient
     @Published var selected: UUID?              // transient
+    /// Editor-only marquee selection; never persisted in control profiles.
+    @Published var selectedIDs: Set<UUID> = []   // transient
+    @Published var alignmentX: CGFloat?          // transient guide, not stored
+    @Published var alignmentY: CGFloat?          // transient guide, not stored
     /// ml1970: the named layout (TouchControlPresets.swift) these controls were
     /// loaded from; nil for controls no layout holds.
     @Published var layoutID: String?            { didSet { save() } }
@@ -2960,6 +3076,15 @@ final class TouchControlsModel: ObservableObject {
             }
             if hypot(p.x - cx, p.y - cy) <= r { return true }
         }
+        // madeira-bcd (Porthole port, item 9): with floating sticks (BCDTouchFeel.floatingSticks, the in-game menu's touch settings; off by
+        // default) a controller stick also takes a touch in its zone (BCDFloatingStick.zone); a control there keeps its own (BCDTouchLayer).
+        if BCDTouchFeel.floatingSticks, !editing {
+            for c in controls where c.action.padName == "LS" || c.action.padName == "RS" {
+                let d = Self.diameter(c)
+                let frame = CGRect(x: area.minX + CGFloat(c.nx) * area.width - d / 2, y: area.minY + CGFloat(c.ny) * area.height - d / 2, width: d, height: d)
+                if BCDFloatingStick.zone(of: frame).contains(p) { return true }
+            }
+        }
         return false
     }
 }
@@ -3058,6 +3183,7 @@ struct TouchControlsOverlay: View {
     @ObservedObject private var feel = BCDTouchFeelModel.shared   // madeira-bcd (round 604): the controls hide when no finger has been on them for the time the player chose
     @ObservedObject private var fold = FoldTabletop.shared
     @State private var pinchBase: Double?
+    @State private var groupPinchBases: [UUID: Double] = [:]
 
     var body: some View {
         GeometryReader { geo in
@@ -3069,6 +3195,10 @@ struct TouchControlsOverlay: View {
             let landscape = geo.size.width > geo.size.height || session
             ZStack(alignment: .top) {
                 if landscape && !library.desktopHome && (!BCDDuoFeatures.active || session) {
+                    // madeira-bcd (2026-11-20): iPhone Duo's touchpad below the fold, drawn under the controls (BCDTabletopTouchpad)
+                    if let pad = fold.bottom, !m.editing, !library.blocksGameplayTouch, BCDTabletopTouchpad.on {
+                        BCDTabletopTouchpadSurface(area: pad, screen: geo.size)
+                    }
                     if (m.visible || m.editing) && !library.blocksGameplayTouch {
                         if !feel.hidden {   // madeira-bcd (round 604): hidden for want of a touch, the controls have no view at all
                             controls(geo.size, session: session)
@@ -3146,16 +3276,29 @@ struct TouchControlsOverlay: View {
     /// BCD (2026-10-18): BCD's bar and editor (BCDTouchLive.swift).
     private var topBar: some View { BCDTouchChromeLive() }
 
-    /// Pinch anywhere scales the SELECTED control. With nothing selected it does
-    /// nothing rather than guessing which one you meant.
+    /// Pinch anywhere to scale the selected control or selected group.
     private var scalePinch: some Gesture {
         MagnificationGesture()
             .onChanged { v in
+                if m.editing && m.selectedIDs.count > 1 {
+                    if groupPinchBases.isEmpty {
+                        groupPinchBases = Dictionary(uniqueKeysWithValues: m.controls
+                            .filter { m.selectedIDs.contains($0.id) && $0.locked != true }
+                            .map { ($0.id, $0.scale) })
+                    }
+                    var updated = m.controls
+                    for i in updated.indices {
+                        guard let base = groupPinchBases[updated[i].id] else { continue }
+                        updated[i].scale = BCDTouchGeometry.clampScale(base * Double(v))
+                    }
+                    if updated != m.controls { m.controls = updated }
+                    return
+                }
                 guard m.editing, let i = m.index(of: m.selected), m.controls[i].locked != true else { return }
                 if pinchBase == nil { pinchBase = m.controls[i].scale }
                 m.controls[i].scale = min(max((pinchBase ?? 1) * Double(v), 0.5), 3.0)
             }
-            .onEnded { _ in pinchBase = nil }
+            .onEnded { _ in pinchBase = nil; groupPinchBases = [:] }
     }
 }
 
@@ -3193,10 +3336,16 @@ enum DesktopGDISection {
     /// For every library start, before the session starts: the log line to write, or nil.
     static func apply(_ entry: LibraryEntry) -> String? {
         let shell = applyShell(entry)
-        if entry.desktop == true || (entry.runsInDesktop && entry.bits == 32) {
+        // Round 669 (agent C PES-1; PES 2017 8DSHHJ, PsoBB 8GK3MM and ZNPD87): a 32-bit program started by the services batch (cmd.exe starts
+        // services.exe, then the game) also runs in a session that began 64-bit; with the table in private host memory its gdi32 reads the
+        // table's address cut to 32 bits and faults on its first GDI handle ("[gdi-shared] 32-bit program in a session whose GDI table is
+        // private host memory"). RE5 and F.E.A.R. 2 ran that way only because the cut address happened to be mapped.
+        let servicesBatch32 = entry.servicesScript != nil && entry.bits == 32
+        if entry.desktop == true || (entry.runsInDesktop && entry.bits == 32) || servicesBatch32 {
             setenv("MADEIRA_GDI_SHARED_SECTION", "1", 1)
             setByDesktop = true
-            return "[bcd] " + (entry.desktop == true ? "Desktop" : "Wine-desktop start of a 32-bit program")
+            return "[bcd] " + (entry.desktop == true ? "Desktop" : servicesBatch32 && !entry.runsInDesktop
+                ? "a 32-bit program started by the services batch" : "Wine-desktop start of a 32-bit program")
                 + ": section-backed GDI table for the 32-bit programs started here "
                 + "(MADEIRA_GDI_SHARED_SECTION=1; env.MADEIRA_GDI_SHARED_SECTION = 0 in its Game config turns it off)"
                 + (shell ?? "")

@@ -80,6 +80,8 @@ struct BCDDockLiveSection: View {
         var components = BCDDockComponents()
         components.installed = dock.clientInstalled
         components.unsupportedBuild = dock.clientUnsupportedBuild
+        components.installedBuild = dock.clientBuild
+        components.chosenBuild = SteamRuntimeFiles.selected.id
         components.downloadBytes = Int64(SteamRuntimeFiles.packages.reduce(0) { $0 + $1.bytes })
         components.working = dock.preparing
         components.error = dock.error
@@ -135,6 +137,14 @@ struct BCDDockLiveSection: View {
 
     func downloadComponents() { MadeiraDockModel.shared.prepareClient() }
     func replaceComponents() { MadeiraDockModel.shared.prepareClient(replacing: true) }
+    func setClientBuild(_ id: Int) {
+        // A build BCD does not install is January 2026, as `SteamRuntimeFiles.selected` reads it.
+        let build = SteamRuntimeFiles.builds.first { $0.id == id } ?? SteamRuntimeFiles.january
+        UserDefaults.standard.set(build.id, forKey: SteamRuntimeFiles.buildKey)
+        SteamLog.event("[dock-client] chosen build \(SteamRuntimeFiles.selected.id) (Settings > BCD Dock)")
+        MadeiraDockModel.shared.error = nil
+        read()
+    }
 
     /// As the old Dock sheet started a game: the interface's start with the pool choice.
     func start(_ appID: Int) {
@@ -142,6 +152,9 @@ struct BCDDockLiveSection: View {
         guard let game = dock.games.first(where: { $0.id == appID }) else { return }
         startDock(game, dock.compactPool)
     }
+
+    /// Branch steam-client (2026-11-21, M1): Steam for Windows' card under the Dock's own (BCDSteamDesktop.swift); it reads its own model.
+    var extraCards: AnyView { AnyView(BCDSteamDesktopCard(backend: BCDSteamDesktopLive.shared)) }
 
     func setCompactPool(_ on: Bool) { MadeiraDockModel.shared.compactPool = on }
     func setRunsInstalls(_ appID: Int, _ run: Bool) { MadeiraDockModel.shared.setRunsInstallers(appID, run) }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright 2026 thebcd69 (BCD)
 // BCD Material: additional terms under GPL-3.0 section 7 apply; see LICENSE-BCD.md.
+// Portions copyright 2026 sky9662: multiselect and alignment guides in the touch-control editor, from thebcd69/bcd-games pull request #69
 // Portions copyright 2026 creeper4004: colour profiles and Settings > Appearance, from thebcd69/bcd-games pull request #27; GPL-3.0-only, modified for BCD in November 2026. See THIRD-PARTY-NOTICES.md.
 
 import SwiftUI
@@ -28,6 +29,7 @@ import UIKit
 struct BCDTouchEditorState: Equatable {
     var items: [BCDTouchItem] = []
     var selected: UUID?
+    var selectedIDs: Set<UUID> = []
     var layoutScale = 1.0
     var layouts = BCDTouchLayouts()
     /// The controls' opacity in play, and its range (a library game's own, or the shared one).
@@ -47,8 +49,11 @@ struct BCDTouchEditorState: Equatable {
     func remove(_ id: UUID)
     func setAction(_ id: UUID, _ action: BCDTouchAction)
     func setScale(_ id: UUID, _ scale: Double)
+    func setGroupAverageScale(_ ids: Set<UUID>, _ average: Double)
     /// A locked control cannot be moved, resized or removed until it is unlocked.
     func setLocked(_ id: UUID, _ locked: Bool)
+    /// build 666 (issue #45): one press holds the control's key or button, the next lets go (BCDTouchItem.latch).
+    func setLatch(_ id: UUID, _ on: Bool)
     /// In front of, or behind, the controls it overlaps.
     func bringToFront(_ id: UUID)
     func sendToBack(_ id: UUID)
@@ -65,6 +70,12 @@ struct BCDTouchEditorState: Equatable {
     func revert()
     /// Ends the edit (edits to a layout of the player's own are kept in it).
     func done()
+}
+
+extension BCDTouchEditorActions {
+    func setGroupAverageScale(_ ids: Set<UUID>, _ average: Double) {
+        ids.forEach { setScale($0, average) }
+    }
 }
 
 // MARK: - The editor
@@ -100,7 +111,14 @@ struct BCDTouchEditor: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if let item = selectedItem, typing == item.id {
+            if state.selectedIDs.count > 1 {
+                let rect = dock(avoiding: nil)
+                groupInspector
+                    .frame(width: rect.width)
+                    .background(BCDTouchPanelBackground())
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .position(x: rect.midX, y: rect.minY + 55)
+            } else if let item = selectedItem, typing == item.id {
                 textCard(item)
             } else if let item = selectedItem {
                 let rect = dock(avoiding: frame(of: item))
@@ -127,12 +145,37 @@ struct BCDTouchEditor: View {
                 .padding(.top, max(insets.top, 6) + 6)
         }
         .frame(width: screen.width, height: screen.height, alignment: .topLeading)
+        .onChange(of: state.selectedIDs) { _, ids in
+            if !ids.isEmpty { layoutsOpen = false }
+        }
         .onChange(of: state.selected) { _, id in
             tab = nil
             typing = nil
             if id != nil { layoutsOpen = false }
         }
         .transaction { $0.animation = nil }
+    }
+
+    private var groupInspector: some View {
+        let chosen = state.items.filter { state.selectedIDs.contains($0.id) }
+        let editable = chosen.filter { !$0.locked }
+        let average = editable.isEmpty ? 1.0 : editable.map(\.scale).reduce(0, +) / Double(editable.count)
+        return VStack(spacing: 10) {
+            HStack {
+                Text("\(chosen.count) selected")
+                    .font(BCDStyle.heading(roomy ? 19 : 16))
+                    .foregroundStyle(BCDStyle.text)
+                Spacer()
+                BCDTouchCloseButton { actions.select(nil) }
+            }
+            BCDTouchSliderRow(title: "Size", value: average, range: BCDTouchGeometry.scaleRange,
+                              text: String(format: "%.1f\u{00D7}", average)) {
+                actions.setGroupAverageScale(state.selectedIDs, $0)
+            }
+            .disabled(editable.isEmpty)
+            .opacity(editable.isEmpty ? 0.45 : 1)
+        }
+        .padding(12)
     }
 
     /// The card the selected control's words are typed in: under the bar, across the middle of the screen, above where the
@@ -297,6 +340,7 @@ struct BCDTouchInspector: View {
                               text: String(format: "%.1f\u{00D7}", item.scale)) { actions.setScale(item.id, $0) }
                 .disabled(item.locked).opacity(item.locked ? 0.45 : 1)
                 .padding(.horizontal, 14).padding(.bottom, 6)
+            if item.action.latchable { holdRow }
             arrangeRow
             tabBar
             ScrollView {
@@ -343,6 +387,22 @@ struct BCDTouchInspector: View {
             BCDTouchCloseButton { actions.select(nil) }
         }
         .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
+    }
+
+    /// build 666 (issue #45): Tap to hold. One press holds the key or button (aim in a shooter while the other thumb turns the
+    /// camera), the next lets go; off, the control is pressed only while a finger is on it, as always.
+    private var holdRow: some View {
+        Toggle(isOn: Binding(get: { item.latch }, set: { actions.setLatch(item.id, $0) })) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Tap to hold")
+                    .font(BCDStyle.label(roomy ? 16 : 14)).foregroundStyle(BCDStyle.text)
+                Text("One tap holds it, the next lets go")
+                    .font(BCDStyle.body(roomy ? 13 : 11)).foregroundStyle(BCDStyle.textSoft).lineLimit(1).minimumScaleFactor(0.7)
+            }
+        }
+        .tint(BCDStyle.fuchsia)
+        .padding(.horizontal, 14).padding(.bottom, 6)
+        .accessibilityHint("One tap holds the control, the next lets go")
     }
 
     /// Lock it in place, or put it in front of or behind the controls it overlaps.

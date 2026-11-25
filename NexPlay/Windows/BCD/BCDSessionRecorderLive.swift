@@ -138,6 +138,8 @@ func winiosPhase(_ name: String) {
 
     private var started: Date?
     private var entry: LibraryEntry?
+    /// The app's count of frames made (bcd_frame_made_count) when the session began.
+    private var madeAtStart: UInt64 = 0
     private var thermalPeak = 0
     private var lowPowerSeen = false
     private var observers: [NSObjectProtocol] = []
@@ -154,6 +156,7 @@ func winiosPhase(_ name: String) {
         self.entry = entry
         started = Date()
         bcd_frame_stats_begin()
+        madeAtStart = bcd_frame_made_count()
         let process = ProcessInfo.processInfo
         thermalPeak = BCDHUDLive.thermalLevel(process.thermalState)
         lowPowerSeen = process.isLowPowerModeEnabled
@@ -228,6 +231,8 @@ func winiosPhase(_ name: String) {
         out.worstMs = Double(frames.worst_us) / 1000
         out.stalls = frames.stalls
         out.stallSeconds = Double(frames.stall_us) / 1e6
+        let made = bcd_frame_made_count()
+        out.made = made >= madeAtStart ? made - madeAtStart : 0
         if let memory = BCDHUDLive.memory() {
             out.peakMB = max(memory.peakMB, memory.footprintMB)
             out.limitMB = memory.availableMB > 0 ? memory.footprintMB + memory.availableMB : nil
@@ -316,6 +321,7 @@ func winiosPhase(_ name: String) {
         let lines = BCDPrevTail.lines(data, offset: from)
         LogStore.shared.log("[prev-tail] the last \(lines.count) line(s) of the previous run's log (\(url.lastPathComponent)), scrubbed:")
         for line in lines { LogStore.shared.log("[prev-tail] " + LogUploadCore.scrub(line)) }
+        if let end = BCDPrevTail.endLine(data) { LogStore.shared.log(LogUploadCore.scrub(end)) }   // round 660 (M036): how it ended, in one line
     }
 
     /// The session's log after a restart: a logs/ link named after the game (preferred, the intake files it by that name), or the rotated

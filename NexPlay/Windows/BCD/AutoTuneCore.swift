@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright 2026 thebcd69 (BCD)
 // BCD Material: additional terms under GPL-3.0 section 7 apply; see LICENSE-BCD.md.
+// Portions copyright 2026 Taala2: the [prev-end] skip and the exits of a system32 program Wine could not start, from thebcd69/bcd-games pull request #64
 //
 //  AutoTuneCore.swift
 //  Madeira
@@ -53,6 +54,9 @@ struct AutoTuneRule: Codable {
     /// How far the session got (AutoTuneLogFacts.stage).
     var minStage: Int?
     var maxStage: Int?
+    /// Round 668 (merge N056): the session's build (the log's "build N") was at most this; a log without a build passes. For a rule whose
+    /// signals mean something else once a later build changed a default (the Mono chunk rules: MADEIRA_MZ_VIEW_CHECK is on from build 652).
+    var maxBuild: Int?
     /// The largest image that got no JIT-pool copy ("[jit-pool] EXHAUSTED (image BASE+SIZE)") was at most this many
     /// MiB. A session whose log has no such line passes (an anonymous allocation that failed, or no pool failure).
     /// pool-split-exhausted uses it: no region of a split pool takes an image of 300 MiB or more after the 100-190 MiB of
@@ -107,6 +111,12 @@ struct AutoTuneRule: Codable {
     /// madeira-bcd (round 624, Fallout 4 voices, WRSNC8): an evaluateWhenRan rule that speaks ONLY for a session that played: its signals are
     /// the game's own side effect (a missing audio decoder), never the reason a failed session failed, so a crash keeps its own verdict.
     var ranOnly: Bool?
+    /// Round 670 (owner 2026-11-18, engine review I1: "yavaş ama çalışan oyunlara da"): a rule for a session that PLAYED, whose signals say the
+    /// game ran slowly or sounded wrong for a reason its lines change (millions of emulated stores into a managed runtime's code memory, an
+    /// audio stream too short for iOS's passes). It never matches a failed session, and its lines are only SUGGESTED (AutoTuneState.suggestion):
+    /// the player is asked every time, whatever "Ask before trying a fix" says, and a start before the yes runs exactly as before. The start
+    /// with the lines keeps them only if it played again and the rule's signals are gone; otherwise they go and the game is where it was.
+    var whenPlayed: Bool?
     /// Night round 2026-11-11 (agent T3 S1; PEAK XVABPA, N0F74Y, W8T71S): the rule may run although the player's own bcd.cfg or game file sets
     /// swap-mb: the attempt then carries the rule's other lines and leaves that key out (the player's number and cap stay). Only when swap-mb is
     /// the ONLY key of the rule the player set; any other user key still keeps the rule out. The swap tiers carry it (a global swap-mb = 4096
@@ -270,6 +280,10 @@ struct AutoTuneLogFacts: Codable, Equatable {
     /// game view: the user was away when the log ended. Final Fantasy Tactics 7QVF78 (19 s, "app inactive") and THPS 3+4 NZECAK
     /// (24 s, "pointer left the game view") were scored as the game ending early.
     var focusLeft = false
+    /// Round 668 (merge N054 b; The Binding of Isaac: Rebirth 7F68HF): the library's session-end watch wrote that the game closed by itself
+    /// with 0 before it showed a picture ("[exit-report] the game closed by itself before it showed a picture"): what happened after it (the
+    /// player sending the app to the background, iOS ending it there) is not how the game ended.
+    var closedBeforePicture = false
     /// Something printed a frame: "Game is presenting (#1", "Early detach: game presenting and settled", a "detach-wait: presents=N" with
     /// N of 1 or more, or the launch cover coming down because of a present. The stage rises with other lines too, and with the clock:
     /// the cover coming down to the desktop ("reason=show-desktop") counts as a first frame (stage 3) and five minutes alive as stage 5.
@@ -380,18 +394,90 @@ final class AutoTuneLogScanner {
     private(set) var lineCount = 0
     private(set) var firstLine: [Int]
     private let needles: [[[UInt8]]]
+    /// 2026-11-12 (The Last of Us Part I, build 656: a 51 MB log of 357,000 lines was scanned for ~2 minutes at 70 to 100 % of an efficiency
+    /// core while the next session started, "[xp-names] ... uses 100% of a core; its stack ... memmem <- AutoTuneLogScanner.find"): a filter in
+    /// front of the per-signal search. A needle can only be in a line when every pair of neighbouring bytes of the needle is in the line, so
+    /// each line's pairs are noted once (hashed into 4096 bits) and a signal is searched only when the pairs of all its needles are there. It
+    /// never drops a match (a pair of the needle that is in the line is in the line's bits); a line that passes is searched as before.
+    /// `pairStart[i] ..< pairStart[i + 1]` are signal i's entries in `pairBits` (at most `maxPairs` per needle, spread over it).
+    static let maxPairs = 8
+    /// False only in the host test that compares both ways (init's `pairFilter`); the app always filters.
+    private let usePairs: Bool
+    private let pairStart: [Int32]
+    private let pairBits: [UInt16]
+    private var linePairs = [UInt64](repeating: 0, count: 64)
+    /// Round 668 (G1 S7; MTNBQ0 and 281 of 632 logs of builds 653-665 show the scan in "[xp-names] ... AutoTuneLogScanner.pairsPresent"):
+    /// every line still asked all ~2,400 signals, about 1,000-1,800 lines a second on the device, so the verdict of a killed run landed
+    /// 6-170 s after the app started and the next start missed it. A key-pair index: each signal is filed under ONE pair of its own pair
+    /// list (the least crowded bucket), and a line asks only the signals filed under the pairs it holds (`keyStart[h] ..< keyStart[h + 1]`
+    /// in `keyItems`), plus the few without a pair (`alwaysItems`). A signal that can match a line holds all its pairs there, its key pair
+    /// too, so no match is lost; the candidates are taken in ascending order, so counts, first lines and evidence are the same.
+    /// Raw pointers: no Array bounds checks in the per-line loop of an unoptimised build.
+    private let keyStart: UnsafeMutablePointer<Int32>
+    private let keyItems: UnsafeMutablePointer<Int32>
+    private let alwaysItems: [Int32]
+    private let stamp: UnsafeMutablePointer<Int>
+    private let cand: UnsafeMutablePointer<Int32>
+    private let signalCount: Int
     /// madeira-bcd (round 630): the signals marked sinceLaunch, whose counts start again at each game launch.
     private let sinceLaunch: [Int]
     /// Whether a signal's first line is already in `evidence` (a count that starts again does not add a second line).
     private var evidenced: [Bool]
     private var carry: [UInt8] = []
+    /// madeira-bcd (2026-11-20): system32 programs Wine failed to start for want of their file (see `mSystem32StartFail`) whose
+    /// NtTerminateProcess(exit_code=0xc0000135) and "child exited with code -1073741515" lines are still to come and do not count.
+    private var missingProgramTerminates = 0
+    private var missingProgramChildExits = 0
 
-    init(signals: [AutoTuneSignal]) {
+    init(signals: [AutoTuneSignal], pairFilter: Bool = true) {
+        usePairs = pairFilter
         needles = signals.map { $0.has.map { Array($0.utf8) } }
+        var starts: [Int32] = [], bits: [UInt16] = []
+        for list in needles {
+            starts.append(Int32(bits.count))
+            for n in list where n.count >= 2 {
+                let pairs = n.count - 1, take = min(pairs, Self.maxPairs)
+                for k in 0..<take {
+                    let at = take == pairs ? k : k * (pairs - 1) / (take - 1)
+                    bits.append(Self.pairHash(n[at], n[at + 1]))
+                }
+            }
+        }
+        starts.append(Int32(bits.count))
+        pairStart = starts
+        pairBits = bits
+        // Round 668 (G1 S7): the key-pair index (see keyStart).
+        let n = signals.count
+        signalCount = n
+        var buckets = [[Int32]](repeating: [], count: 4096)
+        var always: [Int32] = []
+        for i in 0..<n {
+            let a = Int(starts[i]), b = Int(starts[i + 1])
+            if a == b { always.append(Int32(i)); continue }
+            var best = Int(bits[a])
+            for k in a..<b where buckets[Int(bits[k])].count < buckets[best].count { best = Int(bits[k]) }
+            buckets[best].append(Int32(i))
+        }
+        alwaysItems = always
+        keyStart = .allocate(capacity: 4097)
+        keyItems = .allocate(capacity: max(1, n))
+        var at: Int32 = 0
+        for h in 0..<4096 {
+            keyStart[h] = at
+            for i in buckets[h] { keyItems[Int(at)] = i; at += 1 }
+        }
+        keyStart[4096] = at
+        stamp = .allocate(capacity: max(1, n))
+        stamp.initialize(repeating: 0, count: max(1, n))
+        cand = .allocate(capacity: max(1, n))
         counts = Array(repeating: 0, count: signals.count)
         sinceLaunch = signals.indices.filter { signals[$0].sinceLaunch == true }
         evidenced = Array(repeating: false, count: signals.count)
         firstLine = Array(repeating: 0, count: signals.count)
+    }
+
+    deinit {
+        keyStart.deallocate(); keyItems.deallocate(); stamp.deallocate(); cand.deallocate()
     }
 
     /// Streams the whole file. bcd-log.txt holds one app run, which runs one Wine
@@ -456,6 +542,10 @@ final class AutoTuneLogScanner {
         // 177 archive logs with such a block were scored by it (Cult of the Lamb 4DR32H "hung" from the previous run's GPU errors; Mina
         // the Hollower W6PACT matched metal-texture-double-release through it).
         if Self.find(l, Self.mPrevTail) != nil { return }
+        // madeira-bcd (2026-11-19): the "[prev-end]" line after that tail (BCDSessionCore.endLine) quotes the previous run's last
+        // "[freeze] alive t+", footprint and session lines, so it is that run's too. A session that exited after 6 s was scored "ran"
+        // at stage 5 from the previous run's "alive t+1502s", so no early-exit rule could match.
+        if Self.find(l, Self.mPrevEnd) != nil { return }
         // Night round 2026-11-11 (agents G10 S2, G1 note on 778A58): the sender's own words ("[user-comment] ..." lines at the top of a sent log,
         // LogUploadCore.commentLines) are a person's text, never the game's: Alan Wake 778A58's comment quoted a shader message and matched
         // dxmt-d3d9-vs-ps-interface ("FIX-FAILED") although the log has no such failure. The app's own live log never has these lines.
@@ -463,15 +553,84 @@ final class AutoTuneLogScanner {
         if !sinceLaunch.isEmpty, Self.find(l, Self.mLibraryLaunch) != nil {
             for i in sinceLaunch { counts[i] = 0 }
         }
-        for i in needles.indices where Self.hasAll(l, needles[i]) {
-            counts[i] += 1
-            if firstLine[i] == 0 { firstLine[i] = lineCount }
-            if !evidenced[i] && evidence.count < 24 {
-                evidenced[i] = true
-                evidence.append(String(decoding: l.prefix(240), as: UTF8.self))
+        let filtered = usePairs
+        if filtered {
+            notePairs(l)
+            // Round 668 (G1 S7): only the signals filed under a pair this line holds, in ascending order (see keyStart).
+            var nc = 0
+            linePairs.withUnsafeBufferPointer { w in
+                for word in 0..<64 {
+                    var bitsLeft = w[word]
+                    while bitsLeft != 0 {
+                        let h = word << 6 | bitsLeft.trailingZeroBitCount
+                        bitsLeft &= bitsLeft &- 1
+                        var k = Int(keyStart[h])
+                        let end = Int(keyStart[h + 1])
+                        while k < end {
+                            let sig = Int(keyItems[k])
+                            if stamp[sig] != lineCount { stamp[sig] = lineCount; cand[nc] = Int32(sig); nc += 1 }
+                            k += 1
+                        }
+                    }
+                }
             }
+            for sig in alwaysItems where stamp[Int(sig)] != lineCount { stamp[Int(sig)] = lineCount; cand[nc] = sig; nc += 1 }
+            // insertion sort: a line has a few dozen candidates
+            if nc > 1 {
+                for a in 1..<nc {
+                    let v = cand[a]
+                    var b = a - 1
+                    while b >= 0 && cand[b] > v { cand[b + 1] = cand[b]; b -= 1 }
+                    cand[b + 1] = v
+                }
+            }
+            for c in 0..<nc {
+                let i = Int(cand[c])
+                if pairsPresent(i) && Self.hasAll(l, needles[i]) { matched(i, l) }
+            }
+        } else {
+            for i in needles.indices where Self.hasAll(l, needles[i]) { matched(i, l) }
         }
         markers(l)
+    }
+
+    @inline(__always) private func matched(_ i: Int, _ l: UnsafeRawBufferPointer) {
+        counts[i] += 1
+        if firstLine[i] == 0 { firstLine[i] = lineCount }
+        if !evidenced[i] && evidence.count < 24 {
+            evidenced[i] = true
+            evidence.append(String(decoding: l.prefix(240), as: UTF8.self))
+        }
+    }
+
+    @inline(__always) private static func pairHash(_ a: UInt8, _ b: UInt8) -> UInt16 {
+        UInt16(truncatingIfNeeded: (UInt32(a) &* 31 &+ UInt32(b)) & 4095)
+    }
+
+    /// The pairs of neighbouring bytes of the line, for `pairsPresent`.
+    private func notePairs(_ l: UnsafeRawBufferPointer) {
+        linePairs.withUnsafeMutableBufferPointer { w in
+            for k in 0..<64 { w[k] = 0 }
+            guard l.count >= 2 else { return }
+            var prev = l[0]
+            for k in 1..<l.count {
+                let c = l[k], h = Int(Self.pairHash(prev, c))
+                w[h >> 6] |= 1 << UInt64(h & 63)
+                prev = c
+            }
+        }
+    }
+
+    /// False only when a needle of signal i cannot be in the line noted last.
+    @inline(__always) private func pairsPresent(_ i: Int) -> Bool {
+        var k = Int(pairStart[i])
+        let end = Int(pairStart[i + 1])
+        while k < end {
+            let h = Int(pairBits[k])
+            if linePairs[h >> 6] & (1 << UInt64(h & 63)) == 0 { return false }
+            k += 1
+        }
+        return true
     }
 
     private static func find(_ l: UnsafeRawBufferPointer, _ needle: [UInt8]) -> Int? {
@@ -559,6 +718,14 @@ final class AutoTuneLogScanner {
     private static let mXpLine = Array("[xp] ".utf8)
     private static let mFpMB = Array(" fpMB=".utf8)
     private static let mPrevTail = Array("[prev-tail]".utf8)
+    private static let mPrevEnd = Array("[prev-end]".utf8)
+    /// madeira-bcd (2026-11-20): Wine starting a system32 program the bundle does not ship, `wine: failed to start
+    /// L"C:\\windows\\system32\\winemenubuilder.exe": c0000135` (build/wine-i386/build.sh leaves winemenubuilder out: there is no host
+    /// desktop). Shell32 starts it by itself (`winemenubuilder.exe -a`), also after the game's first frame.
+    private static let mSystem32StartFail = Array("wine: failed to start L\"C:\\\\windows\\\\system32\\\\".utf8)
+    private static let mStartFailNoFile = Array("\": c0000135".utf8)
+    private static let mExitNoFile = Array("exit_code=0xc0000135)".utf8)
+    private static let mChildExitNoFile = Array("child exited with code -1073741515".utf8)
     /// "[user-comment] " as bytes, not as an Array("...".utf8) literal: tools/autotune-fixture.py keeps every line a literal matches, and a
     /// sender's comment must never reach a fixture because of this marker.
     private static let mUserComment: [UInt8] = [0x5B, 0x75, 0x73, 0x65, 0x72, 0x2D, 0x63, 0x6F, 0x6D, 0x6D, 0x65, 0x6E, 0x74, 0x5D, 0x20]
@@ -575,6 +742,7 @@ final class AutoTuneLogScanner {
     private static let mQuit = Array("[frontend] graceful close requested".utf8)
     private static let mReturned = Array("[frontend] returned to library".utf8)
     private static let mExitReport = Array("[exit-report] status=0x".utf8)
+    private static let mClosedBeforePicture = Array("[exit-report] the game closed by itself before it showed a picture".utf8)
     private static let mUnhandled = Array("Unhandled exception".utf8)
     private static let mRootFrame = Array("ACCEPTING terminal root frame".utf8)
     /// madeira-bcd (round 626): Metal's own assertion (an API misuse it does not survive, e.g. "Command encoder released without
@@ -748,6 +916,7 @@ final class AutoTuneLogScanner {
             facts.focusLeft = S.find(l, S.mFocusElsewhereInactive) != nil || S.find(l, S.mFocusElsewherePointer) != nil
         }
         if facts.cleanMainExit, !facts.childrenPending, S.find(l, S.mMainExitedChildren) != nil { facts.childrenPending = true }
+        if !facts.closedBeforePicture, S.find(l, S.mClosedBeforePicture) != nil { facts.closedBeforePicture = true }
         if let v = S.number(l, after: S.mExitReport, hex: true) {
             if !facts.cleanMainExit { facts.exitStatus = UInt32(truncatingIfNeeded: v) }
             else if facts.childrenPending { facts.childExitStatus = UInt32(truncatingIfNeeded: v) }
@@ -809,7 +978,19 @@ final class AutoTuneLogScanner {
         }
         if S.find(l, S.mLaunchView) != nil, S.find(l, S.mCoverByPresent) != nil { facts.frameSeen = true }
         if S.find(l, S.mDeviceError) != nil { facts.gpuErrors += 1 }
-        if (S.find(l, S.mTerminate) != nil && (S.find(l, S.mErrorCode) != nil || S.find(l, S.mWarningCode) != nil))
+        // madeira-bcd (2026-11-20): a system32 program Wine could not start because the bundle has no file for it is not the game failing.
+        // Its pseudo-process ends with NtTerminateProcess(exit_code=0xc0000135) and "child exited with code -1073741515" (0xc0000135):
+        // after the first frame those two scored a session that played 105 s and went to the background "crashed" instead of "ran".
+        // One of each per such start; any other error exit, and a c0000135 the game's own start or a DLL gives, still count.
+        if S.find(l, S.mSystem32StartFail) != nil, S.find(l, S.mStartFailNoFile) != nil {
+            missingProgramTerminates += 1
+            missingProgramChildExits += 1
+        }
+        if missingProgramTerminates > 0, S.find(l, S.mTerminate) != nil, S.find(l, S.mExitNoFile) != nil {
+            missingProgramTerminates -= 1
+        } else if missingProgramChildExits > 0, S.find(l, S.mChildExitNoFile) != nil {
+            missingProgramChildExits -= 1
+        } else if (S.find(l, S.mTerminate) != nil && (S.find(l, S.mErrorCode) != nil || S.find(l, S.mWarningCode) != nil))
             || S.find(l, S.mChildNegative) != nil || S.find(l, S.mInitFailed) != nil
             || S.find(l, S.mObjCException) != nil || S.find(l, S.mRedelivKill) != nil {
             if !facts.cleanMainExit { facts.errorExits += 1; facts.lastErrorExitAfterFrame = facts.frameSeen }
@@ -918,8 +1099,12 @@ enum AutoTuneEngine {
         // madeira-bcd (round 630, agent O2 S6; N6EG31, X8FMD9): in a Dock session whose game window came up, an unhandled exception before
         // that window (the Dock's Steam client, not the game) is not the game's crash.
         let unhandledEff = f.gameWindowSeen ? f.unhandled - f.unhandledBeforeWindow : f.unhandled
+        // Round 707 (agent G1 S12; FINAL FANTASY TACTICS PJ43S9, build 686): a Dock session whose game showed an error box and whose frame
+        // counter stayed at 0 for the whole session failed at any stage: the player sat in "Graphics card is not supported" for 352 s, the
+        // clock raised the stage to 5 and the session was scored "ran, ok". A Dock game that drew frames keeps the old rule.
+        let dockBoxNoFrame = f.dock && f.presentsCounted == true && f.presentsLogged == 0 && !f.dialogs.isEmpty
         let crashedInLog = unhandledEff > 0 || f.runtimeErrorDialog || f.exitStatus != nil || errorExitsEff > 0
-            || (!f.dialogs.isEmpty && f.stage < 4) || (f.dock && f.steamNotFound && !f.dialogs.isEmpty) || launcherFailed
+            || (!f.dialogs.isEmpty && f.stage < 4) || (f.dock && f.steamNotFound && !f.dialogs.isEmpty) || launcherFailed || dockBoxNoFrame
         // madeira-bcd (round 624, Kerbal Space Program 2G3Q3V): the game drew 3474 frames, then the Dock's counter stayed at that number for
         // 5 minutes while a thread waited for a FEX lock it owned; the player closed the frozen game, and "quit after playing" (and "ran") hid
         // the freeze from every rule. As it stood at the quit, when the player asked to quit.
@@ -927,6 +1112,10 @@ enum AutoTuneEngine {
         // freeze; the player pressed Close 75-80 s into the frozen picture and "quit" hid it.
         let frozeLocked = f.quitRequested ? (f.lockFreezeAtQuit || f.spinFreezeAtQuit) : (f.lockFreeze || f.spinFreeze)
         if end.killed {
+            // Round 668 (merge N054 b; Isaac 7F68HF): the game had already ended by itself before its first picture (the library's session-end
+            // watch said so) when the player sent the app away and iOS ended it: the game's end, not the app's, is the session's outcome
+            // (it was scored "inconclusive" and the line its rule names, MADEIRA_WOW_JUMBO_INSIDE = 2, was never tried).
+            if f.closedBeforePicture && !crashedInLog { return "exited-early" }
             // madeira-bcd (round 624, Cult of the Lamb VHRFNE): "I closed it" after a minute of nothing on screen, with a thread waiting
             // for a BCD lock it owns itself ("[fexlock] STUCK write-wait") and no frame ever drawn, is not a player leaving a game that
             // works: keep the evidence (the Dock's frame counter is there, it stayed at 0, nothing crashed or was quit).
@@ -969,6 +1158,12 @@ enum AutoTuneEngine {
             if end.userSaid != "froze", f.freezeGaps == 0, !frozeLocked, !(f.quitRequested && !f.returnedToLibrary), !crashedInLog,
                f.gpuErrors > 0, f.gpuErrors <= 3, f.presentsLogged >= 3000,
                let last = f.lastFootprintMB, let limit = end.limitMB ?? f.limitMB, last >= limit - max(150, limit / 50) { return "killed" }
+            // Round 677 (agent G1 S2; DRAGON BALL Sparking! ZERO N0Q7A9, build 665; the archive's 8BS1Z0, 8M1AYF, 4P61Y3 read the same): one or two
+            // freeze gaps the watch calls unexplained, no GPU error, and the last footprint at the limit (6095 of 6144 MB, E cores only, 528 MB read
+            // back in one window) are iOS's memory squeeze before the kill, not a hang of the game. Scored "hung", it matched no rule.
+            if end.userSaid != "froze", f.freezeGaps > 0, f.freezeGaps <= 2, f.gpuErrors == 0, !frozeLocked,
+               !(f.quitRequested && !f.returnedToLibrary), !crashedInLog,
+               let last = f.lastFootprintMB, let limit = end.limitMB ?? f.limitMB, last >= limit - max(150, limit / 50) { return "killed" }
             if end.userSaid == "froze" || f.freezeGaps > 0 || f.gpuErrors > 0 || frozeLocked
                 || (f.quitRequested && !f.returnedToLibrary) { return "hung" }
             // madeira-bcd 578 (lead, from ajan6-mm): a session killed at the memory limit whose only crash evidence is
@@ -987,7 +1182,11 @@ enum AutoTuneEngine {
             if let last = f.lastFootprintMB {
                 // The app's marker first, else the limit the log names (ml992), else the guess below.
                 let known = end.limitMB ?? f.limitMB
-                if let limit = known, last >= limit - max(150, limit / 50) { return "killed" }
+                // Round 677 (agent G1 S2, Sparking ZERO 7ZSFAF: 5942 of 6144 MB = 96.7 %, 202 MB under the margin; agent G3 S2, DummyWar X68HC1:
+                // 3929 of 4095 MB, 17 MB under it): an app ended from outside with the last footprint at 95 % of the limit or more is iOS's memory
+                // kill (the app's own [prev-end] says "memory kill likely" from 95 %). Census of round 677: 21 archive files move from "inconclusive";
+                // a session that ended cleanly at 94 % or more is practically absent.
+                if let limit = known, last >= limit - max(150, limit / 50) || last * 100 >= limit * 95 { return "killed" }
                 // madeira-bcd (round 626, agent G2 S12; The Forest EEZ6Y7 on a 3 GB iPhone with a 2098 MB budget): the newest line was the
                 // slow sampler's, 1935 MB, after the compressor had taken the fast line's 2009 MB back down, 13 MB under the test above, and
                 // the process was gone seconds later. The run's peak is the same evidence when the newest line is within a tenth of it and
@@ -1014,7 +1213,11 @@ enum AutoTuneEngine {
         }
         // The app's crash status of a run whose Wine process ended with code 0 is a leftover thread's (cleanMainExit).
         let crashStatus = f.cleanMainExit ? nil : end.crashStatus
-        if !end.sawProcess && crashStatus == nil { return "inconclusive" }
+        // Round 707 (agent S1 S16; Spider-Man Remastered 2137MG, TEKKEN 7 WAD42Z, Battlefield 4 A2BNBC): the debugger answered the JIT pool
+        // request but every placement was refused ("BAD POOL ... The game is not started", "JIT pool allocation FAILED"): no Wine process ever
+        // ran, and the session was "inconclusive", so bad-pool-window-not-held (pool-window-cut = 1) could never act on the next start.
+        // That is the start's own failure: exited-early at stage 0. An unanswered request (the debugger left) stays inconclusive above.
+        if !end.sawProcess && crashStatus == nil { return f.jitPoolFailed && !f.jitDebuggerUnanswered ? "exited-early" : "inconclusive" }
         // madeira-bcd (round 624, R.E.P.O. AJ7RNE): a thread waited for a FEX lock forever ("[fexlock] STUCK write-wait") and the Dock's frame
         // counter stayed at 0 for 6.5 minutes, yet the stage the clock raises (5 after five minutes) scored the session "ran, ok" and auto-tune
         // tried nothing. Only with the Dock's counter (a game that draws without it keeps the old rule, round 580) and no crash evidence.
@@ -1059,6 +1262,10 @@ enum AutoTuneEngine {
         // 10 s or less after a few frames (32 frames, then the loading screen stayed for 100 s): "hung", not "ran". Of the 82 archive logs
         // alive 100 s or more with 15 s or less of play, only these two change.
         if f.stage <= 3, f.aliveSeconds >= 120, let play = f.sessionPlaySeconds, play <= 10, f.presentsLogged > 0 { return "hung" }
+        // Round 707 (agent A1 S12; VRChat MR0CR9, build 682): the app's own exit report says the game closed by itself before it showed a
+        // picture, and the session never reached the presenting stage: that is not a game that ran, however long the session lived around
+        // it (the Dock's Steam client starting took the two minutes; launch.exe died 1 s after it started). Scored "ran", no rule spoke.
+        if f.closedBeforePicture && f.stage < 3 { return "exited-early" }
         return f.stage >= 4 || (f.aliveSeconds >= 120 && !noFrameProof) ? "ran" : "exited-early"
     }
 
@@ -1098,7 +1305,7 @@ enum AutoTuneEngine {
         // settings, and as a failure it would send a line that was being tried back (Final Fantasy Tactics 7QVF78: 19 s, "app
         // inactive", judged against a memory kill) or leave the game "stuck". A session that matched a rule keeps its verdict: the
         // rule's signals are in the log whoever left.
-        if report.outcome == "exited-early", f.focusLeft, !end.quitRequested, report.matched.isEmpty {
+        if report.outcome == "exited-early", f.focusLeft, !end.quitRequested, report.matched.isEmpty, !f.closedBeforePicture {
             report.outcome = "inconclusive"
         }
         return report
@@ -1136,16 +1343,22 @@ enum AutoTuneEngine {
         }
         // madeira-bcd (round 624, RETRO-2 RQ1): a noFix rule marked evaluateWhenRan also speaks for a session scored ran/quit.
         // 2026-11-01 (Messiah 9ACRYW): so does a fixedIn rule marked evaluateWhenRan (a start that ends nothing, no crash).
-        let ranRule = rule.evaluateWhenRan == true && (rule.noFix == true || rule.fixedIn != nil) && report.played
-        guard report.failed || ranRule else { return false }
-        if rule.ranOnly == true && !ranRule { return false }
-        if !ranRule, let o = rule.outcomes, !o.contains(report.outcome) { return false }
+        if rule.whenPlayed == true {
+            // Round 670 (I1): only a session that played; a failed one keeps the failure rules it always had.
+            guard report.played else { return false }
+        } else {
+            let ranRule = rule.evaluateWhenRan == true && (rule.noFix == true || rule.fixedIn != nil) && report.played
+            guard report.failed || ranRule else { return false }
+            if rule.ranOnly == true && !ranRule { return false }
+            if !ranRule, let o = rule.outcomes, !o.contains(report.outcome) { return false }
+        }
         if let s = rule.session, s != (report.dock ? "dock" : "library") { return false }
         if let a = rule.api, a != (report.d3d12 ? "d3d12" : "d3d11") { return false }
         if let lo = rule.ramMinMB, (report.ramMB ?? 0) < lo { return false }
         if let hi = rule.ramMaxMB, (report.ramMB ?? Int.max) > hi { return false }
         if let lo = rule.minStage, report.stage < lo { return false }
         if let hi = rule.maxStage, report.stage > hi { return false }
+        if let hi = rule.maxBuild, let built = report.build, built > hi { return false }
         if let hi = rule.imageMaxMB, let image = report.jitImageFailMB, image > hi { return false }
         if let hi = rule.exeMaxMB, let exe = report.fixedExeMB, exe > hi { return false }
         if let lo = rule.exeMinMB, (report.fixedExeMB ?? 0) < lo { return false }
@@ -1159,6 +1372,9 @@ enum AutoTuneEngine {
     }
 
     /// Did `now` get further than `best`? `tried`: the rule whose lines this session added.
+    /// Rules whose line answers the game's own start-up check (round 669, LAD-1; better()).
+    static let passesOwnCheck: Set<String> = ["cpu-check-avx"]
+
     static func better(_ now: AutoTuneReport, than best: AutoTuneReport, tried: String? = nil) -> Bool {
         if now.played != best.played { return now.played }
         // madeira-bcd (round 580): the JIT pool refusing an image is a failure at load time. A start that has no such line any more, whose
@@ -1168,6 +1384,12 @@ enum AutoTuneEngine {
         // (DCXTB5 with env.MADEIRA_X64_IMAGE_NOCOPY = 1, the same stage): the line was reverted and the next start failed to load again.
         if let tried, now.failed, best.failed, best.matched.contains(tried), !now.matched.contains(tried),
            best.jitImageFailMB != nil, now.jitImageFailMB == nil, now.stage >= 2 { return true }
+        // madeira-bcd (round 669, agent C LAD-1; Yakuza: Like a Dragon J7657R, TRMZ21, Lost Judgment CPV6CA): a line whose rule answers the game's
+        // OWN start-up check is judged by that check. With env.MADEIRA_FEX_AVX = 1 the AVX box was gone and the modules loaded, and the game
+        // then stopped at a later wall that scores a lower stage than the box did (stage 2 against 3): the line was reverted and the next start
+        // showed the box again. The check gone and stage 2 reached is progress.
+        if let tried, Self.passesOwnCheck.contains(tried), now.failed, best.failed, best.matched.contains(tried), !now.matched.contains(tried),
+           now.stage >= 2 { return true }
         if now.stage != best.stage { return now.stage > best.stage }
         // Same stage: a longer life by half again, and at least 10 s, counts.
         if now.seconds >= best.seconds * 1.5 && now.seconds - best.seconds >= 10 { return true }
@@ -1236,6 +1458,22 @@ struct AutoTuneState: Codable, Equatable {
     /// reverted, for the log ("trial <rule>: 301 s vs best 993 s, stage 4 vs 4 -> reverted"). Set only by the advance that decided a trial,
     /// text only. Optional: a state saved before it existed still loads.
     var trialNote: String?
+    /// Round 670 (owner 2026-11-18, I1): a session that played matched a whenPlayed rule: its lines and id, SUGGESTED only. Nothing reaches a
+    /// start until the player says yes (AutoTune.approveSuggestion turns it into the candidate); a later session that does not play, or plays
+    /// without the rule's signals, takes it away. Optional: a state saved before it existed still loads.
+    var suggestion: [String]?
+    var suggestionRule: String?
+    /// The suggestion the player put off (Not now): its rule id; the result does not ask about it again, the game's page keeps it.
+    var suggestionDeclined: String?
+    /// The candidate came from a suggestion: its start is judged by whether it played again without the rule's signals (advance).
+    var candidatePlayed: Bool?
+    /// The lines of a suggestion whose start did not play better with them: they were taken back (the result says so once).
+    var suggestionReverted: [String]?
+    /// Round 670 (I1): a suggestion waits and the player did not put it off: the result asks Try it next start / Not now.
+    var asksSuggestion: Bool {
+        guard let lines = suggestion, !lines.isEmpty, let rule = suggestionRule else { return false }
+        return suggestionDeclined != rule
+    }
 
     /// Why no swap file was tried, for "stuck" (nil unless an attempt was left out for lack of room).
     var lowDiskNote: String? {
@@ -1281,6 +1519,24 @@ struct AutoTuneState: Codable, Equatable {
     static func addsOptinNames(_ lines: [String], to kept: [String]) -> Bool {
         let have = Set(kept.filter { AutoTuneRules.key($0) == optinKey }.flatMap(optinNames).map { $0.lowercased() })
         return lines.filter { AutoTuneRules.key($0) == optinKey }.flatMap(optinNames).contains { !have.contains($0.lowercased()) }
+    }
+    /// Round 707 (owner 2026-11-22, decision 3; NFS: Most Wanted 2012 XP5V1Y, FIFA 22): a list row that owns env.MADEIRA_OPTIN_DLLS kept every
+    /// rule that names one more DLL out ("a key of the recommended list"), so EADesktop's dxva2 never reached the EA rows. A rule whose only
+    /// key the list holds is that one, and that names a DLL the list's line lacks, adds its names to the list's: the attempt's line is the
+    /// list's names first, then the rule's (no name of the list is ever dropped). Nil: not such a rule.
+    static func optinOverList(_ lines: [String], keys: [String], listValues: [String: String]) -> [String]? {
+        guard let listed = listValues[optinKey], keys.filter({ listValues[$0] != nil }) == [optinKey] else { return nil }
+        let listLine = optinKey + " = " + listed
+        guard addsOptinNames(lines, to: [listLine]) else { return nil }
+        return lines.map { line in AutoTuneRules.key(line) == optinKey ? merge([listLine], [line]).first { AutoTuneRules.key($0) == optinKey } ?? line : line }
+    }
+    /// Round 707: a launch line that holds every name of the list's env.MADEIRA_OPTIN_DLLS and more (optinOverList) replaces the list's line in
+    /// the launch file's copy of the game's file, as a raised swap-mb does.
+    static func supersedesListOptin(_ line: String, listValue: String?) -> Bool {
+        guard AutoTuneRules.key(line) == optinKey, let listValue else { return false }
+        let have = Set(optinNames(line).map { $0.lowercased() })
+        let listed = Set(optinNames(optinKey + " = " + listValue).map { $0.lowercased() })
+        return listed.isSubset(of: have) && have.count > listed.count
     }
     static func merge(_ kept: [String], _ add: [String]) -> [String] {
         let keys = Set(add.map(AutoTuneRules.key))
@@ -1339,12 +1595,16 @@ extension AutoTuneEngine {
         var s = state
         s.skippedNote = nil   // madeira-bcd (round 624, E1 S5b): this session's own, set below only for a "stuck" verdict
         s.trialNote = nil     // night round 2026-11-11 (T1 S1): this session's own, set below only when a trial was decided
+        s.suggestionReverted = nil   // round 670 (I1): this session's own, set below only when a suggested line was taken back
         if s.fingerprint != fingerprint {
             // The user changed the game's settings: what follows is compared with a new baseline.
             s.fingerprint = fingerprint
             s.best = nil
             s.candidate = nil
             s.candidateRule = nil
+            s.candidatePlayed = nil
+            s.suggestion = nil
+            s.suggestionRule = nil
             if s.status != "baseline" { s.status = "baseline" }
         }
         var attempt = AutoTuneAttempt(date: now, lines: s.candidate ?? [], rule: s.candidateRule,
@@ -1355,23 +1615,43 @@ extension AutoTuneEngine {
             return s   // the same lines run once more
         }
         s.monoMissing = report.monoMissing == true ? true : nil
+        // Round 670 (I1): a suggestion is each played session's own to make (the played branch below); any other verdict takes it away.
+        s.suggestion = nil
+        s.suggestionRule = nil
+        var suggestedLineFailed = false
         if let best = s.best, s.candidateRule != nil {
-            let keep = better(report, than: best, tried: s.candidateRule)
+            // Round 670 (I1): a suggested line (the game played before it) is kept only if the game played again and the rule's signals
+            // are gone; better() would weigh the session's length, which says nothing about how a game that plays runs.
+            let suggested = s.candidatePlayed == true
+            let keep = suggested ? report.played && !report.matched.contains(s.candidateRule ?? "") : better(report, than: best, tried: s.candidateRule)
             attempt.kept = keep
             if let rule = s.candidateRule {
-                s.trialNote = "trial \(rule): \(Int(report.seconds)) s at stage \(report.stage) (\(report.outcome)) vs best \(Int(best.seconds)) s at stage "
-                    + "\(best.stage) (\(best.outcome)) -> \(keep ? "kept" : "reverted")"
+                s.trialNote = suggested
+                    ? "trial \(rule) (suggested after a session that played): \(report.outcome) at stage \(report.stage), its signals "
+                        + "\(report.matched.contains(rule) ? "still there" : "gone") -> \(keep ? "kept" : "reverted")"
+                    : "trial \(rule): \(Int(report.seconds)) s at stage \(report.stage) (\(report.outcome)) vs best \(Int(best.seconds)) s at stage "
+                        + "\(best.stage) (\(best.outcome)) -> \(keep ? "kept" : "reverted")"
             }
             if keep {
                 s.kept = AutoTuneState.merge(s.kept, s.candidate ?? [])
                 s.best = report
+            } else if suggested {
+                s.suggestionReverted = s.candidate
+                suggestedLineFailed = !report.played
             }
             s.candidate = nil
             s.candidateRule = nil
+            s.candidatePlayed = nil
         } else {
             s.best = report
         }
         s.attempts.append(attempt)
+        if suggestedLineFailed {
+            // Round 670 (I1): the game played without the suggested line and did not with it. The line goes and the game is where it was;
+            // no failure search starts from a failure the line itself made.
+            s.status = s.kept.isEmpty ? "ok" : "found"
+            return s
+        }
 
         // madeira-bcd (round 624, RETRO-2 RQ1): a session that looked played, with nothing kept, whose log carries the signals of a noFix rule
         // marked evaluateWhenRan: say what it was ("known") instead of "it played without changes". Nothing is tried.
@@ -1391,6 +1671,7 @@ extension AutoTuneEngine {
         }
         if report.played {
             s.status = s.kept.isEmpty ? "ok" : "found"
+            suggest(&s, report: report, rules: rules, userKeys: userKeys, listValues: listValues)
             return s
         }
         // The best match is a crash only a change in Madeira fixes: no line can help, so no
@@ -1417,7 +1698,9 @@ extension AutoTuneEngine {
         // Not for a failure that comes back the same every time (a rule with noRetry): Counter-Strike 2
         // filled the JIT pool on both starts, and the line that helped came only on the third.
         let firm = report.matched.contains { id in rules.first { $0.id == id }?.noRetry == true }
-        if !s.retried && s.kept.isEmpty && s.tried.isEmpty && !firm {
+        // Round 670 (I1): a line suggested after a session that played is no try of a failure's fixes.
+        let triedForFailures = s.tried.filter { id in rules.first { $0.id == id }?.whenPlayed != true }
+        if !s.retried && s.kept.isEmpty && triedForFailures.isEmpty && !firm {
             s.retried = true
             s.candidate = []
             s.candidateRule = "retry"
@@ -1482,7 +1765,11 @@ extension AutoTuneEngine {
                     }
                     if !changes { return skip("the recommended list has its lines") }
                 } else if keys.contains(where: { listValues[$0] != nil }) {
-                    return skip("a key of the recommended list")   // any other rule or verdict: the list's keys are the user's, as before
+                    // Round 707 (owner 2026-11-22): a rule that only adds DLL names to the list's env.MADEIRA_OPTIN_DLLS (optinOverList) may.
+                    guard let union = AutoTuneState.optinOverList(partialLines ?? rule.lines, keys: keys, listValues: listValues) else {
+                        return skip("a key of the recommended list")   // any other rule or verdict: the list's keys are the user's, as before
+                    }
+                    partialLines = union
                 }
             }
             // An upgrade raises what auto-tune kept; anything else adds only new keys.
@@ -1508,6 +1795,38 @@ extension AutoTuneEngine {
         s.candidate = resolve(partialLines ?? rule.lines, report: report)
         s.candidateRule = rule.id
         s.status = "trying"
+        return s
+    }
+
+    /// Round 670 (owner 2026-11-18, I1): after a session that played, the first whenPlayed rule it matched whose lines the game can get becomes
+    /// the suggestion: not tried before (by id or by the same lines), no key the player set, auto-tune kept or the recommended list has, and
+    /// attempts left. Nothing else changes: the status stays "ok" or "found" and no line reaches a start until approveSuggestion.
+    static func suggest(_ s: inout AutoTuneState, report: AutoTuneReport, rules: [AutoTuneRule], userKeys: Set<String>,
+                        listValues: [String: String]) {
+        guard s.decided < maxAttempts else { return }
+        let keptKeys = Set(s.kept.map(AutoTuneRules.key))
+        let triedLines = s.tried.compactMap { id in rules.first { $0.id == id }?.lines }
+        let fits = report.matched.compactMap { id in rules.first { $0.id == id } }.first { rule in
+            guard rule.whenPlayed == true, !rule.lines.isEmpty, !s.tried.contains(rule.id), !triedLines.contains(rule.lines) else { return false }
+            return !rule.lines.map(AutoTuneRules.key).contains { userKeys.contains($0) || keptKeys.contains($0) || listValues[$0] != nil }
+        }
+        guard let rule = fits else { return }
+        s.suggestion = resolve(rule.lines, report: report)
+        s.suggestionRule = rule.id
+    }
+
+    /// Round 670 (I1): the player said yes to the suggestion: it is the next start's candidate, judged as a suggested line (advance).
+    static func approveSuggestion(_ state: AutoTuneState) -> AutoTuneState {
+        var s = state
+        guard let lines = s.suggestion, !lines.isEmpty, let rule = s.suggestionRule else { return s }
+        s.tried.append(rule)
+        s.candidate = lines
+        s.candidateRule = rule
+        s.candidatePlayed = true
+        s.status = "trying"
+        s.suggestion = nil
+        s.suggestionRule = nil
+        s.suggestionDeclined = nil
         return s
     }
 }

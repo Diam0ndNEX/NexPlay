@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright 2026 Jfishin, 125hz
 // Madeira Converter Exception: see LICENSE-EXCEPTION.md
+// Portions copyright 2026 NevesHenry: ContentHostHealth's rotation, taken from https://github.com/willfaust/Madeira (pull request #620, commit ffd0ae51), November 2026.
 // Modified by BCD (thebcd69), 2026-10-22: Steam DLC support (BCDSteamDLC/): `install(... dlc:)` takes the depots of the DLC the
 // player chose and records them; without DLC (`SteamDLCRequest.none`, the default) it is the install it was.
 // Portions copyright 2026 ft7t8drgwf-wq and llamajose: code taken from https://github.com/willfaust/Madeira (pull requests #490, #491, #493, #505 and #524)
@@ -91,6 +92,9 @@ final class DepotDownloader {
     private let maxConcurrentChunks = 8
     private let attemptsPerChunk = 5
     private let hostPoolSize = 6
+    /// Whether a content server leaves the chunk rotation only after repeated
+    /// failures (ContentHostHealth). Set by the owner from its switch (upstream #620, NevesHenry).
+    var rotatesContentServers = true
 
     private nonisolated static let http: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -116,6 +120,11 @@ final class DepotDownloader {
     init(session: SteamCMSession) {
         self.session = session
     }
+
+    /// madeira-bcd (Porthole port, item 6): asked once before a download's chunks are fetched: how many chunks are in flight for a
+    /// download into this folder when that is fewer than usual. nil keeps the usual number, and it is nil until the app sets it
+    /// (MadeiraApp.swift: BCDDriveGentle's answer under bcd.cfg's drive-gentle-writes = 1; nil without that line).
+    static var gentleChunks: (@Sendable (URL) async -> Int?)?
 
     // MARK: - Public API
 
@@ -167,7 +176,7 @@ final class DepotDownloader {
         // 1. Keys, manifests and per-host authorization for every depot.
         let prepStarted = Date()
         manifestStats = ManifestStats()
-        let health = ContentHostHealth()
+        let health = ContentHostHealth(rotates: rotatesContentServers)
         ChunkDigestCheck.shared.begin()
         let pool = Array(hosts.prefix(hostPoolSize))
         var plans: [DepotPlan] = []
@@ -286,6 +295,9 @@ final class DepotDownloader {
         let started = Date()
         let resumedBytes = state.doneBytes
         var lastReport = Date.distantPast
+        // madeira-bcd (Porthole port, item 6): with bcd.cfg drive-gentle-writes = 1 a slow external drive gets fewer writers
+        // (BCDDriveSpeed.swift); nil, the usual number, in every other case and always without the key.
+        let gentleChunks = await Self.gentleChunks?(installURL)
         for (index, plan) in plans.enumerated() {
             let journal = try JournalWriter(url: prepared.journals[index])
             defer { journal.close() }
@@ -305,7 +317,7 @@ final class DepotDownloader {
                         return (item.key, UInt64(chunk.compressedSize), false)
                     }
                 }
-                for _ in 0..<min(maximum, work.count) { enqueue() }
+                for _ in 0..<min(gentleChunks ?? maximum, work.count) { enqueue() }
                 for try await (key, bytes, reused) in group {
                     journal.append(key)
                     state.doneBytes += bytes
@@ -1150,7 +1162,7 @@ final class DepotDownloader {
 
         let keyResponse = try CMsgClientGetDepotDecryptionKeyResponse.deserialize(from: response.body)
         // Steam only issues keys for depots this account owns.
-        guard EResult(rawValue: UInt32(keyResponse.eresult))?.isSuccess == true,
+        guard EResult(rawValue: UInt32(bitPattern: keyResponse.eresult))?.isSuccess == true,
               keyResponse.depotEncryptionKey.count == 32 else {
             // BCD DLC: the first of a DLC depot's two tries (under the game's App ID) logs its own line instead (BCDSteamDLCDownload).
             if logRefusal { SteamLog.event("[steam-depot] depot-key refused app=\(appID) depot=\(depotID) eresult=\(keyResponse.eresult)") }
@@ -1449,23 +1461,42 @@ final class ChunkDigestCheck: @unchecked Sendable {
 }
 
 final class ContentHostHealth: @unchecked Sendable {
+    /// madeira-bcd (upstream pull request #620, NevesHenry, ffd0ae51): a server with only an occasional failure stays
+    /// in the rotation; moving it back after one failure sent every first attempt to the servers with none, and since only a
+    /// server that is tried can recover, the install ended up on one server. Failures after which a server is demoted:
+    static let demoteAfter = 3
+
     private let lock = NSLock()
     private var failures: [String: Int] = [:]
     private var reported = 0
+    private let rotates: Bool
+
+    /// `rotates: false` orders by failure count first, as before (the owner's switch, SteamOwnedLibrary).
+    init(rotates: Bool = true) {
+        self.rotates = rotates
+    }
 
     func order(_ hosts: [String], seed: Int) -> [String] {
         guard !hosts.isEmpty else { return hosts }
         let rotated = (0..<hosts.count).map { hosts[($0 + seed) % hosts.count] }
         lock.lock(); let counts = failures; lock.unlock()
+        let demoteAfter = Self.demoteAfter
+        // Sort key: servers below the demotion point keep the seed rotation;
+        // demoted ones follow, fewest failures first, then in rotation order.
+        func key(_ entry: (offset: Int, element: String)) -> (Int, Int, Int) {
+            let count = counts[entry.element] ?? 0
+            if !rotates { return (count, entry.offset, 0) }
+            return count >= demoteAfter ? (1, count, entry.offset) : (0, 0, entry.offset)
+        }
         return rotated.enumerated()
-            .sorted { ((counts[$0.element] ?? 0), $0.offset) < ((counts[$1.element] ?? 0), $1.offset) }
+            .sorted { key($0) < key($1) }
             .map(\.element)
     }
 
     func recordFailure(_ host: String, reason: String) {
         lock.lock()
         failures[host, default: 0] += 1
-        let report = failures[host] == 3 && reported < 8
+        let report = failures[host] == Self.demoteAfter && reported < 8
         if report { reported += 1 }
         lock.unlock()
         if report {
@@ -1570,7 +1601,7 @@ extension DepotDownloader {
         var auth: [String: String] = [:]
         for host in pool { auth[host] = await cdnAuthFragment(depotID: appID, appID: appID, host: host) }
         let plan = DepotPlan(depotID: appID, manifestGID: manifestGID, key: key, manifest: manifest, hosts: pool, auth: auth,
-                             declaredSize: UInt64(manifest.totalUncompressedSize), health: ContentHostHealth())
+                             declaredSize: UInt64(manifest.totalUncompressedSize), health: ContentHostHealth(rotates: rotatesContentServers))
         let prepared = try await Task.detached(priority: .userInitiated) {
             try Self.prepare(plans: [plan], installURL: folder, journalDir: journalDir)
         }.value
@@ -1588,6 +1619,7 @@ extension DepotDownloader {
         defer { journal.close() }
         let work = pending[0], paths = prepared.paths[0]
         let attempts = attemptsPerChunk
+        let maximum = await Self.gentleChunks?(folder) ?? maxConcurrentChunks   // madeira-bcd: as in install (nil without the key)
         let started = Date(), resumedBytes = state.doneBytes
         var lastReport = Date.distantPast
         try await withThrowingTaskGroup(of: (UInt64, UInt64).self) { group in
@@ -1602,7 +1634,7 @@ extension DepotDownloader {
                     return (item.key, UInt64(chunk.compressedSize))
                 }
             }
-            for _ in 0..<min(maxConcurrentChunks, work.count) { enqueue() }
+            for _ in 0..<min(maximum, work.count) { enqueue() }
             for try await (key, bytes) in group {
                 journal.append(key)
                 state.doneBytes += bytes

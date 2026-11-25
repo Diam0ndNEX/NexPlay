@@ -3,7 +3,10 @@
 // Madeira Converter Exception: see LICENSE-EXCEPTION.md
 // Modified by BCD (thebcd69), 2026-10-22: Steam DLC support (BCDSteamDLC/): the account's App IDs and the DLC lookup (`ownedAppIDs`, `dlcReport`).
 // Modified by BCD (thebcd69), 2026-11-05: a game's version (beta branches): the beta code check, a private branch's depot section and
+// Portions copyright 2026 Bogdan Seniuc: code taken from https://github.com/thebcd69/bcd-games (pull request #55 by bogsen)
+// under GPL-3.0-or-later with the Madeira Converter Exception and modified for BCD in November 2026. See THIRD-PARTY-NOTICES.md.
 // `applyBranch` (only a chosen beta asks Steam for any of it); the binary KeyValues reader for that section.
+// Modified by BCD (thebcd69), 2026-11-13: `forgetOwnedApps` (one app's licence asked again, for Lossless Scaling's check).
 // Portions copyright 2026 ft7t8drgwf-wq: code taken from https://github.com/willfaust/Madeira (pull request #490)
 // under GPL-3.0-or-later and modified for BCD in November 2026. See THIRD-PARTY-NOTICES.md.
 //
@@ -108,7 +111,7 @@ class SteamLibraryFetcher {
         var owners: [UInt32: SteamAppInfo] = [appID: app]
         var visited: Set<UInt32> = [appID], references = Set<String>()
         func eligible(_ d: SteamAppInfo.DepotInfo) -> Bool {
-            !d.isSharedInstall && d.dlcAppID == nil && d.supports(os: "windows") &&
+            !d.isProvidedRedistributable && d.dlcAppID == nil && d.supports(os: "windows") &&
                 !d.lowViolence && (d.language.isEmpty || ["english", SteamLanguage.download(for: appID)].contains(d.language.lowercased()))
         }
         var pending = app.depots.filter { eligible($0) && $0.publicManifestID == nil && $0.fromApp != nil }
@@ -168,6 +171,9 @@ class SteamLibraryFetcher {
     /// The depots a DLC app declares in its own product info (an empty list: it declares none), by DLC App ID, cached per
     /// session. Only for DLC the game itself lists no Windows depot for.
     private var dlcOwnDepotCache: [UInt32: [SteamAppInfo.DepotInfo]] = [:]
+
+    /// madeira-bcd (Lossless Scaling's licence check, BCDLosslessLive.swift): the next `ownedAppIDs` reads the licence list again.
+    func forgetOwnedApps() { ownedAppsCache = nil }
 
     func ownedAppIDs() async throws -> Set<UInt32> {
         try await session.ensureConnected()

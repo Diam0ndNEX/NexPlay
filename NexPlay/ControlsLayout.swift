@@ -224,6 +224,10 @@ struct ControlItem: Codable, Identifiable, Equatable {
     var color: String?
     /// 7.3.0, D-pad and joystick: press W/A/S/D instead of the arrow keys.
     var wasd: Bool?
+    /// 8.20.0, D-pad and joystick: a floating stick. A thumb anywhere on that side of the lower screen (not on another
+    /// control) puts the stick under it; it goes home when the thumb lifts. Idea from BCD's floating sticks
+    /// (BCDFloatingStick.swift, after Porthole); NexPlay's own code.
+    var floating: Bool?
 
     init(action: ControlAction, keyCode: Int? = nil, x: Double, y: Double, size: Double,
          opacity: Double = 0.75, label: String? = nil) {

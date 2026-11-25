@@ -23,6 +23,9 @@ private struct GameCoreSymbols {
     typealias SetMessageCallback = @convention(c) (MessageCallback?, UnsafeMutableRawPointer?) -> Void
     typealias EventCallback = @convention(c) (UnsafeMutableRawPointer?) -> Void
     typealias SetEventCallback = @convention(c) (EventCallback?, UnsafeMutableRawPointer?) -> Void
+    /// 8.20.0 (core v27, GameCore.h GameCoreSaveEvent): 0 = the game read a save, 1 = the engine repaired a save value.
+    typealias SaveEventCallback = @convention(c) (Int32, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void
+    typealias SetSaveEventCallback = @convention(c) (SaveEventCallback?, UnsafeMutableRawPointer?) -> Void
     typealias IntResult = @convention(c) () -> Int32
     typealias SetInt = @convention(c) (Int32) -> Void
     typealias DoubleResult = @convention(c) () -> Double
@@ -46,11 +49,13 @@ private struct GameCoreSymbols {
     let setInfoCallback: SetMessageCallback?
     let signalInfoDismissed: Void0?
     let setTerminatedCallback: SetEventCallback?
+    let setSaveEventCallback: SetSaveEventCallback?
     let didExitCleanly: IntResult?
     // 8.14.0: the in-game menu's tools (GameCore.h). Each is optional: a core without one hides its row.
     let setFastForward: SetInt?
     let setCheatsEnabled: SetBool?
     let averageFPS: DoubleResult?
+    let targetFPS: IntResult?
     let snapshotSize: SnapshotSize?
     let copySnapshot: CopySnapshot?
     let pushTextInput: SetPath?
@@ -88,10 +93,12 @@ private struct GameCoreSymbols {
             setInfoCallback: symbol("gamecore_setInfoMessageCallback", SetMessageCallback.self),
             signalInfoDismissed: symbol("gamecore_signalInfoDismissed", Void0.self),
             setTerminatedCallback: symbol("gamecore_setEngineTerminatedCallback", SetEventCallback.self),
+            setSaveEventCallback: symbol("gamecore_setSaveEventCallback", SetSaveEventCallback.self),
             didExitCleanly: symbol("gamecore_didEngineExitCleanly", IntResult.self),
             setFastForward: symbol("gamecore_setFastForwardMultiplier", SetInt.self),
             setCheatsEnabled: symbol("gamecore_setCheatsEnabled", SetBool.self),
             averageFPS: symbol("gamecore_getAverageFPS", DoubleResult.self),
+            targetFPS: symbol("gamecore_getTargetFPS", IntResult.self),
             snapshotSize: symbol("gamecore_getSnapshotSize", SnapshotSize.self),
             copySnapshot: symbol("gamecore_copySnapshotRGBA", CopySnapshot.self),
             pushTextInput: symbol("gamecore_pushTextInput", SetPath.self),
@@ -356,6 +363,12 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
             let text = message.map { String(cString: $0) } ?? ""
             Task { @MainActor in events.owner?.coreMessage(text, isError: false) }
         }, box)
+        // 8.20.0: save loads and save repairs (core v27+) go to the App Log, so a game that misbehaves after loading a
+        // save shows which file it read and what the engine fixed in it.
+        core.setSaveEventCallback?({ event, detail, _ in
+            let text = detail.map { String(cString: $0) } ?? ""
+            AppLog.log(event == 1 ? "mkxp: the core repaired a save value: \(text)" : "mkxp: game loaded save \(text)")
+        }, box)
         core.setTerminatedCallback?({ userdata in
             guard let userdata = userdata else { return }
             let events = Unmanaged<MkxpEvents>.fromOpaque(userdata).takeUnretainedValue()
@@ -366,8 +379,19 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
         // 8.15.2: a heartbeat in the App Log every 5 s (time since start, the core's frame rate, paused or not). No line
         // = the main thread is stuck inside the core; fps 0 with lines = the game is not drawing.
         let startedAt = Date()
+        // 8.20.0: 120 Hz while the game's frame rate doesn't divide 60 (XP's 40 fps); checked soon after the start and
+        // with every heartbeat, because a game can change Graphics.frame_rate.
+        if let target = core.targetFPS {
+            for delay in [3.0, 10.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self = self, !self.ended else { return }
+                    ScreenRate.set(gameRate: Int(target()))
+                }
+            }
+        }
         let beat = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             guard let self = self, !self.ended else { return }
+            if let target = self.core.targetFPS { ScreenRate.set(gameRate: Int(target())) }
             let fps = self.core.averageFPS == nil ? -1 : self.fpsBox.whole
             AppLog.log("mkxp: alive \(Int(Date().timeIntervalSince(startedAt))) s, fps \(fps), paused \(self.paused), panel \(self.panelController != nil), editing \(self.overlay?.isEditing == true)")
         }
@@ -882,6 +906,7 @@ private final class MkxpViewController: UIViewController, RubyPlayerControlling 
     }
 
     func shutdownRuby() {
+        ScreenRate.set(gameRate: 0)
         hudTimer?.invalidate()
         hudTimer = nil
         controllers?.stop()

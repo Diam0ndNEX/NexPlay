@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright 2026 thebcd69 (BCD)
 // BCD Material: additional terms under GPL-3.0 section 7 apply; see LICENSE-BCD.md.
+// Portions copyright 2026 sky9662: multiselect and alignment guides in the touch-control editor, from thebcd69/bcd-games pull request #69
 // Portions copyright 2026 creeper4004: colour profiles and Settings > Appearance, from thebcd69/bcd-games pull request #27; GPL-3.0-only, modified for BCD in November 2026. See THIRD-PARTY-NOTICES.md.
 
 import SwiftUI
@@ -29,12 +30,42 @@ import UIKit
     /// the control's frame; `changed` reports the thumb's deflection (x right, y down, within
     /// the unit circle) and whether the control is held.
     func padSurface(control: UUID, name: String, changed: @escaping (CGSize, Bool) -> Void) -> AnyView
+    /// madeira-bcd (Porthole port, item 9): the same for a floating stick. The surface fills the stick's zone; `diameter` is the stick's,
+    /// and `landed` says where its ring is drawn while a thumb is on it (from the zone's centre; nil at rest).
+    func floatingPadSurface(control: UUID, name: String, diameter: CGFloat, changed: @escaping (CGSize, Bool) -> Void,
+                            landed: @escaping (CGSize?) -> Void) -> AnyView
+}
+
+extension BCDTouchInput {
+    /// madeira-bcd (build 666, issue #45): a controller button that holds from one press to the next (BCDTouchItem.holds);
+    /// a stand-in without the engine (the preview) gives the ordinary surface.
+    func padSurface(control: UUID, name: String, latches: Bool, changed: @escaping (CGSize, Bool) -> Void) -> AnyView {
+        padSurface(control: control, name: name, changed: changed)
+    }
+
+    /// A stand-in without the engine (the preview): the stick's own surface over the zone.
+    func floatingPadSurface(control: UUID, name: String, diameter: CGFloat, changed: @escaping (CGSize, Bool) -> Void,
+                            landed: @escaping (CGSize?) -> Void) -> AnyView {
+        padSurface(control: control, name: name, changed: changed)
+    }
 }
 
 /// The editor's hands on the layout.
 @MainActor protocol BCDTouchArranging: AnyObject {
     func select(_ id: UUID?)
+    func selectMany(_ ids: Set<UUID>)
+    func beginDrag(_ id: UUID)
+    func drag(_ id: UUID, delta: CGSize, screen: CGSize)
+    func endDrag(_ id: UUID, moved: Bool)
     func move(_ id: UUID, x: Double, y: Double)
+}
+
+extension BCDTouchArranging {
+    /// Keeps third-party and preview adapters compatible with single selection.
+    func selectMany(_ ids: Set<UUID>) { select(ids.count == 1 ? ids.first : nil) }
+    func beginDrag(_ id: UUID) { select(id) }
+    func drag(_ id: UUID, delta: CGSize, screen: CGSize) {}
+    func endDrag(_ id: UUID, moved: Bool) { if !moved { select(id) } }
 }
 
 // MARK: - Colours
@@ -75,27 +106,93 @@ struct BCDTouchLayer: View {
     var opacity = 1.0
     var editing = false
     var selected: UUID? = nil
+    var selectedIDs: Set<UUID> = []
+    var alignmentX: CGFloat? = nil
+    var alignmentY: CGFloat? = nil
     let input: BCDTouchInput
     var arranging: BCDTouchArranging? = nil
     /// How the controls look (round 604, BCDTouchLook.swift); BCD's own unless the player chose another.
     var look = BCDTouchLook()
+    /// madeira-bcd (Porthole port, item 9): floating sticks (BCDTouchFeel.floatingSticks, the in-game menu's touch settings; off by default).
+    var floatingSticks = false
+    @State private var marquee: CGRect?
+
+    private func controlFrame(_ item: BCDTouchItem) -> CGRect {
+        let diameter = BCDTouchGeometry.diameter(scale: item.scale, layoutScale: layoutScale)
+        let size = BCDTouchGeometry.size(item.shape, diameter: diameter)
+        return CGRect(x: CGFloat(item.x) * screen.width - size.width / 2,
+                      y: CGFloat(item.y) * screen.height - size.height / 2,
+                      width: size.width, height: size.height)
+    }
+
+    private var emptySpaceSelection: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard editing else { return }
+                let a = value.startLocation, b = value.location
+                guard hypot(b.x - a.x, b.y - a.y) > 5 else { return }
+                marquee = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                                 width: abs(b.x - a.x), height: abs(b.y - a.y))
+            }
+            .onEnded { _ in
+                guard editing, let arranging else { marquee = nil; return }
+                if let rect = marquee {
+                    arranging.selectMany(Set(items.filter { controlFrame($0).intersects(rect) }.map(\.id)))
+                } else { arranging.select(nil) }
+                marquee = nil
+            }
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             if editing, let arranging {
-                // A tap on empty space puts the selected control down.
+                // Drag from empty canvas to marquee-select, tap empty space to deselect.
                 Color.clear
                     .contentShape(Rectangle())
-                    .onTapGesture { arranging.select(nil) }
+                    .gesture(emptySpaceSelection)
             }
-            ForEach(items) { item in
-                BCDTouchControl(item: item, screen: screen, layoutScale: layoutScale, opacity: opacity,
-                                editing: editing, selected: editing && selected == item.id,
-                                input: input, arranging: arranging, look: look)
-                    .equatable()
+            if floatingSticks && !editing {
+                // The controller sticks first, under every other control: a control in a stick's zone keeps its own touches.
+                ForEach(items.filter(\.action.isControllerStick)) { item in
+                    BCDTouchFloatingStick(item: item, screen: screen, layoutScale: layoutScale, opacity: opacity, input: input, look: look)
+                        .equatable()
+                }
+                ForEach(items.filter { !$0.action.isControllerStick }) { item in
+                    BCDTouchControl(item: item, screen: screen, layoutScale: layoutScale, opacity: opacity,
+                                    editing: editing, selected: false, input: input, arranging: arranging, look: look)
+                        .equatable()
+                }
+            } else {
+                ForEach(items) { item in
+                    BCDTouchControl(item: item, screen: screen, layoutScale: layoutScale, opacity: opacity,
+                                    editing: editing, selected: editing && (selected == item.id || selectedIDs.contains(item.id)),
+                                    input: input, arranging: arranging, look: look)
+                        .equatable()
+                }
+            }
+            if editing, let x = alignmentX {
+                Rectangle().fill(BCDTouchPalette.selected.opacity(0.7))
+                    .frame(width: 1, height: screen.height)
+                    .position(x: x, y: screen.height / 2)
+                    .allowsHitTesting(false)
+            }
+            if editing, let y = alignmentY {
+                Rectangle().fill(BCDTouchPalette.selected.opacity(0.7))
+                    .frame(width: screen.width, height: 1)
+                    .position(x: screen.width / 2, y: y)
+                    .allowsHitTesting(false)
+            }
+            if editing, let rect = marquee {
+                Rectangle()
+                    .fill(BCDTouchPalette.selected.opacity(0.1))
+                    .overlay(Rectangle().stroke(BCDTouchPalette.selected.opacity(0.9), lineWidth: 1))
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+                    .allowsHitTesting(false)
             }
         }
         .frame(width: screen.width, height: screen.height, alignment: .topLeading)
+        .onChange(of: editing) { _, isEditing in if !isEditing { marquee = nil } }
         .transaction { $0.animation = nil }
     }
 }
@@ -115,7 +212,8 @@ struct BCDTouchControl: View, Equatable {
     @State private var down = false
     @State private var direction = -1
     @State private var vector = CGSize.zero
-    @State private var dragBase: CGPoint?
+    @State private var dragStarted = false
+    @State private var dragMoved = false
 
     nonisolated static func == (a: BCDTouchControl, b: BCDTouchControl) -> Bool {
         a.item == b.item && a.screen == b.screen && a.layoutScale == b.layoutScale && a.opacity == b.opacity
@@ -144,12 +242,13 @@ struct BCDTouchControl: View, Equatable {
 
     @ViewBuilder private var surface: some View {
         if let name = item.action.padName {
-            input.padSurface(control: item.id, name: name) { deflection, held in
+            input.padSurface(control: item.id, name: name, latches: item.holds) { deflection, held in
                 vector = deflection
                 down = held
             }
         } else {
-            BCDTouchKeySurface(action: item.action, diameter: Double(diameter), own: item.ownShape, input: input) { held, toward in
+            BCDTouchKeySurface(action: item.action, diameter: Double(diameter), own: item.ownShape, input: input,
+                               latches: item.holds) { held, toward in
                 down = held
                 direction = toward
             }
@@ -162,20 +261,79 @@ struct BCDTouchControl: View, Equatable {
         vector = .zero
     }
 
-    /// Editing: touch a control to select it, drag it to move it.
+    /// A tap selects only this control. Dragging a member keeps its group selected.
     private var editDrag: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 guard editing, let arranging else { return }
-                arranging.select(item.id)
-                if item.locked { return }   // selected to unlock it, resize nothing, move nothing
-                if dragBase == nil { dragBase = CGPoint(x: item.x, y: item.y) }
-                let base = dragBase ?? .zero
-                arranging.move(item.id,
-                               x: BCDTouchGeometry.clampPlace(Double(base.x) + Double(value.translation.width / screen.width)),
-                               y: BCDTouchGeometry.clampPlace(Double(base.y) + Double(value.translation.height / screen.height)))
+                if !dragStarted {
+                    dragStarted = true
+                    arranging.beginDrag(item.id)
+                }
+                if item.locked { return }  // A locked control cannot move its group.
+                guard hypot(value.translation.width, value.translation.height) > 4 else { return }
+                dragMoved = true
+                arranging.drag(item.id, delta: value.translation, screen: screen)
             }
-            .onEnded { _ in dragBase = nil }
+            .onEnded { _ in
+                if editing { arranging?.endDrag(item.id, moved: dragMoved) }
+                dragStarted = false
+                dragMoved = false
+            }
+    }
+}
+
+/// madeira-bcd (Porthole port, item 9): a controller stick that floats. Its surface covers the stick's zone (BCDFloatingStick.zone), under
+/// every other control; its ring is drawn at its place and, while a thumb is on it, where the thumb landed. Only while the sticks float and
+/// nothing is being edited (BCDTouchLayer).
+struct BCDTouchFloatingStick: View, Equatable {
+    let item: BCDTouchItem
+    let screen: CGSize
+    let layoutScale: Double
+    let opacity: Double
+    let input: BCDTouchInput
+    let look: BCDTouchLook
+
+    @State private var down = false
+    @State private var vector = CGSize.zero
+    @State private var landed: CGSize?
+
+    nonisolated static func == (a: BCDTouchFloatingStick, b: BCDTouchFloatingStick) -> Bool {
+        // The input is the layer's one object for the session (BCDTouchLive.shared), so it is not compared.
+        a.item == b.item && a.screen == b.screen && a.layoutScale == b.layoutScale && a.opacity == b.opacity && a.look == b.look
+    }
+
+    private var diameter: CGFloat { CGFloat(BCDTouchGeometry.diameter(scale: item.scale, layoutScale: layoutScale)) }
+
+    var body: some View {
+        let size = BCDTouchGeometry.size(item.shape, diameter: Double(diameter))
+        let home = CGPoint(x: CGFloat(item.x) * screen.width, y: CGFloat(item.y) * screen.height)
+        let zone = BCDFloatingStick.zone(of: CGRect(x: home.x - size.width / 2, y: home.y - size.height / 2, width: size.width, height: size.height))
+        ZStack(alignment: .topLeading) {
+            if let name = item.action.padName {
+                input.floatingPadSurface(control: item.id, name: name, diameter: diameter, changed: { deflection, held in
+                    vector = deflection
+                    down = held
+                }, landed: { landed = $0 })
+                .frame(width: zone.width, height: zone.height)
+                .position(x: zone.midX, y: zone.midY)
+            }
+            BCDTouchFace(action: item.action, diameter: diameter, down: down, vector: vector, opacity: opacity)
+                .environment(\.bcdTouchLook, look)
+                .frame(width: size.width, height: size.height)
+                .position(x: home.x + (landed?.width ?? 0), y: home.y + (landed?.height ?? 0))
+                .allowsHitTesting(false)
+        }
+        .onChange(of: screen) { _, _ in rest() }
+        .onDisappear { rest() }
+        .accessibilityElement()
+        .accessibilityLabel(BCDTouchNames.title(item.action))
+    }
+
+    private func rest() {
+        down = false
+        vector = .zero
+        landed = nil
     }
 }
 
@@ -460,12 +618,14 @@ struct BCDTouchKeySurface: UIViewRepresentable {
     /// The player's own shape; nil: the circle, as always.
     let own: BCDTouchShape?
     let input: BCDTouchInput
+    /// madeira-bcd (build 666, issue #45): it holds from one press to the next (BCDTouchItem.holds).
+    var latches = false
     /// Pressed, and a key stick's direction.
     let changed: (Bool, Int) -> Void
 
     func makeUIView(context: Context) -> BCDTouchKeyView { BCDTouchKeyView() }
     func updateUIView(_ view: BCDTouchKeyView, context: Context) {
-        view.configure(action: action, diameter: diameter, own: own, input: input, changed: changed)
+        view.configure(action: action, diameter: diameter, own: own, input: input, latches: latches, changed: changed)
     }
     static func dismantleUIView(_ view: BCDTouchKeyView, coordinator: ()) { view.finish() }
 }
@@ -489,7 +649,7 @@ final class BCDTouchKeyView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     deinit { NotificationCenter.default.removeObserver(self) }
 
-    func configure(action: BCDTouchAction, diameter: Double, own: BCDTouchShape?, input: BCDTouchInput,
+    func configure(action: BCDTouchAction, diameter: Double, own: BCDTouchShape?, input: BCDTouchInput, latches: Bool = false,
                    changed: @escaping (Bool, Int) -> Void) {
         self.diameter = diameter
         self.own = own
@@ -498,11 +658,13 @@ final class BCDTouchKeyView: UIView {
             press.rebind(action)
             press.diameter = diameter
             press.changed = changed
+            press.latches = latches
         } else {
             let p = BCDTouchPress(action: action, diameter: diameter,
                                   send: { [weak self] event in self?.input?.send(event) },
                                   tap: { BCDTouchHaptic.tap() })
             p.changed = changed
+            p.latches = latches
             press = p
         }
     }
@@ -534,7 +696,8 @@ final class BCDTouchKeyView: UIView {
 
     private func lift(_ touches: Set<UITouch>) {
         guard let finger, touches.contains(where: { ObjectIdentifier($0) == finger }) else { return }
-        finish()
+        self.finger = nil
+        press?.lift()   // build 666: a holding control stays down (BCDTouchPress.lift); every other one lets go, as before
     }
 
     override func didMoveToWindow() {

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright 2026 Jfishin, 125hz
 // Madeira Converter Exception: see LICENSE-EXCEPTION.md
+// Portions copyright 2026 NevesHenry: cdnRotationEnabled, taken from https://github.com/willfaust/Madeira (pull request #620, commit ffd0ae51), November 2026.
 // Modified by BCD (thebcd69), 2026-10-22: Steam DLC support (BCDSteamDLC/): `dlc`, and the DLC request a download carries
 // (`run`). A game nothing was chosen for, with no DLC installed, downloads as before.
 // Modified by BCD (thebcd69), 2026-11-05: a game's version (beta branches): the game's branches (`SteamOwnedGame.branches`), `refreshBranches`,
 // `enterBetaCode`, the branch-aware update check and the chosen branch in `run`. A game whose player picked no beta downloads as before.
 // Modified by BCD (thebcd69), 2026-11-05: Steam Workshop (BCDSteamWorkshop/): `SteamOwnedGame.workshop`, the Workshop's calls over the app's own
 // connection (`workshopCall`, `downloadWorkshopItem`), and its downloads stopping when a game session starts.
+// Modified by BCD (thebcd69), 2026-11-13: one app's licence asked of the account's list and a download for BCD's own use (`licenceNow`,
+// `downloadForApp`), for Lossless Scaling's frame generation (BCDLosslessLive.swift). Nothing calls them for a game's download.
 // Portions copyright 2026 ft7t8drgwf-wq, wamei, 125hz and alantangok: code taken from https://github.com/willfaust/Madeira (pull requests #237, #381, #382, #404, #490, #491 and 2 more)
 // under GPL-3.0-or-later and modified for BCD in October and November 2026. See THIRD-PARTY-NOTICES.md.
 // Portions copyright 2026 Connor Gow, intraducine and David Brookes: code taken from https://github.com/willfaust/Madeira (pull request #464)
@@ -198,6 +201,10 @@ struct SteamPlaytime: Codable, Equatable, Sendable {
     /// Madeira Dock holds the account: from before its sign-in transfer is
     /// written until its session ended (or its start failed).
     private(set) var heldForDock = false
+    /// Branch steam-client (2026-11-21, M1): a Steam for Windows session holds the account the same way: Valve's own client signs in
+    /// in its window, some time after the session began, and may stay signed in until it ends. From before that session starts until
+    /// it has ended (or its start failed); nothing else sets it.
+    private(set) var heldForDesktopClient = false
     private var closing: Task<Void, Never>?
 
     /// `close` logs the app's connection off and returns once its socket is
@@ -226,6 +233,16 @@ struct SteamPlaytime: Codable, Equatable, Sendable {
 
     /// Madeira Dock's session ended, or its start failed.
     func releaseDock() { heldForDock = false }
+
+    /// A Steam for Windows session is about to start: returns only once the app's connection is logged off and closed. Until
+    /// `releaseDesktopClient()` the connection stays closed whatever else happens.
+    func holdForDesktopClient() async {
+        heldForDesktopClient = true
+        await close().value
+    }
+
+    /// The Steam for Windows session ended, or its start failed.
+    func releaseDesktopClient() { heldForDesktopClient = false }
 
     /// Round 630 (agent A1 S17; Muv-Luv photonflowers PYVTE8, build 625): runs `work` and answers true when it ends within `seconds`,
     /// false when the time runs out first. Nothing is cancelled: the work goes on by itself either way.
@@ -259,10 +276,10 @@ struct SteamPlaytime: Codable, Equatable, Sendable {
         reopenConnection()
     }
 
-    /// Lets the app's connection back when no game session runs and Dock does
-    /// not hold the account. Returns whether it reopened.
+    /// Lets the app's connection back when no game session runs and neither Dock nor a
+    /// Steam for Windows session holds the account. Returns whether it reopened.
     @discardableResult func reopen(sessionRunning: Bool) -> Bool {
-        guard !open, !sessionRunning, !heldForDock else { return false }
+        guard !open, !sessionRunning, !heldForDock, !heldForDesktopClient else { return false }
         open = true
         closing = nil
         reopenConnection()
@@ -307,7 +324,14 @@ final class SteamOwnedLibrary: ObservableObject {
     private lazy var gate = SteamConnectionGate(close: { [session] in await session.suspend() },
                                                 reopen: { [session] in session.resume() })
     private lazy var fetcher = SteamLibraryFetcher(session: session)
-    private lazy var downloader = DepotDownloader(session: session)
+    /// On by default (upstream Madeira #620). env.MADEIRA_STEAM_CDN_ROTATE = 0 restores ordering the content servers by
+    /// failure count first: one failure sends a server behind every server with none. Read once, when the downloader is made.
+    static var cdnRotationEnabled: Bool { SteamSignIn.flag("MADEIRA_STEAM_CDN_ROTATE", default: true) }
+    private lazy var downloader: DepotDownloader = {
+        let downloader = DepotDownloader(session: session)
+        downloader.rotatesContentServers = Self.cdnRotationEnabled
+        return downloader
+    }()
     /// BCD's DLC support (BCDSteamDLC/): the owned DLC of a game, the player's choice, and the DLC part of each download.
     private(set) lazy var dlc = SteamDLCService(fetcher: fetcher, choicesFile: Self.supportFolder.appendingPathComponent("steam-dlc.json"),
                                                 canConnect: { [unowned self] in Self.enabled && self.signedIn && !self.inSession },
@@ -519,16 +543,20 @@ final class SteamOwnedLibrary: ObservableObject {
 
     // MARK: Steam Cloud (docs/STEAM_CLOUD.md)
 
-    /// Steam Cloud is on unless Settings › Steam Cloud saves turns it off, kept in
+    /// Steam Cloud is on unless Settings › Accounts › Steam Cloud saves turns it off, kept in
     /// bcd.cfg as `env.MADEIRA_STEAM_CLOUD = 0` (SteamCloudSetting). Off: no checks, no section.
     static var cloudEnabled: Bool { enabled && SteamSignIn.flag("MADEIRA_STEAM_CLOUD", default: true) }
     /// `env.MADEIRA_STEAM_CLOUD_AUTO = 0`: compare only; nothing is copied
     /// either way without the user asking on the game's page.
     static var cloudAutomatic: Bool { SteamSignIn.flag("MADEIRA_STEAM_CLOUD_AUTO", default: true) }
-    /// `env.MADEIRA_STEAM_CLOUD_REMOTECACHE = 1`: after each comparison Valve's client's
-    /// remotecache.vdf is rewritten from the device (SteamRemoteCache). Off unless set: the file is
-    /// then left as the client wrote it, which is what every game BCD runs has seen so far.
-    static var cloudRemoteCache: Bool { SteamSignIn.flag("MADEIRA_STEAM_CLOUD_REMOTECACHE", default: false) }
+    enum CloudRemoteCacheMode: String { case off, whenMissing = "when-missing", always }
+    /// `env.MADEIRA_STEAM_CLOUD_REMOTECACHE`: Valve's client's remotecache.vdf, rewritten from the device after a comparison
+    /// (SteamRemoteCache). Unset: only when a save identical on the device and in the cloud is missing from the list, which is
+    /// when a game in a Dock session sees no saves (Isaac, Don't Starve). 0: never. 1: after every comparison.
+    static var cloudRemoteCacheMode: CloudRemoteCacheMode {
+        guard let value = SteamSignIn.setting("MADEIRA_STEAM_CLOUD_REMOTECACHE") else { return .whenMissing }
+        return value.trimmingCharacters(in: .whitespaces) == "0" ? .off : .always
+    }
 
     /// Steam Cloud state of the games checked in this app run, by App ID.
     @Published private(set) var cloud: [Int: SteamCloudState] = [:]
@@ -711,12 +739,22 @@ final class SteamOwnedLibrary: ObservableObject {
             let audit = result.0
             // Valve's client in a session shows the game only the files its list
             // names (SteamRemoteCache); not while that client runs.
-            if Self.cloudRemoteCache, !inSession, let written = SteamRemoteCache.write(appID: appID, audit: audit, paths: paths) {
-                SteamLog.event("[steam-cloud] app=\(appID) remotecache synced=\(written.synced) device-only=\(written.local) dropped=\(written.dropped) change=\(audit.changeNumber)")
+            // madeira-bcd (round 714, D1-S1): by default only when the list misses a save the device and the cloud both hold.
+            let cacheMode = Self.cloudRemoteCacheMode
+            if cacheMode != .off, !inSession, cacheMode == .always || SteamRemoteCache.listMisses(audit: audit, paths: paths),
+               let written = SteamRemoteCache.write(appID: appID, audit: audit, paths: paths) {
+                SteamLog.event("[steam-cloud] app=\(appID) remotecache synced=\(written.synced) device-only=\(written.local) dropped=\(written.dropped) change=\(audit.changeNumber) mode=\(cacheMode.rawValue)")
+            }
+            // madeira-bcd (round 714, D1-S1 (d)): counts only, no file names. Roots of cloud paths this prefix cannot map (a save made on another OS).
+            let census = SteamRemoteCache.census(audit: audit, paths: paths)
+            if census.device > 0 || !audit.unmapped.isEmpty {
+                let unmappedRoots = Set(audit.unmapped.compactMap { SteamCloudPaths.split($0).root }).sorted().joined(separator: ",")
+                SteamLog.event("[steam-cloud] app=\(appID) remotecache listed=\(census.listed) device=\(census.device) missing=\(census.missing) unmapped-roots=\(unmappedRoots.isEmpty ? "-" : unmappedRoots)")
             }
             let plan = SteamCloudPlan.make(audit: audit, baseline: baseline(appID))
             recordBaseline(appID, settled: plan.settled)
             state.audit = audit; state.conflicts = plan.conflicts; state.checked = Date(); state.phase = .ready
+            state.pendingUp = plan.upload; state.pendingDown = plan.download   // madeira-bcd: for the page's list (BCDCloudPending)
             cloud[appID] = state
             let roots = Set(saveFiles.map(\.root)).sorted().joined(separator: ",")
             SteamLog.event("[steam-cloud] app=\(appID) \(audit.summary) patterns=\(saveFiles.count) roots=\(roots.isEmpty ? "-" : roots) overrides=\(context.info.rootOverrides.count) | plan download=\(plan.download.count) upload=\(plan.upload.count) ask=\(plan.conflicts.count)")
@@ -1122,6 +1160,37 @@ final class SteamOwnedLibrary: ObservableObject {
     func dockEnded() {
         guard gate.heldForDock else { return }
         gate.releaseDock()
+        reconcileSession()
+    }
+
+    /// Branch steam-client (2026-11-21, M1): before a Steam for Windows session starts (BCDSteamDesktopLive.preLaunch): downloads
+    /// stop, and the app's own connection logs off and its socket closes, as before a Dock start. Valve's client signs in by itself,
+    /// in its own window; nothing of BCD's sign-in is handed to it. The connection stays closed until `desktopClientEnded()` and the
+    /// end of the session. Each wait is held to `dockStepLimit`, as prepareDock's.
+    func prepareDesktopClient() async {
+        let running = active?.task
+        let begin = Date()
+        sessionChanged(active: true)
+        if let running {
+            if await SteamConnectionGate.endsWithin(seconds: Self.dockStepLimit, { await running.value }) {
+                SteamLog.event(String(format: "[steam-depot] prepareDesktopClient: the stopped download ended after %.1f s", Date().timeIntervalSince(begin)))
+            } else {
+                SteamLog.event("[steam-depot] prepareDesktopClient: the stopped download did not end in \(Int(Self.dockStepLimit)) s; going on")
+            }
+        }
+        let gate = self.gate
+        if await SteamConnectionGate.endsWithin(seconds: Self.dockStepLimit, { await gate.holdForDesktopClient() }) {
+            SteamLog.event("[steam-library] connection closed for Steam for Windows")
+        } else {
+            SteamLog.event("[steam-library] the connection's close did not end in \(Int(Self.dockStepLimit)) s; Steam for Windows goes on")
+        }
+    }
+
+    /// The Steam for Windows session ended, or its start failed (LibraryModel.finish, BCDSteamDesktopLive): the connection comes
+    /// back once no session runs.
+    func desktopClientEnded() {
+        guard gate.heldForDesktopClient else { return }
+        gate.releaseDesktopClient()
         reconcileSession()
     }
 
@@ -1531,6 +1600,30 @@ final class SteamOwnedLibrary: ObservableObject {
         pump()
     }
 
+    // MARK: Lossless Scaling (BCDLosslessLive.swift): one app's licence, and a download for BCD's own use
+
+    /// madeira-bcd: whether the signed-in account's licences hold `appID`, read again from the list Steam gave this connection (not
+    /// from the library's cache). Not while a game session holds the account's connection, and not without a sign-in.
+    func licenceNow(appID: UInt32) async throws -> Bool {
+        guard Self.enabled, signedIn else { throw SteamFileError.invalid("Sign in to Steam first.") }
+        guard !inSession else { throw SteamFileError.invalid("A game is running. Try again when it has ended.") }
+        fetcher.forgetOwnedApps()
+        return try await fetcher.ownedAppIDs().contains(appID)
+    }
+
+    /// madeira-bcd: downloads `appID` with the account's own licence into `steamApps`, a folder of BCD's own (not a Steam library: no
+    /// library entry is made and nothing is registered with Dock). Returns the folder the files are in.
+    func downloadForApp(appID: UInt32, steamApps: URL, progress: @escaping (SteamDownloadProgress) -> Void) async throws -> URL {
+        guard Self.enabled, signedIn else { throw SteamFileError.invalid("Sign in to Steam first.") }
+        guard !inSession else { throw SteamFileError.invalid("A game is running. Try again when it has ended.") }
+        guard active == nil else { throw SteamFileError.invalid("A game is downloading. Try again when it has finished or is paused.") }
+        guard let info = try await fetcher.fetchInstallInfo(appID: appID) else { throw SteamError.appInfoNotFound(appID) }
+        downloader.directoryFallback = SteamSignIn.flag("MADEIRA_STEAM_CDN_FALLBACK", default: true)
+        SteamLog.event("[steam-depot] app download for BCD's own use app=\(appID)")
+        return try await downloader.install(info, steamApps: steamApps,
+                                            ownedDepots: { [weak self] in try? await self?.fetcher.ownedDepotIDs() }, progress: progress)
+    }
+
     // MARK: Messages
 
     /// Short, credential-free reason for the log.
@@ -1553,6 +1646,24 @@ final class SteamOwnedLibrary: ObservableObject {
         case SteamError.disconnected: return "disconnected"
         case SteamError.contentHTTP(let status): return "http-\(status)"
         case SteamError.contentRefused(let status): return "refused-\(status)"
+        // Round 660 (M101; Lust Goddess PX0YJF): a reply that does not parse said only "SteamError"; the parser's own words are fixed texts
+        // (SteamProtoMessages.swift), so the line reads "failed reason=proto-it-ends-inside-a-number-field".
+        case SteamError.protobufError(let why): return "proto-" + why.replacingOccurrences(of: " ", with: "-")
+        // madeira-bcd (Porthole 1.3.1): a Steam Cloud file that did not check out says what arrived
+        case let cloud as SteamCloudTransfer.FetchError: return "cloud-\(cloud.kind) \(cloud.detail)"
+        // Round 669 (log gap, PH report 2026-11-17): 515 cloud lines and others said only "reason=SteamError" or "SteamFileError"; each
+        // case now has a fixed word (no account text: a sign-in failure's own words are not logged).
+        case SteamError.authenticationFailed: return "auth-failed"
+        case SteamError.invalidCredentials: return "credentials"
+        case SteamError.rateLimited: return "rate-limited"
+        case SteamError.accountDisabled: return "account-disabled"
+        case SteamError.rsaKeyFetchFailed: return "rsa-key"
+        case SteamError.qrCodeExpired: return "qr-expired"
+        case SteamError.authSessionExpired: return "session-expired"
+        case SteamError.invalidMessage: return "invalid-message"
+        case SteamError.appInfoNotFound: return "no-app-info"
+        case SteamError.decryptionFailed: return "decrypt"
+        case SteamFileError.invalid(let why): return "file-" + why.replacingOccurrences(of: " ", with: "-")
         case let url as URLError: return "url-\(url.code.rawValue)"
         default: return String(describing: type(of: error))
         }

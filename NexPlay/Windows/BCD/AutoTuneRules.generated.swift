@@ -18,13 +18,45 @@ enum AutoTuneBuiltInRules {
    }
   ],
   "evidence": [
+   "lego-city-layer-format-zero-x64-2026-11-12 (Send Log X025QA, build 653; also 5MB6KT, 8WY1G4, QFDQB1)",
+   "tests/host/check-dxmt-layer-format.py"
+  ],
+  "id": "metal-layer-format-zero-x64",
+  "lines": [
+   "env.MADEIRA_D3D11_SRC = 1"
+  ],
+  "none": [
+   {
+    "has": [
+     "[layer-format] madeira-bcd"
+    ]
+   },
+   {
+    "has": [
+     "MADEIRA_D3D11_SRC=1"
+    ]
+   }
+  ],
+  "priority": 0,
+  "reason": "The game handed the screen a colour format iOS does not take, and iOS closed the app. BCD's fix for that is in its own build of Direct3D 11 for 64-bit games, which this line selects (build 660 or later)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "'CAMetalLayerInvalid'",
+     "invalid pixel format 0'"
+    ]
+   }
+  ],
+  "evidence": [
    "lego-city-layer-format-zero-2026-10-26 (BHZRNE, build 600)",
    "tests/host/check-dxmt-layer-format.py: Invalid fallback and warm-patch upgrade"
   ],
   "fixedIn": 608,
   "id": "metal-layer-format-zero",
   "lines": [],
-  "priority": 0,
+  "priority": 1,
   "reason": "BCD handed the screen an invalid color format and iOS closed the app; this build presents that failed path through a valid BGRA8 layer."
  },
  {
@@ -670,6 +702,62 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[pool-section-reach]",
+     "NOT clamped"
+    ]
+   },
+   {
+    "has": [
+     "[exec-recover] pg=",
+     "mprotect_rx=-1",
+     "pool-rx"
+    ]
+   },
+   {
+    "has": [
+     "[fault_rip]",
+     "PROTECTION_FAILURE",
+     "entryprot=3 nowprot=3"
+    ]
+   }
+  ],
+  "evidence": [
+   "fallout-new-vegas-pcr-pool-section-reach-2026-11-24 (Send Log SE1VEF, build 712)",
+   "9SSBFY, DM71HT, ZDQYB3, SV3PGW, 2QWXFW",
+   "DNT6PK / TH5V0A, 0F04N7 (the line in force: played 651 s / 380 s)"
+  ],
+  "id": "pool-section-reach-clamp-image-copy",
+  "lines": [
+   "env.MADEIRA_POOL_CLAMP_SECTIONS = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[pool-section-reach]",
+     "clamped to the copy"
+    ]
+   },
+   {
+    "has": [
+     "[av-detail] ml613",
+     "p0=EXECUTE",
+     "p1_in_carve=1"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 4,
+  "reason": "A 32-bit program of the game declares a data section far larger than itself, and protecting it took away the right to run code from the pool pages behind it; a later system library copy was placed there and could not start. The line keeps that protection inside the module."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[exec-recover]",
      "mprotect_rx=-1(errno=13)"
     ]
@@ -758,17 +846,13 @@ enum AutoTuneBuiltInRules {
   "evidence": [
    "jit-pool-request-unanswered-2026-11-07 (Send Log 40GTCK, build 634, iPhone15,4, attach age 55 s)",
    "K1S139, MWSY45, XBQFH4",
-   "A4.md S3, A2.md S1 (tur 2026-11-11 round)"
+   "A4.md S3, A2.md S1 (tur 2026-11-11 round)",
+   "jit-pool-request-unanswered-request-b-0bsbhx-2026-11-12, jit-pool-request-unanswered-after-pool-ztfrz9-2026-11-14 (round 660 M033, M138)"
   ],
   "id": "jit-pool-request-unanswered",
   "lines": [],
   "noFix": true,
   "none": [
-   {
-    "has": [
-     "RX pool at"
-    ]
-   },
    {
     "has": [
      "JIT pool ready"
@@ -786,7 +870,7 @@ enum AutoTuneBuiltInRules {
    }
   ],
   "priority": 40,
-  "reason": "StikDebug was attached but did not answer BCD's request for JIT memory, so BCD stopped inside it. Quit BCD completely (swipe it away in the app switcher), open it, tap Enable JIT and start the game within half a minute: a debugger that has been attached for a while often goes quiet. In the logs we have it happened more on iOS 27.0 to 27.2 than on later versions."
+  "reason": "StikDebug was attached but did not answer BCD's request for JIT memory, so BCD stopped inside it. Quit BCD completely (swipe it away in the app switcher), open it, tap Enable JIT and start the game within half a minute: a debugger that has been attached for a while often goes quiet. In the logs we have it happened more on iOS 27.0 to 27.2 than on later versions. On iOS 26 or later, pairing this device with BCD (Settings, JIT) lets the JIT method Automatic use BCD's own helper instead, which answered every such request in the logs we have."
  },
  {
   "all": [
@@ -1211,17 +1295,17 @@ enum AutoTuneBuiltInRules {
   ],
   "evidence": [
    "peggle-deluxe-ntprotect-host-store-2026-11-09 (Send Log METSK8, build 634)",
-   "peggle-deluxe-srw-hang-2026-11-07 (SF5ZDS: the same fault, then the lock hang)"
+   "peggle-deluxe-srw-hang-2026-11-07 (SF5ZDS: the same fault, then the lock hang)",
+   "ftl-ntprotect-host-store-2026-11-16 (Send Log MYQWVW, build 659)",
+   "tests/host/check-ntprotect-early-store.py"
   ],
+  "fixedIn": 668,
   "id": "wow-rwx-plain-host-store",
-  "lines": [
-   "env.MADEIRA_WOW_RWX_PLAIN = 1"
-  ],
-  "noRetry": true,
+  "lines": [],
   "none": [
    {
     "has": [
-     "[wow-rwx] ml1279 MADEIRA_WOW_RWX_PLAIN=1"
+     "[ntprotect-early] ml668"
     ]
    }
   ],
@@ -1230,7 +1314,7 @@ enum AutoTuneBuiltInRules {
    "exited-early"
   ],
   "priority": 15,
-  "reason": "The game changes the protection of a page that also holds the place it asked BCD to write the old protection to; BCD's own store faulted. The line makes the game's executable memory plain read/write, as on Windows."
+  "reason": "The game changes the protection of a page that also holds the place it asked BCD to write the old protection to, and BCD's own store faulted. Fixed from build 668: update BCD."
  },
  {
   "all": [
@@ -1400,6 +1484,7 @@ enum AutoTuneBuiltInRules {
    {
     "has": [
      "[va-scan] FAILED",
+     "maxgap=0x1ffff0000",
      "gaps-exhausted"
     ]
    },
@@ -1458,9 +1543,86 @@ enum AutoTuneBuiltInRules {
     "has": [
      "[cage] holdback handed to the allocator"
     ]
+   },
+   {
+    "has": [
+     "Fatal error. 0xC0000005"
+    ]
    }
   ],
-  "priority": 10,
+  "priority": 4,
+  "reason": "The game's address range ran out while 8 GB of it was kept for a Chromium cage this game never asks for; the line hands that space over when the range is full.",
+  "session": "library"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[va-scan] FAILED",
+     "maxgap=0x200000000",
+     "gaps-exhausted"
+    ]
+   },
+   {
+    "has": [
+     "[cage] holdback reserved"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[dll-missing]",
+     "status=c0000017"
+    ]
+   },
+   {
+    "has": [
+     "[delay-fail]",
+     "status=c0000017"
+    ]
+   },
+   {
+    "has": [
+     "[thr-create] FAILED at"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception"
+    ]
+   },
+   {
+    "has": [
+     "ACCEPTING terminal root frame"
+    ]
+   },
+   {
+    "has": [
+     "Runtime error!"
+    ]
+   }
+  ],
+  "evidence": [
+   "tlou1-cage-band-exhausted-2026-11-10 (The Last of Us Part I, build 650: the failed scan's largest gap is the holdback with its guard page)"
+  ],
+  "id": "cage-release-band-exhausted-b",
+  "lines": [
+   "env.MADEIRA_CAGE_RELEASE = 1"
+  ],
+  "none": [
+   {
+    "has": [
+     "[cage] holdback handed to the allocator"
+    ]
+   },
+   {
+    "has": [
+     "Fatal error. 0xC0000005"
+    ]
+   }
+  ],
+  "priority": 4,
   "reason": "The game's address range ran out while 8 GB of it was kept for a Chromium cage this game never asks for; the line hands that space over when the range is full.",
   "session": "library"
  },
@@ -1491,6 +1653,38 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 3,
   "reason": "iOS closed the game at its memory limit while every placed resource of the game had memory of its own; the line lets resources that share a heap share its memory again (build 652 or later), except for textures."
+ },
+ {
+  "all": [
+   {
+    "count": 60,
+    "has": [
+     "[madeira-d3d12] shader cache: ",
+     " hits, "
+    ]
+   }
+  ],
+  "evidence": [
+   "tlou1-pso-libraries-memory-kill-2026-11-12 (The Last of Us Part I, build 656, the owner's warm start of 13:10)",
+   "Horizon Zero Dawn, build 480 (2026-10-09 20:28): 23,045 libraries, killed at 8,189 MB two seconds into play; build 481 with the line"
+  ],
+  "id": "pso-libraries-memory-kill",
+  "lines": [
+   "pso-lazy-libs = 1"
+  ],
+  "memoryMinPct": 90,
+  "none": [
+   {
+    "has": [
+     "pso-lazy-libs = 1: a lazy pipeline's shader libraries are let go"
+    ]
+   }
+  ],
+  "outcomes": [
+   "killed"
+  ],
+  "priority": 3,
+  "reason": "iOS closed the game at its memory limit while BCD held a compiled shader library for each of the game's tens of thousands of pipelines, nearly all of them never drawn. The line gives a library back until its pipeline is first drawn."
  },
  {
   "all": [
@@ -1710,6 +1904,47 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[jumbo] kernel-pick reserve failed (0xc0000017) for size=0x3f"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000602",
+     "NtRaiseException"
+    ]
+   }
+  ],
+  "evidence": [
+   "we-steal-from-old-people-gc-failfast-2026-11-22 (Send Log CYQVB9, build 686)"
+  ],
+  "id": "dotnet-gc-region-range-failfast",
+  "lines": [
+   "env.DOTNET_GCRegionRange = 400000000",
+   "env.MADEIRA_GUEST_LOG = all",
+   "env.MADEIRA_GUEST_LOG_LIMIT = 800"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game DOTNET_GCRegionRange="
+    ]
+   },
+   {
+    "has": [
+     "[device] address-map=",
+     " 454GB",
+     "increased-memory=0"
+    ]
+   }
+  ],
+  "priority": 10,
+  "reason": "The game's .NET runtime reserved 256 GB of address space for its heap, BCD's address map has no such gap, and the runtime stopped itself at once; the line gives it a 16 GB range."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[mach_exc] pc PE: d3d11.dll+0x8af18"
     ]
    }
@@ -1775,7 +2010,7 @@ enum AutoTuneBuiltInRules {
   "none": [
    {
     "has": [
-     "MADEIRA_D3D11_SRC=1: d3d11.dll -> d3d11-src.dll"
+     "d3d11.dll -> d3d11-src.dll"
     ]
    }
   ],
@@ -1929,6 +2164,52 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 12,
   "reason": "The game's Direct3D 12 renderer needs a capability BCD reports only on request (typed UAV loads of more formats) and refused the device; the line reports it for this game."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[d3d12-caps] madeira-bcd CheckFeatureSupport(feature 19, 4 bytes) -> 0x00000000 01000000"
+    ]
+   },
+   {
+    "has": [
+     "[task-exc] BREAKPOINT #1"
+    ]
+   },
+   {
+    "has": [
+     "[int3-guest]"
+    ]
+   }
+  ],
+  "evidence": [
+   "hitman-woa-shader-cache-library-2026-11-20 (Send Logs HSDEZ5, RND15C, build 682)"
+  ],
+  "id": "d3d12-shader-cache-library-bit-required",
+  "lines": [
+   "d3d12-pipeline-library = 1"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-d3d12] d3d12-pipeline-library = 1"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-d3d12] unimplemented: ID3D12Device10::CreatePipelineLibrary"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 12,
+  "reason": "The game's engine insists that Direct3D 12 offers a pipeline library and stopped when the answer had no such bit; the line makes BCD report it."
  },
  {
   "all": [
@@ -2403,6 +2684,109 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[jumbo] kernel-pick reserve failed",
+     "for size=0x4000000000"
+    ]
+   },
+   {
+    "has": [
+     "[nt-fail] #",
+     "proc=digimon story time stranger.exe",
+     "size=0x4000000000"
+    ]
+   }
+  ],
+  "evidence": [
+   "digimon-time-stranger-256gib-2026-11-17 (Send Logs 9MQGJC, DWXQQW, build 665)",
+   "tests/host/check-oversize-reserve.py"
+  ],
+  "id": "digimon-256gib-reserve-oversize",
+  "lines": [
+   "oversize-reserve = 1",
+   "oversize-reserve-virtual = 1",
+   "oversize-reserve-mb = 4096"
+  ],
+  "maxStage": 2,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[oversize] ml1298 unhinted reserve of",
+     "real "
+    ]
+   },
+   {
+    "has": [
+     "[oversize] vres r663 unhinted reserve of",
+     "real "
+    ]
+   },
+   {
+    "has": [
+     "[game-cfg]",
+     "oversize-reserve=1"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 1,
+  "reason": "The game's memory allocator reserves 256 GB of address space in one piece, which this device's address map cannot hold, and the game stops at start. The lines give it a real part of that reservation. An experiment: not tried on this game yet."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[jumbo] kernel-pick reserve failed",
+     "for size=0xc00000000"
+    ]
+   },
+   {
+    "has": [
+     "[nt-fail] #",
+     "-win64-shipping.exe",
+     "size=0xc00000000"
+    ]
+   }
+  ],
+  "evidence": [
+   "dumpster-gang-48gib-reserve-2026-11-17 (Send Log 7MQF6M, build 665)",
+   "tests/host/check-oversize-reserve.py"
+  ],
+  "id": "ue5-reserve-served-in-part",
+  "lines": [
+   "oversize-reserve = 1",
+   "oversize-reserve-min-mb = 32768",
+   "oversize-reserve-mb = 30720"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[oversize] ml1298 unhinted reserve of",
+     "real "
+    ]
+   },
+   {
+    "has": [
+     "[game-cfg]",
+     "oversize-reserve=1"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "hung",
+   "exited-early"
+  ],
+  "priority": 1,
+  "reason": "The game reserves 48 GB of address space in one piece at start, more than this device's address map has free, and then waits. The lines give it a real part of that reservation. An experiment: not tried on this game yet."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[mmap-place] ml1027 NO GAP FITS"
     ]
    }
@@ -2462,6 +2846,11 @@ enum AutoTuneBuiltInRules {
     "has": [
      "identical redeliveries"
     ]
+   },
+   {
+    "has": [
+     "[x86-fault] #1 a 32-bit guest faulted"
+    ]
    }
   ],
   "priority": 5,
@@ -2488,6 +2877,77 @@ enum AutoTuneBuiltInRules {
   "noRetry": true,
   "priority": 11,
   "reason": "The JIT pool was smaller than usual and filled up while the game loaded; a split pool is about 880 MB."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "E5017: Aborting due to not yet implemented feature: Instruction type HLSL_IR_LOOP"
+    ]
+   }
+  ],
+  "evidence": [
+   "stalker-cop-hlsl-loop-2026-11-20 (Send Log 13CYSY, build 686)",
+   "J9T2CM = VXWT3S (Clear Sky, build 665)"
+  ],
+  "id": "xray-hlsl-loop-fallback",
+  "lines": [
+   "env.MADEIRA_HLSL_LOOP_FALLBACK = 40"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_HLSL_LOOP_FALLBACK="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 14,
+  "reason": "The game compiles a shader whose loop BCD's shader compiler cannot write for Shader Model 3. The line makes it write the loop as up to 40 repeated steps. If the game stops at another shader, the next log names it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[commit-noaccess]",
+     "host_page_vprot=0x37"
+    ]
+   },
+   {
+    "has": [
+     "code=80000001"
+    ]
+   }
+  ],
+  "evidence": [
+   "half-life-2-guard-neighbour-2026-11-20 (Send Logs J17QEB, JSJ8EP, build 665)"
+  ],
+  "id": "hl2-guard-neighbour-pass",
+  "lines": [
+   "env.MADEIRA_GUARD_NEIGHBOUR_PASS = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_GUARD_NEIGHBOUR_PASS="
+    ]
+   },
+   {
+    "has": [
+     "[guard-neighbour]"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 12,
+  "reason": "A new memory region was placed next to a protected page of the game's own, and BCD treated the game's first write into the new region as touching the protected page, which stopped the game within seconds. The line lets such a write through."
  },
  {
   "all": [
@@ -2522,6 +2982,70 @@ enum AutoTuneBuiltInRules {
   "priority": 12,
   "reason": "The game's launcher (Rockstar's) could not reach a Windows service manager, because a Steam game's session starts none; the line starts Wine's before the game.",
   "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Cannot open Service Control Manager on computer"
+    ]
+   }
+  ],
+  "evidence": [
+   "vrchat-launcher-no-scm-2026-11-22 (Send Log MR0CR9, build 682: Mono's ServiceController)"
+  ],
+  "id": "dock-game-scm-mono",
+  "lines": [
+   "env.MADEIRA_DOCK_GAME_SCM = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[dock-report] game-scm=2"
+    ]
+   },
+   {
+    "has": [
+     "[dock-report] game-scm=1"
+    ]
+   }
+  ],
+  "priority": 12,
+  "reason": "The game's launcher could not reach a Windows service manager, because a Steam game's session starts none; the line starts Wine's before the game.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[win-name]",
+     "The system does not meet the minimum memory requirement"
+    ]
+   }
+  ],
+  "evidence": [
+   "dark-souls-remastered-minimum-memory-2026-11-21 (Send Logs CR9EAN, build 686; TKQ0T6, build 630)"
+  ],
+  "id": "game-minimum-memory-box",
+  "lines": [
+   "env.MADEIRA_TOTAL_PHYS_MB = 8192"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "ml992: MADEIRA_TOTAL_PHYS_MB="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 20,
+  "reason": "The game checked the memory it was told about and refused to start: BCD tells a game only the memory this app may use. The line tells this game 8 GB (its own use is far lower)."
  },
  {
   "all": [
@@ -2670,7 +3194,19 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "failed to initialize"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
      "\"MSVCP140.dll\" failed to initialize"
+    ]
+   },
+   {
+    "has": [
+     "\"msvcp140.dll\" failed to initialize"
     ]
    }
   ],
@@ -3014,6 +3550,48 @@ enum AutoTuneBuiltInRules {
     "has": [
      "[gdi-shared] 32-bit program in a session whose GDI table is private host memory"
     ]
+   },
+   {
+    "has": [
+     "argv[3] = C:\\bcd-games\\",
+     ".bat"
+    ]
+   },
+   {
+    "has": [
+     "Initializing dlls for",
+     "failed, status c0000005"
+    ]
+   }
+  ],
+  "evidence": [
+   "pes-2017-services-batch-gdi-2026-11-17 (Send Log 8DSHHJ, build 665)"
+  ],
+  "fixedIn": 669,
+  "id": "gdi-table-services-batch-32bit",
+  "lines": [],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[gdi-shared] session table",
+     "section-backed"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 9,
+  "reason": "The game is a 32-bit program started together with Windows' services, and it could not reach Windows' GDI table in that session. From build 669 BCD makes the table one 32-bit programs can reach. Update BCD; until then env.MADEIRA_GDI_SHARED_SECTION = 1 in the game's settings does the same."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[gdi-shared] 32-bit program in a session whose GDI table is private host memory"
+    ]
    }
   ],
   "evidence": [
@@ -3059,6 +3637,113 @@ enum AutoTuneBuiltInRules {
   "lines": [],
   "priority": 1,
   "reason": "The batch file's command interpreter (cmd.exe) was started in the wrong set of Windows files, so it stopped before it read your file; from this build on BCD starts it in the right one.",
+  "session": "library"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[x86-fault]   the fault address",
+     "lies at the low 32 bits of the OUTSIDE placement"
+    ]
+   }
+  ],
+  "evidence": [
+   "isaac-repentance-outside-placement-2026-11-20 (Send Log 12PA5Y, build 682)"
+  ],
+  "id": "wow-alloc-outside-window-fault",
+  "lines": [
+   "env.MADEIRA_WOW_ALLOC_INSIDE = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_WOW_ALLOC_INSIDE="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 8,
+  "reason": "The 32-bit game was handed memory outside the part of the address space it can reach, used the cut-down address and crashed. The line makes BCD give a 32-bit game only memory inside its own part, or refuse the request."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[jumbo-wow] r652 #",
+     "size=0x40000000",
+     " inside=0 guest-visible=0x"
+    ]
+   }
+  ],
+  "evidence": [
+   "isaac-repentance-jumbo-outside-window-2026-11-12 (Send Log 0AT1JC, build 653)",
+   "isaac-repentance-jumbo-null-first-2026-11-14 (Send Log DJ88X6, build 659)",
+   "PP9FBA, RMKNG6, AT6H5H, E7XS3Z, G8NPBW (build 653)",
+   "issue #53",
+   "tests/host/check-wow-jumbo-inside.py"
+  ],
+  "id": "wow-jumbo-reserve-outside-window",
+  "lines": [
+   "env.MADEIRA_WOW_JUMBO_INSIDE = 2"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_WOW_JUMBO_INSIDE=2"
+    ]
+   },
+   {
+    "has": [
+     "[jumbo-wow] r666 MADEIRA_WOW_JUMBO_INSIDE=2"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 3,
+  "reason": "The game set aside 1 GB of memory, and BCD gave it a place outside the game's own 32-bit memory, so the game used memory it does not own and stopped. The line makes BCD find that place inside the game's memory."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[WineProc] PE probe: machine=0xaa64"
+    ]
+   },
+   {
+    "has": [
+     "(bundle=arm64ec-windows)"
+    ]
+   },
+   {
+    "has": [
+     "wine: could not load kernel32.dll, status c000007b"
+    ]
+   }
+  ],
+  "evidence": [
+   "native-arm64-arm64ec-core-2026-11-04 (issue #44, Kyworn, build 630: the log lines quoted there)",
+   "tests/host/check-cmd-bundle.py (build 666)"
+  ],
+  "fixedIn": 666,
+  "id": "native-arm64-arm64ec-core",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "[WineProc] Target exe: C:\\windows\\system32\\cmd.exe"
+    ]
+   }
+  ],
+  "priority": 1,
+  "reason": "The program is a native ARM64 Windows program, and BCD started it with the set of Windows files meant for 64-bit Intel programs, so it stopped before it ran. From build 666 BCD starts such a program with the ARM64 set.",
   "session": "library"
  },
  {
@@ -3350,6 +4035,13 @@ enum AutoTuneBuiltInRules {
    {
     "has": [
      "[exe-window]",
+     "is a fixed-base image ending",
+     "(exe-window-auto"
+    ]
+   },
+   {
+    "has": [
+     "[exe-window]",
      "gets the window"
     ]
    },
@@ -3368,6 +4060,11 @@ enum AutoTuneBuiltInRules {
    {
     "has": [
      "ml1034: could NOT reserve the executable window"
+    ]
+   },
+   {
+    "has": [
+     "[exe-window] could not widen the executable window to"
     ]
    }
   ],
@@ -3647,6 +4344,12 @@ enum AutoTuneBuiltInRules {
    {
     "has": [
      "[dock-report] launch-host-result=47"
+    ]
+   },
+   {
+    "has": [
+     "[lock-orphan] madeira-bcd",
+     "only locks a live thread has stamped"
     ]
    }
   ],
@@ -4042,6 +4745,63 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "ClearUnorderedAccessViewUint with value",
+     "is approximated by byte"
+    ]
+   },
+   {
+    "has": [
+     "[probe] dispatch '",
+     "first record:",
+     " 0 0 0 0 ("
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "tlou1-typed-buffer-clear-no-lighting-2026-11-11 (the owner's start of tlou-i-l.exe at 21:58, build 655, iPhone18,2)",
+   "tests/host/check-uav-typed-buffer-clear.py"
+  ],
+  "fixedIn": 656,
+  "id": "d3d12-typed-buffer-uav-clear",
+  "lines": [],
+  "priority": 60,
+  "reason": "The game resets the work list of its lighting every frame in a way BCD did wrong, so the lighting never ran: dark picture, missing characters, trails behind moving things. Update BCD: build 656 does that reset right."
+ },
+ {
+  "all": [
+   {
+    "count": 64,
+    "has": [
+     "[subfloor] ml956 serviced",
+     "latest guest 0x7ffe0320",
+     "insn=0xb9400100"
+    ]
+   },
+   {
+    "has": [
+     "[probe] ",
+     " first record: "
+    ]
+   }
+  ],
+  "api": "d3d12",
+  "evaluateWhenRan": true,
+  "evidence": [
+   "tlou1-tick-count-exceptions-2026-11-12 (The Last of Us Part I, build 656, the owner's start of 19:48)",
+   "tests/host/check-d3d12-tick-ms.py"
+  ],
+  "fixedIn": 657,
+  "id": "d3d12-tick-count-exceptions",
+  "lines": [],
+  "priority": 61,
+  "ranOnly": true,
+  "reason": "BCD read the clock in a way that costs an exception on iOS for every indirect draw the game makes, hundreds of thousands of times in this session: a lower frame rate, not a fault of the game. Update BCD: build 657 reads it without one."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "Invalid result data for ray"
     ]
    },
@@ -4123,6 +4883,31 @@ enum AutoTuneBuiltInRules {
    {
     "has": [
      "[ptr-map]"
+    ]
+   },
+   {
+    "has": [
+     "[win-pos]",
+     "vis={-3,-29,",
+     "style=14ca0000"
+    ]
+   },
+   {
+    "has": [
+     "[win-name] #",
+     "class='#32770'"
+    ]
+   },
+   {
+    "has": [
+     "[win-name] #",
+     "class='SDL_app'"
+    ]
+   },
+   {
+    "has": [
+     "[win-name] #",
+     "class='BootstrapUpdateUIClass'"
     ]
    }
   ],
@@ -4262,6 +5047,11 @@ enum AutoTuneBuiltInRules {
     "has": [
      "kIOGPUCommandBufferCallbackErrorInnocentVictim"
     ]
+   },
+   {
+    "has": [
+     "[hwinput] keyboard focus: elsewhere (app inactive)"
+    ]
    }
   ],
   "priority": 35,
@@ -4339,6 +5129,11 @@ enum AutoTuneBuiltInRules {
    {
     "has": [
      "[audio] io buffer asked"
+    ]
+   },
+   {
+    "has": [
+     "[ios_audio] ml2304"
     ]
    }
   ],
@@ -4468,6 +5263,11 @@ enum AutoTuneBuiltInRules {
     "has": [
      "NtTerminateProcess",
      "exit_code=0x3)"
+    ]
+   },
+   {
+    "has": [
+     "[mach_exc] pc PE: sechost.dll+0x18098"
     ]
    }
   ],
@@ -5505,6 +6305,128 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "err:module:import_dll Library",
+     "not found"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "err:module:import_dll Library mfplay.dll",
+     "not found"
+    ]
+   },
+   {
+    "has": [
+     "err:module:import_dll Library mfplay.DLL",
+     "not found"
+    ]
+   },
+   {
+    "has": [
+     "err:module:import_dll Library MFPlay.dll",
+     "not found"
+    ]
+   },
+   {
+    "has": [
+     "err:module:import_dll Library MFPlay.DLL",
+     "not found"
+    ]
+   },
+   {
+    "has": [
+     "err:module:import_dll Library MFPLAY.dll",
+     "not found"
+    ]
+   },
+   {
+    "has": [
+     "err:module:import_dll Library MFPLAY.DLL",
+     "not found"
+    ]
+   },
+   {
+    "has": [
+     "err:module:import_dll Library Mfplay.dll",
+     "not found"
+    ]
+   },
+   {
+    "has": [
+     "err:module:import_dll Library Mfplay.DLL",
+     "not found"
+    ]
+   }
+  ],
+  "evidence": [
+   "disney-speedstorm-mfplay-import-2026-11-18 (Send Log FE62W5, build 665)",
+   "tests/host/check-optin-dlls.py"
+  ],
+  "id": "mfplay-dll-optin",
+  "lines": [
+   "env.MADEIRA_OPTIN_DLLS = mfplay"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_OPTIN_DLLS: mfplay.dll -> mfplay-optin.dll"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 10,
+  "reason": "The game imports mfplay.dll (Windows' media player library), which BCD ships only for the games whose settings list it; the line gives this game Wine's mfplay.dll."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:load_dll [dll-missing]",
+     "msvproc.dll",
+     "status=c0000135"
+    ]
+   },
+   {
+    "has": [
+     "err:ole:apartment_add_dll couldn't load in-process dll",
+     "msvproc.dll"
+    ]
+   }
+  ],
+  "evidence": [
+   "dmc-hd-collection-msvproc-null-interface-2026-11-19 (Send Log 99836R, build 665; also 5CR7YD, build 626)",
+   "Hollow Knight's row (round 626)"
+  ],
+  "id": "mf-video-processor-missing-null-interface",
+  "lines": [
+   "env.MADEIRA_WG_64BIT = 1",
+   "env.MADEIRA_OPTIN_DLLS = msvproc",
+   "env.MADEIRA_WG_VPROC = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_OPTIN_DLLS: msvproc.dll -> msvproc-optin.dll"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 45,
+  "reason": "The program asked Windows' Media Foundation for its video processor (msvproc.dll), which BCD's 64-bit set has only when the game's settings list it, and the program stopped on the answer it did not check. The lines give this game Wine's video processor and BCD's media decoders."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "err:module:loader_init Importing dlls for",
      "failed, status c0000135"
     ]
@@ -5888,6 +6810,182 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[dll-missing]",
+     "dxdiagn.dll",
+     "status=c0000135"
+    ]
+   },
+   {
+    "has": [
+     "err:ole:apartment_add_dll couldn't load in-process dll",
+     "dxdiagn.dll"
+    ]
+   },
+   {
+    "has": [
+     "Exception: Code: C0000005",
+     "AV READ of 0"
+    ]
+   }
+  ],
+  "evidence": [
+   "pes-2021-dxdiagn-2026-11-19 (Send Log NS1K2Y, build 665)",
+   "S98DMH (build 686)"
+  ],
+  "id": "dxdiagn-dll-optin-null-read",
+  "lines": [
+   "env.MADEIRA_OPTIN_DLLS = dxdiagn,ddraw"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_OPTIN_DLLS: dxdiagn.dll -> dxdiagn-optin.dll"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 10,
+  "reason": "The game asked Windows' DirectX Diagnostics for the display devices, BCD does not ship that library for every 64-bit game, and the game then used the empty answer; the line gives this game Wine's dxdiagn.dll (and ddraw, which it needs)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[exe-window] could not widen the executable window to"
+    ]
+   },
+   {
+    "has": [
+     "failed to create main module",
+     "c0000018"
+    ]
+   }
+  ],
+  "evidence": [
+   "hogwarts-legacy-exe-window-intruder-2026-11-17 (Send Logs 6EW662 and EAQKAS, build 665)",
+   "1RM2SS, G8DR3D (712)"
+  ],
+  "id": "exe-window-widened-below-intruder",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[exe-window] executable window widened to"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 5,
+  "reason": "iOS had put memory of its own inside the range the game's large program must load at, in this start of BCD, and the free part below it was too small for the program. No setting changes it: quit BCD completely (swipe it away in the app switcher), open it again and start the game; iOS lays memory out anew at every start. From build 715 BCD also uses the free part when it holds the program's own size."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "OutputDebugStringA: \"Missing interface adapter for SteamUtils011"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "Unable to initialize SteamAPI",
+     "[win-name] #"
+    ]
+   },
+   {
+    "has": [
+     "NtTerminateProcess",
+     "exit_code=0xffffffff"
+    ]
+   }
+  ],
+  "evidence": [
+   "hogwarts-legacy-steamutils011-2026-11-17 (Send Log E6YWRH, build 665)",
+   "2QVZ7D (HITMAN launcher, same line, not fatal: no match)",
+   "app/Madeira/SteamRuntime.swift (SteamRuntimeFiles.november, 2026-11-21)"
+  ],
+  "id": "dock-steam-client-lacks-interface-adapter",
+  "lead": "Choose a newer Steam client in Settings > BCD Dock",
+  "lines": [],
+  "noFix": true,
+  "priority": 30,
+  "reason": "The game's own Steam library is newer than the January 2026 Steam client in BCD Dock: the client answered \"Missing interface adapter for SteamUtils011\" and Steam could not start for this game. In Settings > BCD Dock, under Steam client, choose Nov 2026 (Valve's current client) and tap Switch: your games, saves and settings move along.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[jit-pool] EXHAUSTED (image"
+    ]
+   },
+   {
+    "has": [
+     "no JIT-pool copy for executable section"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "the-plucky-squire-libvorbis-pool-full-2026-11-17 (Send Log 2DBB6Y, build 665)"
+  ],
+  "id": "pool-full-library-refused-while-playing",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_X64_IMAGE_NOCOPY=1"
+    ]
+   }
+  ],
+  "priority": 85,
+  "ranOnly": true,
+  "reason": "The game plays, but BCD's code memory was full when one of its libraries was loaded, so that library is missing (often a sound or video library: the game may be silent or show no videos). In the game's settings, Memory & JIT pool, turn on \"Pure-x64 images without a JIT-pool copy\" (env.MADEIRA_X64_IMAGE_NOCOPY = 1)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:import_dll Library",
+     ".pyd\") not found"
+    ]
+   }
+  ],
+  "evidence": [
+   "ddlc-pyd-import-miss-2026-11-17 (Send Log N8E7GN, build 665)"
+  ],
+  "id": "import-miss-in-plugin-subdir",
+  "lines": [
+   "env.MADEIRA_IMPORT_APPDIR = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_IMPORT_APPDIR=1"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 40,
+  "reason": "A module the game loads from a subfolder needs a library that lies next to the game's program, and Windows' loader did not look there. The line makes it look in the program's own folder once more."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[guest-log]",
      "LogWmfMedia: Failed to load mfplay.dll"
     ]
@@ -6096,11 +7194,25 @@ enum AutoTuneBuiltInRules {
     "has": [
      "err:ole:com_get_class_object apartment not initialised"
     ]
-   },
+   }
+  ],
+  "any": [
    {
     "has": [
      "[x86_live]",
      "RAX=0x800401f0"
+    ]
+   },
+   {
+    "has": [
+     "[guest-state]",
+     "rax=0x800401f0"
+    ]
+   },
+   {
+    "has": [
+     "segv_handler",
+     "x8=0x800401f0"
     ]
    }
   ],
@@ -6133,6 +7245,33 @@ enum AutoTuneBuiltInRules {
    {
     "has": [
      "err:module:import_dll Library RstrtMgr.DLL (which is needed by",
+     "WHGameArm.dll",
+     "not found"
+    ]
+   }
+  ],
+  "evidence": [
+   "kcd2-whgamearm-rstrtmgr-2026-11-12 (Send Log AYWV4C, build 653; also 2HNWPC)"
+  ],
+  "id": "whgamearm-rstrtmgr-dll-optin",
+  "lines": [
+   "env.MADEIRA_OPTIN_DLLS = rstrtmgr"
+  ],
+  "none": [
+   {
+    "has": [
+     "MADEIRA_OPTIN_DLLS: rstrtmgr.dll -> rstrtmgr-optin.dll"
+    ]
+   }
+  ],
+  "priority": 11,
+  "reason": "The game's own library needs Windows' Restart Manager (RstrtMgr.dll), which BCD does not ship for every game; this line gives the game Wine's copy."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:import_dll Library RstrtMgr.DLL (which is needed by",
      "EASteamLauncher.exe",
      "not found"
     ]
@@ -6156,6 +7295,127 @@ enum AutoTuneBuiltInRules {
   "priority": 11,
   "reason": "The EA helper that Steam starts for this game needs Windows' Restart Manager (RstrtMgr.dll), which BCD does not ship for every program; the line gives this session Wine's copy. This is only the first step of starting an EA game through Steam.",
   "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Win32Service::open",
+     "Error opening SCM"
+    ]
+   },
+   {
+    "has": [
+     "SteamLauncherStartup::launchGame",
+     "Failed to start/determine BGS IPC port"
+    ]
+   }
+  ],
+  "evidence": [
+   "eaapp-steam-launcher-no-scm-2026-11-22 (Send Log GKEX5X, build 682, in Finnish)",
+   "unravel-easteamlauncher-no-scm-2026-11-21 (Send Log EWQ210, build 686, in Portuguese)",
+   "7E5YMQ (NFS: Most Wanted 2012 with the line: game-scm=2, no SCM error)"
+  ],
+  "id": "eaapp-steam-launcher-no-scm",
+  "lines": [
+   "env.MADEIRA_DOCK_GAME_SCM = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[dock-report] game-scm=2"
+    ]
+   },
+   {
+    "has": [
+     "[dock-report] game-scm=1"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung",
+   "killed"
+  ],
+  "priority": 12,
+  "reason": "This game is started through EA's Steam launcher, which needs Windows' service manager to start EA's background service, and a Steam game's session starts none; the line starts Wine's before the game.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[steam-start]",
+     "direct source="
+    ]
+   },
+   {
+    "has": [
+     "Failed to create ShellWindows COM instance"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "origin://LaunchGame/"
+    ]
+   },
+   {
+    "has": [
+     "EALaunchHelper"
+    ]
+   }
+  ],
+  "evidence": [
+   "eaapp-origin-stub-direct-start-2026-11-22 (Send Log XP5V1Y, build 682; AYBH4X, JNW3W6, build 665)"
+  ],
+  "id": "eaapp-origin-stub-direct-start",
+  "lead": "Start this game with Steam instead",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "exited-early",
+   "crashed",
+   "hung"
+  ],
+  "priority": 5,
+  "reason": "This copy starts itself through EA's Origin launcher, and EA's launch helper cannot start the game from there: it needs a part of Windows' desktop shell that BCD's Windows does not have. Start it with Steam (BCD Dock) instead of 'the game's own program'."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:import_dll Library RstrtMgr.DLL (which is needed by",
+     "EALauncher.exe",
+     "not found"
+    ]
+   }
+  ],
+  "evidence": [
+   "nfs-most-wanted-2012-ealauncher-rstrtmgr-2026-11-18 (Send Log KFRDRY, build 665, iPhone19,7)"
+  ],
+  "id": "ealauncher-origin-rstrtmgr",
+  "lines": [
+   "env.MADEIRA_OPTIN_DLLS = rstrtmgr"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_OPTIN_DLLS: rstrtmgr.dll -> rstrtmgr-optin.dll"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 11,
+  "reason": "The game asks the EA app's launcher (origin://) to start it, and that launcher needs Windows' Restart Manager (RstrtMgr.dll), which BCD does not ship for every program; the line gives this game Wine's copy. It is only the first step of starting an EA game through the EA app."
  },
  {
   "all": [
@@ -7041,6 +8301,75 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[dock-report] ceg-service-start=-1"
+    ]
+   },
+   {
+    "has": [
+     "[dock-report] ceg-service-start-retry=1053"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "RpcServerAssoc_FindContextHandle no context handle found"
+    ]
+   },
+   {
+    "has": [
+     "service_run_main_thread failed to open service manager error 1726"
+    ]
+   }
+  ],
+  "evidence": [
+   "ceg-service-svcctl-1726-2026-11-23 (Send Log 066P0C, build 712)",
+   "CSP7E6, CT98X6, NS4R70, EYCX54, PKTC7C (712)"
+  ],
+  "id": "dock-ceg-service-svcctl-1726",
+  "lines": [],
+  "noFix": true,
+  "priority": 3,
+  "reason": "The Steam helper service that builds this game's executable could not start in this start of BCD: it ended at once, after its first call to Windows' service manager was lost (RPC error 1726). The same stop hits other helper services; it does not happen in every start. Quit BCD completely and start the game again; no setting is known to change it.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[dock-report] ceg-service-start=0"
+    ]
+   },
+   {
+    "has": [
+     "[pool-section-overrun]",
+     ".cegm",
+     "ends past the copy"
+    ]
+   }
+  ],
+  "evidence": [
+   "ceg-service-pool-overrun-2026-11-23 (Send Log JAWSRV, build 686)"
+  ],
+  "id": "dock-ceg-service-pool-overrun",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[pool-section-reach]",
+     "clamped to the copy"
+    ]
+   }
+  ],
+  "priority": 3,
+  "reason": "Valve's helper service started, but while it built this game's executable BCD's code memory lost its execute permission (a 32-bit part of the copy protection has a section table that reaches 256 MB). Steam then answered 55 after about 100 seconds. Not solved yet.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[dock-report] ceg-result=55"
     ]
    }
@@ -7065,6 +8394,18 @@ enum AutoTuneBuiltInRules {
   "fixedIn": 632,
   "id": "dock-ceg-result-55",
   "lines": [],
+  "none": [
+   {
+    "has": [
+     "[wow-window] refused: map too small"
+    ]
+   },
+   {
+    "has": [
+     "[dock-report] ceg-service-start=-1"
+    ]
+   }
+  ],
   "priority": 5,
   "reason": "Valve's copy protection (CEG) could not prepare this game's program: the Steam client in BCD Dock reported result 55, its request to Valve's own Windows service failed. Build 632 starts that service first and asks again, which did not help on every device; from build 652 the log says more about the service.",
   "session": "dock"
@@ -7087,12 +8428,23 @@ enum AutoTuneBuiltInRules {
     "has": [
      "[frontend] returned to library"
     ]
+   },
+   {
+    "has": [
+     "[steam-launch-view] reveal reason=button scene=waiting"
+    ]
+   },
+   {
+    "has": [
+     "[dock-report] ceg-request-retry="
+    ]
    }
   ],
   "evaluateWhenRan": true,
   "evidence": [
    "mafia-ii-ceg-job-55-after-retries-2026-11-09 (Send Log HJZJ1P, build 634)",
-   "tests/host/check-dock-ceg-prepare.py"
+   "tests/host/check-dock-ceg-prepare.py",
+   "black-ops-ceg-55-player-left-3xmzcz-2026-11-16 (Send Log 3XMZCZ, build 665)"
   ],
   "fixedIn": 632,
   "id": "dock-ceg-job-55-after-retries",
@@ -7101,6 +8453,11 @@ enum AutoTuneBuiltInRules {
    {
     "has": [
      "[dock-report] ceg-result=55"
+    ]
+   },
+   {
+    "has": [
+     "[dock-report] ceg-service-start=-1"
     ]
    }
   ],
@@ -7135,6 +8492,13 @@ enum AutoTuneBuiltInRules {
   "id": "dock-ceg-result-3",
   "lines": [],
   "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[wow-window] refused: map too small"
+    ]
+   }
+  ],
   "priority": 5,
   "reason": "Valve's copy protection could not prepare this game's program: Steam's client reported 'no connection' for the job that builds it for your account (code 3) after a minute. Starting the game again sometimes works; no setting is known to change it.",
   "session": "dock"
@@ -7826,7 +9190,7 @@ enum AutoTuneBuiltInRules {
    }
   ],
   "priority": 4,
-  "reason": "A 32-bit program could not start because every address window BCD keeps for 32-bit programs was in use by other programs of the same session. Close the session and start the game again."
+  "reason": "A 32-bit program could not start because every address window BCD keeps for 32-bit programs was in use by other programs of the same session. Close the session and start the game again. If the Ubisoft launcher is part of it, the game's list line for it is needed (build 668)."
  },
  {
   "all": [
@@ -8164,12 +9528,18 @@ enum AutoTuneBuiltInRules {
   "lines": [
    "env.MADEIRA_MZ_VIEW_CHECK = 1"
   ],
+  "maxBuild": 651,
   "noRetry": true,
   "none": [
    {
     "has": [
      "[mz-view] r624 ",
      "handled as anonymous RWX (MADEIRA_MZ_VIEW_CHECK=1)"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_MZ_VIEW_CHECK="
     ]
    }
   ],
@@ -8213,12 +9583,18 @@ enum AutoTuneBuiltInRules {
   "lines": [
    "env.MADEIRA_MZ_VIEW_CHECK = 1"
   ],
+  "maxBuild": 651,
   "noRetry": true,
   "none": [
    {
     "has": [
      "[mz-view] r624 ",
      "handled as anonymous RWX (MADEIRA_MZ_VIEW_CHECK=1)"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_MZ_VIEW_CHECK="
     ]
    }
   ],
@@ -8317,6 +9693,84 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 3,
   "reason": "The game's loader maps one block of memory twice (one view to write its code, one to run it) and jumps into the running view while it is still empty; the lines keep the two views one block and tell the emulator that the running one holds code."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "fixme:dialog:MessageBoxTimeout",
+     "timeout not supported"
+    ]
+   },
+   {
+    "has": [
+     "[WineProc] Target exe:",
+     "bundle=arm64ec-windows"
+    ]
+   }
+  ],
+  "evidence": [
+   "slay-the-spire-2-messagebox-timeout-2026-10-26 (Send Log CGEZSY, build 611)",
+   "8X921R (Ultimate Chicken Horse, build 653)",
+   "tests/host/check-wine-pe-patches.py (the timer patch)"
+  ],
+  "id": "messagebox-timeout-ignored",
+  "lines": [
+   "env.MADEIRA_WIN64_FRESH = 1"
+  ],
+  "none": [
+   {
+    "has": [
+     "[WineProc] MADEIRA_WIN64_FRESH=1:"
+    ]
+   }
+  ],
+  "priority": 40,
+  "reason": "The game opened a message box that Windows closes by itself after a few seconds, and BCD's 64-bit libraries left it open; the line runs the rebuilt 64-bit libraries, in which the box closes itself."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "NATIVE-THREAD DECLINE",
+     "objc_release"
+    ]
+   },
+   {
+    "has": [
+     "IOGPUMetalCommandBufferStorageReset"
+    ]
+   },
+   {
+    "has": [
+     "was FREED by our NSObject_release: class AGX",
+     "Texture"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-d3d12] D3D12CreateDevice("
+    ]
+   }
+  ],
+  "evidence": [
+   "mina-the-hollower-d3d12-texture-early-release-2026-11-09 (Send Log FVF628, build 630)",
+   "639V00, DSVS33, W6PACT (Mina the Hollower, builds 580-626); 3R3TAF (Ghost of Tsushima, build 580)",
+   "issue #36 (skate.)",
+   "tests/host/check-d3d12-tex-defer.py"
+  ],
+  "fixedIn": 666,
+  "id": "d3d12-texture-released-before-gpu",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "[madeira-d3d12] tex-defer = "
+    ]
+   }
+  ],
+  "priority": 1,
+  "reason": "The game's Direct3D 12 renderer released a texture while Metal was still finishing work that used it, and the app ended. From build 666 BCD keeps a released texture until the GPU is done with it. Update BCD."
  },
  {
   "all": [
@@ -9388,6 +10842,78 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[d3d9-x64] default unchanged (Wine's d3d9.dll): the library knows this game as"
+    ]
+   },
+   {
+    "has": [
+     "wined3d_adapter_gl_init Failed to get a GL context"
+    ]
+   },
+   {
+    "has": [
+     "Direct3DCreate9 called -> d3d9_init FAILED"
+    ]
+   },
+   {
+    "has": [
+     "[win-name] #",
+     "class='#32770'"
+    ]
+   }
+  ],
+  "evidence": [
+   "umvc3-d3d9-64bit-2026-11-21 (Send Log 2GW99S, build 686)"
+  ],
+  "id": "d3d9-64bit-dxmt-no-fallback",
+  "lines": [
+   "env.MADEIRA_D3D9_X64 = dxmt"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_D3D9_X64=dxmt: d3d9.dll -> d3d9-dxmt.dll"
+    ]
+   },
+   {
+    "has": [
+     "[wow-window]"
+    ]
+   },
+   {
+    "has": [
+     "wow64cpu"
+    ]
+   },
+   {
+    "has": [
+     "Load module d3d11.dll"
+    ]
+   },
+   {
+    "has": [
+     "Load module D3D11.dll"
+    ]
+   },
+   {
+    "has": [
+     "Load module DXGI.dll"
+    ]
+   },
+   {
+    "has": [
+     "Load module dxgi.dll"
+    ]
+   }
+  ],
+  "priority": 8,
+  "reason": "This 64-bit Direct3D 9 game ran on Wine's Direct3D 9, which needs OpenGL, and the phone has none. The line gives it BCD's Direct3D 9 for 64-bit games (DXMT, drawing through Metal)."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "wined3d_adapter_gl_init Failed to get a GL context"
     ]
    },
@@ -10306,17 +11832,32 @@ enum AutoTuneBuiltInRules {
     "has": [
      "[d3d9-native] ready:"
     ]
-   },
+   }
+  ],
+  "any": [
    {
     "has": [
      "Unhandled exception code c0000005 flags 0 addr 0x0"
     ]
+   },
+   {
+    "has": [
+     "[thunk-slot] WEDGE pc=0x0",
+     "x4=0x0"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception 0x40000015"
+    ]
    }
   ],
   "evidence": [
+   "dont-starve-d3d9-native-abort-2026-11-20 (EM3MJE, build 682, iPad16,1)",
    "resident-evil-6-d3d9-native-2026-10-23 (TPATQR, build 592, iPhone18,3)",
    "resident-evil-revelations-2-d3d9-native-2026-10-23 (04G226, build 592, iPhone18,2)",
-   "round 580 C N5 (RE6 DZ4AZR, E9W05E), round 591 B (RE6 on the standard frontend plays at 60 FPS)"
+   "round 580 C N5 (RE6 DZ4AZR, E9W05E), round 591 B (RE6 on the standard frontend plays at 60 FPS)",
+   "left-4-dead-2-d3d9-native-null-call-2026-11-16 (Send Log V1PT1G, build 665)"
   ],
   "id": "d3d9-native-null-call",
   "lines": [
@@ -10331,10 +11872,11 @@ enum AutoTuneBuiltInRules {
    }
   ],
   "outcomes": [
-   "crashed"
+   "crashed",
+   "exited-early"
   ],
   "priority": 6,
-  "reason": "The game's Direct3D 9 was set to the native ARM64 frontend (Settings > Graphics) and the game ended by calling address 0 through it a few seconds after its first frame; the line gives this game the standard, emulated frontend."
+  "reason": "The game's Direct3D 9 was set to the native ARM64 frontend (Settings > Graphics) and the game ended by calling address 0 through it, or aborted, a few seconds after its first frame; the line gives this game the standard, emulated frontend."
  },
  {
   "all": [
@@ -10443,6 +11985,51 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[epic-launch] start",
+     "signed-in=1",
+     "host=1"
+    ]
+   },
+   {
+    "has": [
+     "[bcd-host] no report"
+    ]
+   },
+   {
+    "has": [
+     "NtTerminateProcess",
+     "exit_code=0xffffffff"
+    ]
+   }
+  ],
+  "evidence": [
+   "jurassic-world-evolution-epic-host-lost-2026-11-17 (Send Log YXH5G8, build 665)",
+   "tests/host/check-epic-host-hold.py (build 598)"
+  ],
+  "id": "epic-host-start-lost-any-game",
+  "lines": [
+   "env.BCD_EPIC_HOST_START = 1"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[epic-launch] host start held"
+    ]
+   }
+  ],
+  "outcomes": [
+   "exited-early",
+   "crashed"
+  ],
+  "priority": 80,
+  "reason": "BCD meant to start this Epic game through its sign-in helper but started the game itself without the sign-in, and the game ended at once. The line makes the start go through the helper."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "Load module EOSSDK-Win32-Shipping.dll"
     ]
    },
@@ -10480,6 +12067,68 @@ enum AutoTuneBuiltInRules {
   "lines": [
    "env.BCD_EPIC_HOST_START = 1"
   ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[epic-launch] host start held"
+    ]
+   }
+  ],
+  "outcomes": [
+   "exited-early",
+   "crashed"
+  ],
+  "priority": 14,
+  "reason": "The Epic game uses Epic's online services and left at once; BCD meant to start it through its sign-in helper but did not, and the line makes the start go through it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Load module EOSSDK-Win64-Shipping.dll"
+    ]
+   },
+   {
+    "has": [
+     "[epic-launch] start",
+     "host=1"
+    ]
+   },
+   {
+    "has": [
+     "[bcd-host] no report"
+    ]
+   },
+   {
+    "has": [
+     "[session] length=",
+     "play=0s frames=0"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "NtTerminateProcess(handle=0xffffffffffffffff, exit_code=0x0)"
+    ]
+   },
+   {
+    "has": [
+     "NtTerminateProcess(handle=0xffffffffffffffff, exit_code=0x1)"
+    ]
+   }
+  ],
+  "evidence": [
+   "windbound-epic-host-lost-2026-11-18 (Send Log MZN07P, build 665)",
+   "frostpunk-epic-host-lost-2026-11-18 (Send Log APCRNF, build 665)",
+   "tests/host/check-epic-host-hold.py (build 598)"
+  ],
+  "id": "epic-host-start-lost-eos64",
+  "lines": [
+   "env.BCD_EPIC_HOST_START = 1"
+  ],
+  "maxStage": 3,
   "noRetry": true,
   "none": [
    {
@@ -10614,13 +12263,68 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[mach_exc] sym pc=",
+     "wow64_ext_glIsSync"
+    ]
+   }
+  ],
+  "evidence": [
+   "doom-3-bfg-glissync-null-2026-11-20 (Send Log 705H3D, build 682)"
+  ],
+  "fixedIn": 708,
+  "id": "gl-issync-null-fixed",
+  "lines": [],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 3,
+  "reason": "The game asked BCD's OpenGL about an empty sync object and BCD's OpenGL crashed on it; build 708 fixes that."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[win-name]",
+     "class='Static' text=\"Steam is not running.\""
+    ]
+   },
+   {
+    "has": [
+     "[msgbox-origin] box L\"Error\""
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "resident-evil-6-steam-not-running-library-2026-11-20 (Send Log 101DK0, build 686)"
+  ],
+  "id": "steam-not-running-box-no-client",
+  "lead": "Start this game from your Steam library",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 3,
+  "reason": "This game asks for Valve's Steam client when it starts, and a game started as a program file has none: it showed its \"Steam is not running.\" box. If you own it on Steam, sign in to Steam in BCD and start it from your Steam library (BCD Dock), which runs Valve's client for it. No setting changes this box.",
+  "session": "library"
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[win-name]",
      "class='#32770' text=\"Steam Error\""
     ]
    }
   ],
+  "evaluateWhenRan": true,
   "evidence": [
    "steam-error-box-no-client-2026-10-31 (Send Log 1VZMAH, The Long Drive, build 625)",
+   "uch-steam-error-box-ran-2026-11-13 (Send Log 8X921R, build 653)",
    "S8HM8C (Slay the Spire 2, build 625)",
    "TC2KZ9 (Ride, build 625)"
   ],
@@ -10652,9 +12356,47 @@ enum AutoTuneBuiltInRules {
   "lines": [],
   "noFix": true,
   "priority": 3,
-  "ranOnly": true,
   "reason": "The game's own Steam start check got no answer from Valve's client when it started and showed \"Steam Error: Application load error\". That is Steam's side of the start, not a setting and not OpenGL. In the report we have, starting the game again worked: start it once more, and send the log if it keeps happening.",
   "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Load module GeometryDash.exe"
+    ]
+   },
+   {
+    "has": [
+     "SteamAPI_Init(): Loaded"
+    ]
+   },
+   {
+    "has": [
+     "NtTerminateProcess",
+     "exit_code=0x1)"
+    ]
+   }
+  ],
+  "evidence": [
+   "geometry-dash-exit-trace-2026-11-17 (Send Log 16CY3P, build 665)"
+  ],
+  "id": "geometry-dash-exit-trace",
+  "lines": [
+   "env.MADEIRA_FILE_TRACE = 1",
+   "env.MADEIRA_REG_TRACE = 1",
+   "env.MADEIRA_FILE_TRACE_LIMIT = 30000"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_FILE_TRACE="
+    ]
+   }
+  ],
+  "priority": 1,
+  "reason": "Geometry Dash ends itself about two seconds after Valve's Steam client signs it in. The lines make the next start record the files and settings it reads before it ends, so that the cause can be named."
  },
  {
   "all": [
@@ -10950,10 +12692,86 @@ enum AutoTuneBuiltInRules {
    {
     "has": [
      "[unixlib] opengl32 (GL-absent stub table)"
+    ],
+    "sinceLaunch": true
+   },
+   {
+    "has": [
+     "[guest-log]",
+     "BGFX failed to initialize"
+    ],
+    "sinceLaunch": true
+   }
+  ],
+  "evidence": [
+   "heroes-of-hammerwatch-ii-bgfx-opengl-2026-11-13 (build 634.1, iPhone Duo)"
+  ],
+  "id": "bgfx-opengl-no-context",
+  "lines": [
+   "gl-backend = zink"
+  ],
+  "noRetry": true,
+  "priority": 2,
+  "reason": "The game could not initialize its BGFX renderer with OpenGL off. Auto-tune will try Desktop OpenGL on the next start."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "NtCreateUserProcess",
+     "--rendering-driver opengl3 --quit"
+    ]
+   },
+   {
+    "has": [
+     "[unixlib] opengl32 (GL-absent stub table)"
+    ]
+   },
+   {
+    "has": [
+     "[srv-stuck]",
+     "state=LINKED Async thread="
+    ]
+   }
+  ],
+  "evidence": [
+   "unrailed-2-godot-gl-probe-2026-11-17 (Send Logs A6XKZG, 74GRZP, SKF1KF, build 665)"
+  ],
+  "id": "godot-gl-probe-waits",
+  "lines": [
+   "gl-backend = zink",
+   "env.MADEIRA_GUEST_LOG = all",
+   "env.MADEIRA_GUEST_LOG_LIMIT = 800"
+  ],
+  "noRetry": true,
+  "outcomes": [
+   "hung",
+   "exited-early"
+  ],
+  "priority": 2,
+  "reason": "The game's start-up runs a short OpenGL test, which waits for ever on BCD's OpenGL stub. The lines give it BCD's OpenGL driver and put the game engine's own messages into the next log."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[unixlib] opengl32 (GL-absent stub table)"
     ]
    }
   ],
   "any": [
+   {
+    "has": [
+     "[win-name] #",
+     "Cannot initialize window with OpenGL context"
+    ]
+   },
+   {
+    "has": [
+     "[av-args]",
+     "after ChoosePixelFormat()"
+    ]
+   },
    {
     "has": [
      "[win-name] #",
@@ -10976,6 +12794,12 @@ enum AutoTuneBuiltInRules {
     "has": [
      "[guest-log]",
      "No matching GL pixel format available"
+    ]
+   },
+   {
+    "has": [
+     "[xp-api-top]",
+     "samples: opengl32.dll+0x1e4a0="
     ]
    },
    {
@@ -11058,6 +12882,12 @@ enum AutoTuneBuiltInRules {
     "has": [
      "[win-name] #",
      "Could not create SDL Window"
+    ]
+   },
+   {
+    "has": [
+     "[win-name] #",
+     "Couldn't find pixel format!"
     ]
    },
    {
@@ -11161,6 +12991,18 @@ enum AutoTuneBuiltInRules {
     "has": [
      "Load module Titan.exe"
     ]
+   },
+   {
+    "has": [
+     "[guest-log]",
+     "Could not initialize OpenGL"
+    ]
+   },
+   {
+    "has": [
+     "[win-name] #",
+     "Unable to initialize DisplayServer"
+    ]
    }
   ],
   "evidence": [
@@ -11198,6 +13040,17 @@ enum AutoTuneBuiltInRules {
   "none": [
    {
     "has": [
+     "Load module UnityPlayer.dll"
+    ]
+   },
+   {
+    "has": [
+     "Adobe AIR.dll",
+     "[iOS-xins]"
+    ]
+   },
+   {
+    "has": [
      "[present] ml1175"
     ],
     "sinceLaunch": true
@@ -11206,6 +13059,11 @@ enum AutoTuneBuiltInRules {
     "has": [
      "[win-name] #",
      "Unable to initialize Vulkan video driver"
+    ]
+   },
+   {
+    "has": [
+     "failed to create main module"
     ]
    }
   ],
@@ -11696,6 +13554,21 @@ enum AutoTuneBuiltInRules {
    },
    {
     "has": [
+     "library launch HotlineMiami.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/HotlineMiami.exe-"
+    ]
+   },
+   {
+    "has": [
+     "[session-log] Steam game HotlineMiami.exe:"
+    ]
+   },
+   {
+    "has": [
      "library launch Max Payne 2 The Fall of Max Payne:"
     ]
    },
@@ -11756,6 +13629,26 @@ enum AutoTuneBuiltInRules {
    },
    {
     "has": [
+     "library launch t3.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/t3.exe-"
+    ]
+   },
+   {
+    "has": [
+     "[session-log] Steam game t3.exe:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Thief"
+    ]
+   },
+   {
+    "has": [
      "library launch Hitman Contracts:"
     ]
    },
@@ -11771,6 +13664,7 @@ enum AutoTuneBuiltInRules {
    }
   ],
   "evidence": [
+   "hotline-miami-d3d8-2026-11-12 (Send Log XNR28K, build 653)",
    "postal-2-d3d8-2026-10-24 (EN0AAS, build 592, iPhone15,4)",
    "hotline-miami-d3d8-2026-10-21 (339R82, build 576)",
    "gta-iii-d3d8-2026-10-24 (AN4ETP, build 592)",
@@ -12081,10 +13975,17 @@ enum AutoTuneBuiltInRules {
      "[subfloor] ml956 serviced",
      "latest guest 0x7ffe02"
     ]
-   },
+   }
+  ],
+  "any": [
    {
     "has": [
      "Unhandled exception code c0000005"
+    ]
+   },
+   {
+    "has": [
+     "[exc] ml811 code=c0000005"
     ]
    }
   ],
@@ -12111,6 +14012,126 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 12,
   "reason": "The game's copy-protection code reads Windows' shared-data page thousands of times and then computed a wrong pointer from the address BCD handed back; the line makes BCD hand back the address the game already had."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[subfloor] ml956 serviced"
+    ]
+   },
+   {
+    "has": [
+     "RUN callbacks module=0000000140000000 reason=1"
+    ]
+   },
+   {
+    "has": [
+     "mapped without a pool copy"
+    ]
+   },
+   {
+    "has": [
+     "UNMAPPED AT ENTRY (wild pointer)"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000005"
+    ]
+   }
+  ],
+  "evidence": [
+   "kuser-rebase-protected-nocopy-2026-11-13 (Send Log 7X70J7, build 653, Planet Coaster 2)",
+   "TFPXN3 (the row's line passes the first wall)"
+  ],
+  "id": "kuser-rebase-protected-nocopy",
+  "lines": [
+   "env.MADEIRA_KUSER_KEEP_REGS = 1"
+  ],
+  "maxStage": 2,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_KUSER_KEEP_REGS=1"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 32,
+  "reason": "The game's copy-protection code computed a wrong pointer from an address BCD had rewritten in a register after emulating its read of the shared-data page; the line makes BCD hand back the address the game already had."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_KUSER_KEEP_REGS=1"
+    ]
+   },
+   {
+    "has": [
+     "[dns] madeira-bcd end",
+     "srv01.codefusion.technology"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000005"
+    ]
+   }
+  ],
+  "evidence": [
+   "pragmata-protection-second-wall-2026-11-13 (Send Log TFPXN3, build 653; also ST9ZFC)"
+  ],
+  "id": "protection-layer-after-vendor-server",
+  "lines": [],
+  "noFix": true,
+  "priority": 41,
+  "reason": "The game's copy protection got past its first check with BCD's setting, contacted its vendor's server and then stopped in its own code. No setting is known for this point yet; send the log."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[entry-fail] rev=ajan2-tani #1 NoExec block",
+     "(no registered 64-bit module)"
+    ]
+   },
+   {
+    "has": [
+     "game_plugin.dll",
+     "mapped without a pool copy"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000005"
+    ]
+   }
+  ],
+  "evidence": [
+   "fm27-protection-jump-2026-11-17 (Send Log N9ANG6, build 665; also BDSRXG)",
+   "round 660 M022, M004"
+  ],
+  "id": "fm27-protection-jump-after-play",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[dns] madeira-bcd end",
+     "srv01.codefusion.technology"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 41,
+  "reason": "The game's copy protection (game_plugin.dll) stopped the game about half a minute after it opened, on every device and with every setting tried. No setting is known; BCD does not work on the protection itself."
  },
  {
   "all": [
@@ -12231,6 +14252,76 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 40,
   "reason": "Yakuza 5 stops in its own code (a table lookup that finds nothing and is used anyway). No setting is known to change it yet; if you can, try one start with the AVX switch off in the game's settings and send the log."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[device] address-map=",
+     "increased-memory=0"
+    ]
+   },
+   {
+    "has": [
+     "[mmap-place] ml1027 NO GAP FITS"
+    ]
+   },
+   {
+    "has": [
+     "[nt-fail] #",
+     "NtAllocateVirtualMemory status=c0000017"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "Exception: Code: C0000005",
+     "AV WRITE of 1"
+    ]
+   }
+  ],
+  "evidence": [
+   "broforce-no-rights-band-full-2026-11-17 (Send Log R2Q8TP, build 665)"
+  ],
+  "id": "address-band-full-without-rights",
+  "lines": [],
+  "maxStage": 5,
+  "noFix": true,
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 59,
+  "reason": "This install lacks the increased memory limit, so BCD's address map is small, and the game used all of it after a few minutes. Add the limit with GetMoreRam (with SideStore or LiveContainer), or sign BCD with a paid developer account."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "reserving the PS4 address range"
+    ]
+   },
+   {
+    "has": [
+     "[nt-fail] #",
+     "NtAllocateVirtualMemoryEx status=c0000018",
+     "size=0xec00000000"
+    ]
+   }
+  ],
+  "evidence": [
+   "dragons-crown-pro-ps4-range-2026-11-17 (Send Logs GR198F and H9TNFX, build 665)"
+  ],
+  "id": "ps4-address-range-reserve",
+  "lines": [],
+  "maxStage": 2,
+  "noFix": true,
+  "outcomes": [
+   "exited-early",
+   "crashed"
+  ],
+  "priority": 3,
+  "reason": "This program reserves 944 GB of address space at a fixed address (a PlayStation 4 address map) when it starts, and no iPhone or iPad can map that much (iOS gives an app 512 GB at most). It cannot run in BCD."
  },
  {
   "all": [
@@ -12609,6 +14700,129 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[device] gpu=",
+     "bc=0"
+    ]
+   },
+   {
+    "has": [
+     "[bc-decode] ml679"
+    ]
+   },
+   {
+    "has": [
+     "[bc-census] ml653 periodic: 64 BC resources"
+    ]
+   }
+  ],
+  "evidence": [
+   "firewatch-bc-decode-4gb-limit-2026-11-12 (Send Log P965CV, build 653; also 4EA904, FBW48X)"
+  ],
+  "id": "bc-decode-memory-kill-4gb-limit",
+  "lines": [
+   "dxmt = d3d11.mipClampBC=1"
+  ],
+  "memoryMinPct": 85,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[device] address-map=",
+     "increased-memory=0"
+    ]
+   }
+  ],
+  "outcomes": [
+   "killed"
+  ],
+  "priority": 51,
+  "reason": "The phone's GPU cannot read the game's compressed textures, so they are expanded to four to eight times their size, and the game was closed at the memory limit. The line drops the largest level of each texture."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[device] gpu=",
+     "bc=0"
+    ]
+   },
+   {
+    "has": [
+     "[bc-remap] ml678"
+    ]
+   },
+   {
+    "has": [
+     "[bc-census] ml653 periodic:",
+     "BC resources"
+    ]
+   }
+  ],
+  "bcCensusMinPct": 10,
+  "evidence": [
+   "nfs-most-wanted-bc-remap-small-device-2026-11-12 (Send Log GVNKSA, build 653)"
+  ],
+  "id": "bc-remap-burst-small-device",
+  "lines": [
+   "dxmt = d3d11.mipClampBC=1"
+  ],
+  "memoryMinPct": 55,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[device] address-map=",
+     "increased-memory=0"
+    ]
+   }
+  ],
+  "outcomes": [
+   "killed"
+  ],
+  "priority": 47,
+  "ramMaxMB": 4200,
+  "reason": "The phone's GPU cannot read the game's compressed textures; thousands of them were expanded at once and the app was closed. The line drops the largest level of each texture when it is made."
+ },
+ {
+  "all": [
+   {
+    "count": 4,
+    "has": [
+     "err:module:load_dll [dll-missing]",
+     "mfmp4srcsnk.dll",
+     "status=c0000135"
+    ]
+   }
+  ],
+  "evidence": [
+   "mgs2-mp4-source-missing-2026-11-12 (Send Log APQJ9M, build 653; also ZXHNTV)"
+  ],
+  "id": "mf-mp4-source-missing-64bit",
+  "lines": [
+   "env.MADEIRA_WG_64BIT = 1",
+   "env.MADEIRA_OPTIN_DLLS = msvproc",
+   "env.MADEIRA_WG_VPROC = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "winegstreamer (wma + wg_parser, libav*; 64-bit opted in)"
+    ]
+   }
+  ],
+  "outcomes": [
+   "killed",
+   "hung",
+   "crashed"
+  ],
+  "priority": 46,
+  "reason": "The game plays its videos through Windows' Media Foundation, and the 64-bit video decoders were not there. These lines give the game BCD's decoders."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[bc-census] ml653",
      "TOTAL logical BC bytes ="
     ]
@@ -12683,6 +14897,55 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 48,
   "reason": "The phone's GPU cannot read this game's compressed textures, so they are expanded to four to eight times their size and iOS closes the game. The line drops the largest level of each texture."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[device] gpu=",
+     "bc=0"
+    ]
+   },
+   {
+    "has": [
+     "[bc-decode] ml679"
+    ]
+   },
+   {
+    "has": [
+     "[bc-census] ml653 periodic: 256 BC resources"
+    ]
+   }
+  ],
+  "evidence": [
+   "shroom-and-gloom-bc-half-2026-11-18 (Send Log 8GQH2M, build 665, iPhone14,3: the clamp in the game's file)",
+   "tests/host/check-dxmt-bc-half.py"
+  ],
+  "id": "bc-half-memory-kill",
+  "lines": [
+   "env.MADEIRA_MIP_CLAMP_AUTO = 2"
+  ],
+  "listUpgrade": true,
+  "memoryMinPct": 85,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[device] address-map=",
+     "increased-memory=0"
+    ]
+   },
+   {
+    "has": [
+     "[bc-half] madeira-bcd level 2"
+    ]
+   }
+  ],
+  "outcomes": [
+   "killed"
+  ],
+  "priority": 48,
+  "reason": "The phone's GPU cannot read this game's compressed textures, so they are expanded to four to eight times their size and iOS closes the game; dropping their largest level was not enough. The line also shrinks smaller textures and keeps single-level ones at half size once the game gets close to its limit (BCD's own Direct3D 11 for 64-bit games)."
  },
  {
   "all": [
@@ -13347,12 +15610,20 @@ enum AutoTuneBuiltInRules {
    "chromium-top-window-reserve-vvqep7-2026-10-30 (Send Log VVQEP7, build 623)"
   ],
   "id": "chromium-top-window-reserve",
-  "lines": [],
-  "noFix": true,
+  "lines": [
+   "oversize-reserve = 1",
+   "oversize-reserve-min-mb = 65000"
+  ],
+  "noRetry": true,
   "none": [
    {
     "has": [
      "[madeira-env] game MADEIRA_SC_PA_POOLS="
+    ]
+   },
+   {
+    "has": [
+     "[oversize] ml1298"
     ]
    }
   ],
@@ -13360,7 +15631,54 @@ enum AutoTuneBuiltInRules {
    "crashed"
   ],
   "priority": 5,
-  "reason": "This program contains a web browser (Chromium) that asks for 64 GB of address space in one piece. iOS leaves BCD at most 32 GB in one piece, so it stops while it starts. No setting changes this yet."
+  "reason": "This program contains a web browser (Chromium) that asks for 64 GB of address space in one piece. iOS leaves BCD at most 32 GB in one piece, so it stops while it starts. The line serves that request with a smaller real range (an experiment)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[oversize] ml1298 unhinted reserve of",
+     "real 0x"
+    ]
+   },
+   {
+    "has": [
+     "[mmap-place] ml1027 NO GAP FITS",
+     "size=0x400010000"
+    ]
+   },
+   {
+    "has": [
+     "[device] address-map=",
+     "extended-va=1"
+    ]
+   }
+  ],
+  "evidence": [
+   "slow-roads-chromium-pool-2026-11-20 (Send Log BE3M5J, build 682)"
+  ],
+  "id": "chromium-pool-reserve-half",
+  "lines": [
+   "env.MADEIRA_JUMBO_HALF = 2"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[jumbo-half]"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_JUMBO_HALF="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 6,
+  "reason": "This program contains a web browser (Chromium). The first line served its largest address-space request in part; its next request, 16 GB, still found no free block. The line lets such a request keep a smaller block (an experiment)."
  },
  {
   "all": [
@@ -13388,9 +15706,16 @@ enum AutoTuneBuiltInRules {
      "Unable to initialize SteamAPI",
      "[win-name] #"
     ]
+   },
+   {
+    "has": [
+     "[win-name] #",
+     "text=\"Failed to initialize Steam.\""
+    ]
    }
   ],
   "evidence": [
+   "hitman2-failed-to-initialize-steam-2026-11-12 (Send Log 0JM0MB, build 653)",
    "steam-direct-start-needs-client-wbrcbx-2026-10-30 (Send Log WBRCBX, build 623)",
    "steam-direct-start-ue-box-2026-10-31 (Send Log 9TX5G2, build 626: Unreal's box)"
   ],
@@ -13566,7 +15891,8 @@ enum AutoTuneBuiltInRules {
   "lines": [],
   "noFix": true,
   "outcomes": [
-   "crashed"
+   "crashed",
+   "exited-early"
   ],
   "priority": 63,
   "reason": "The game jumped to an invalid address (0xFFFFFFFE) right after a library in its own folder replaced the first bytes of three of Windows' file functions. No setting changes this; the game's folder, not BCD's settings, decides it."
@@ -13976,6 +16302,61 @@ enum AutoTuneBuiltInRules {
  {
   "all": [
    {
+    "has": [
+     "class='#32770' text=\"modupdater\""
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "bully-asi-modupdater-dialog-2026-11-17 (Send Log 08P71Y, build 665)"
+  ],
+  "id": "asi-modupdater-dialog-open",
+  "lines": [],
+  "noFix": true,
+  "priority": 44,
+  "ranOnly": true,
+  "reason": "A mod in this copy of the game (ModUpdater, part of the Ultimate ASI Loader and Widescreen Fix packs) opened an update window over the game. Answer it with the keyboard (Esc, or Tab to the Cancel button and Return); with a controller, turn on Controller as keyboard and mouse first. The link at the bottom of the window stops the update checks for good."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[wg-parser] ml1990 connect refused (asf",
+     "container not in the allowlist"
+    ]
+   },
+   {
+    "has": [
+     "err:wmvcore:init_stream Failed to connect parser, hr 0x80040265"
+    ]
+   }
+  ],
+  "evidence": [
+   "super-naughty-maid-2-wmv-asf-2026-11-20 (Send Log QQ349T, build 682; also WKDM8N, build 665)"
+  ],
+  "id": "wmv-movie-refused-wmvcore",
+  "lines": [],
+  "maxStage": 3,
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[wg-parser] ml1990 connect container="
+    ]
+   }
+  ],
+  "outcomes": [
+   "hung",
+   "exited-early",
+   "crashed"
+  ],
+  "priority": 46,
+  "reason": "The game starts with a movie in the Windows Media format, which BCD cannot play in a 32-bit game yet, and the game stops at its own error screen. No setting changes this. If the game has a movie folder, renaming its intro movies may let it start."
+ },
+ {
+  "all": [
+   {
     "count": 2,
     "has": [
      "[wg-parser] ml1990 connect refused"
@@ -14003,7 +16384,7 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 45,
   "ranOnly": true,
-  "reason": "The game tried to play an intro movie in a format BCD cannot play yet (MPEG-1 or Windows Media video) and waits for it. Press a key to skip each movie (the on-screen keyboard has Esc and Space). If the game stays on a still picture, close it, rename its intro movies (for the classic GTA games movies\\Logo.mpg and movies\\GTAtitles.mpg) and start again."
+  "reason": "The game tried to play an intro movie in a format BCD cannot play yet (MPEG-1 or Windows Media video) and may wait for it. Press a key to skip each movie (with a controller: turn on Controller as keyboard and mouse; the on-screen keyboard has Esc and Space). If nothing happens, close the game and start it again: some games get past the movie at the next start. If it still waits, rename its intro movies (for the classic GTA games movies\\Logo.mpg and movies\\GTAtitles.mpg) and start again."
  },
  {
   "all": [
@@ -14209,6 +16590,1509 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[main-stall]",
+     "every thread's stack"
+    ]
+   },
+   {
+    "has": [
+     "Madeira`ios_fill_thread_context+"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "libsystem_c.dylib`getenv+"
+    ]
+   },
+   {
+    "has": [
+     "Madeira`madeira_cfg_get+"
+    ]
+   },
+   {
+    "has": [
+     "libsystem_c.dylib`flockfile+"
+    ]
+   },
+   {
+    "has": [
+     "libsystem_c.dylib`vfprintf"
+    ]
+   }
+  ],
+  "evidence": [
+   "requiem-wineserver-suspend-getenv-2026-11-11 (Send Log 643J42, build 653; also 66HCT0, AJEJWV)",
+   "csnz-wineserver-suspend-getenv-2026-11-13 (Send Log YK0CTE, build 653)",
+   "tests/host/check-suspend-windows.py"
+  ],
+  "fixedIn": 660,
+  "id": "wineserver-suspend-window-deadlock",
+  "lines": [],
+  "priority": 4,
+  "reason": "BCD's Windows server stopped the game while it paused one of the game's threads: it read a setting during the pause while that thread held a lock the read needed, and both waited for ever (the game froze). From build 660 the server reads its settings before the pause. Update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Vulkan is on for this session (",
+     "Vulkan DLL links in sysx64;"
+    ]
+   }
+  ],
+  "evidence": [
+   "skate-vulkan-stand-in-2026-11-12 (Send Log EBRECM, build 653; Blood GP8RY2 ran on its OpenGL fallback, so no rule speaks)",
+   "tests/host/check-vulkan-bcd.py"
+  ],
+  "fixedIn": 660,
+  "id": "vulkan-stand-in-in-system32",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "Load module winevulkan"
+    ]
+   },
+   {
+    "has": [
+     "err:module:load_dll [dll-missing]",
+     "vulkan-1.dll",
+     "status=c0000135"
+    ]
+   }
+  ],
+  "priority": 4,
+  "reason": "The game's Vulkan line was on, but the game found a placeholder Vulkan library first and got no Vulkan at all. From build 660 BCD puts the real one where the game looks first. Update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "does not write to render target",
+     "index(1) that is required for blending"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "freddys-house-dual-source-blend-2026-11-12 (Send Log Z2YH7Y, build 653)",
+   "tests/host/check-d3d12-dual-source-drop.py"
+  ],
+  "fixedIn": 660,
+  "id": "d3d12-dual-source-blend-refused",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "dual-source blend dropped for pipeline"
+    ]
+   }
+  ],
+  "priority": 4,
+  "reason": "Metal refused some of the game's pipelines because they blend with a second shader output that BCD's shader converter does not produce, so what they draw was left out. From build 660 BCD builds them without that part. Update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[bcd] library launch",
+     "CrashHandler"
+    ]
+   }
+  ],
+  "evidence": [
+   "timberborn-external-crash-handler-card-2026-11-11 (Send Log 5BM9HV, build 653)",
+   "tests/host/check-external-game-scan.py"
+  ],
+  "fixedIn": 660,
+  "id": "library-card-starts-crash-handler",
+  "lines": [],
+  "priority": 4,
+  "reason": "This card starts the game's crash handler, not the game, so nothing happens. From build 660 Find games skips crash handlers; remove this card and find the games again, or pick the game's own program in the card's settings.",
+  "session": "library"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[nt-fail]",
+     "NtMapViewOfSection status=c0000017 proc=launcher.exe"
+    ]
+   },
+   {
+    "has": [
+     "[va-scan] FAILED window=0x10000..0x7100000000",
+     "top-down"
+    ]
+   }
+  ],
+  "evidence": [
+   "gta4-launcher-image-ceiling-2026-11-12 (Send Log KA69B6, build 653; also 1BFMGY)",
+   "tests/host/check-image-relax.py"
+  ],
+  "fixedIn": 660,
+  "id": "image-load-no-room-under-ceiling",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "[image-relax] #"
+    ]
+   }
+  ],
+  "priority": 4,
+  "reason": "The game's launcher could not load one of its libraries because BCD kept libraries below a limit where no room was left, although memory was free above it, and the launcher stopped. From build 660 BCD places such a library above the limit. Update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[madeira-d3d12] unimplemented: ID3D12Device10::CreatePipelineLibrary"
+    ]
+   },
+   {
+    "has": [
+     "> Failed PSOs:"
+    ]
+   },
+   {
+    "has": [
+     "AV READ of 0"
+    ]
+   }
+  ],
+  "evidence": [
+   "dying-light-beast-pso-library-2026-11-11 (Send Log AG00TH, build 653)"
+  ],
+  "id": "techland-pso-library-null",
+  "lines": [
+   "d3d12-pipeline-library = 1"
+  ],
+  "none": [
+   {
+    "has": [
+     "d3d12-pipeline-library = 1"
+    ]
+   }
+  ],
+  "priority": 3,
+  "reason": "The game asked Direct3D 12 for a pipeline library, got none, and used the empty answer anyway. This line gives it one."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Load module UnityPlayer.dll"
+    ]
+   },
+   {
+    "has": [
+     "[vmode] synthesized CURRENT"
+    ]
+   },
+   {
+    "has": [
+     "[vkmt]",
+     "OpenAdapterFromLuid"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "AV READ of 0"
+    ]
+   },
+   {
+    "has": [
+     "AV READ of 8"
+    ]
+   }
+  ],
+  "evidence": [
+   "demons-tilt-unity-empty-displays-2026-11-11 (Send Log FGFKTK, build 653)",
+   "Arcade Paradise Y3M2H4, EF6006; TOEM ESGSEG, PG5FMH"
+  ],
+  "id": "unity-empty-display-array",
+  "lines": [
+   "env.DXMT_WSI_MONITOR_IDENTITY = 1",
+   "env.DXMT_WSI_MODE_TABLE = 1"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "game DXMT_WSI_MODE_TABLE=1"
+    ]
+   }
+  ],
+  "priority": 8,
+  "reason": "The game's Unity player found no display modes on the virtual monitor and read past an empty list. These lines give the monitor an identity and a mode table."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[mtl-tex-fail] madeira-bcd",
+     "refused"
+    ]
+   }
+  ],
+  "evidence": [
+   "rottr-texture-limit-2026-11-12 (Send Log SBZ4D6, build 653)",
+   "Shadow of the Tomb Raider, The Witness (rows with the same line)"
+  ],
+  "id": "mtl-tex-fail-d3d11-src",
+  "lines": [
+   "env.MADEIRA_D3D11_SRC = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[dxmt-tex-limit]"
+    ]
+   },
+   {
+    "has": [
+     "d3d11.dll -> d3d11-src.dll"
+    ]
+   }
+  ],
+  "priority": 12,
+  "reason": "The game asked Direct3D 11 for a texture larger than any GPU allows; this BCD build of Direct3D refuses it the way Windows does, so the game can choose another size."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Application settings not correctly set or invalid, please re-run settings application"
+    ]
+   },
+   {
+    "has": [
+     "[msgbox-origin] box"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "bge-needs-settings-2026-11-12 (Send Log Q76ZEA, build 653; also MJ5Q5D)"
+  ],
+  "id": "bge-needs-settings",
+  "lines": [],
+  "noFix": true,
+  "priority": 40,
+  "ranOnly": true,
+  "reason": "The game's settings were never written. Start its settings program once (BGE_Settings.exe in the game's folder, or the game's second launch option in Steam), save, then start the game."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[win-name] #",
+     "required extension VK_KHR_surface not found"
+    ]
+   }
+  ],
+  "evidence": [
+   "bg3-vulkan-surface-missing-2026-11-12 (Send Log D63929, build 653)"
+  ],
+  "id": "vulkan-surface-extension-missing",
+  "lines": [],
+  "noFix": true,
+  "priority": 2,
+  "reason": "This is the game's Vulkan program, and Vulkan is not on for it. Start its Direct3D 11 program instead (bg3_dx11.exe, or the DirectX 11 launch option in Steam)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[wow-rwx] ml1279 MADEIRA_WOW_RWX_PLAIN=(unset)"
+    ]
+   },
+   {
+    "count": 5,
+    "has": [
+     "[fault-cost] ml685 emulated-store faults="
+    ]
+   },
+   {
+    "has": [
+     "PE probe: machine=0x14c"
+    ]
+   },
+   {
+    "has": [
+     "FNA3D.dll names"
+    ]
+   }
+  ],
+  "evidence": [
+   "anodyne-wow-store-storm-2026-11-12 (Send Log JK1DJX, build 653)"
+  ],
+  "id": "fna32-store-storm-rwx-plain",
+  "lines": [
+   "env.MADEIRA_WOW_RWX_PLAIN = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "UnityCrashHandler32.exe"
+    ]
+   }
+  ],
+  "outcomes": [
+   "hung",
+   "exited-early"
+  ],
+  "priority": 16,
+  "reason": "The game writes into its own code pages so often that every write is emulated and it stops moving. This line gives a 32-bit program plain code pages."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[msgbox-origin] box L\"CryEngine\"",
+     "Unsupported video card detected!"
+    ]
+   }
+  ],
+  "evidence": [
+   "state-of-decay-unsupported-card-2026-11-12 (Send Log JTTP00, build 653)"
+  ],
+  "id": "cryengine-unsupported-video-card",
+  "lines": [
+   "gpu-card = nvidia-gtx1060"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[gpu-card] nvidia-gtx1060"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 20,
+  "reason": "The game's engine does not know this GPU and stops at a warning. This line tells it the GPU is an NVIDIA GeForce GTX 1060."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-exact] ml885",
+     "x86=48 8b 2c c8 48 8b 8d c0 02 00 00 48 8b 85 c8 02"
+    ]
+   }
+  ],
+  "evidence": [
+   "wreckfest-empty-adapter-list-2026-11-12 (Send Log N3RRD2, build 653)"
+  ],
+  "id": "wreckfest-empty-adapter-list",
+  "lines": [
+   "env.DXMT_WSI_MONITOR_IDENTITY = 1",
+   "env.DXMT_WSI_MODE_TABLE = 1"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "game DXMT_WSI_MONITOR_IDENTITY=1"
+    ]
+   }
+  ],
+  "priority": 30,
+  "reason": "The game found no display modes on the virtual monitor and read past an empty list. These lines give the monitor an identity and a mode table."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[msgbox-origin] box L\"Could not find files!\""
+    ]
+   }
+  ],
+  "evidence": [
+   "monkey-island-could-not-find-files-2026-11-12 (Send Log SX82HG, build 653; also 307PMW, RTZCCD)"
+  ],
+  "id": "efmi-could-not-find-files-trace",
+  "lines": [
+   "env.MADEIRA_REG_TRACE = 1",
+   "env.MADEIRA_FILE_TRACE = 1",
+   "env.MADEIRA_FILE_TRACE_LIMIT = 30000"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_FILE_TRACE="
+    ]
+   }
+  ],
+  "priority": 6,
+  "reason": "The game says it cannot find its files. These lines make the next start record which file or setting it looks for; send that log."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[msgbox-origin] box",
+     "can not access Steam client"
+    ]
+   }
+  ],
+  "evidence": [
+   "ets2-steam-api-no-client-box-2026-11-12 (Send Log 0KBV39, build 653; also FZPE3T)"
+  ],
+  "id": "steam-api-no-client-box",
+  "lines": [],
+  "noFix": true,
+  "priority": 40,
+  "reason": "This is a Steam copy, and it looks for the Steam client, which a game added by hand does not get. Add the game from the Steam tab (sign in to Steam in BCD) and start it from there.",
+  "session": "library"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Load module LS3DF.dll"
+    ]
+   },
+   {
+    "has": [
+     "NtCreateUserProcess: image=",
+     "setup.exe\" cmdline=L\"setup.exe\""
+    ]
+   },
+   {
+    "has": [
+     "the main process exited but 1 child process(es) it started still run (setup.exe)"
+    ]
+   }
+  ],
+  "evidence": [
+   "mafia-first-run-setup-2026-11-12 (Send Log 3DYTCP, build 653)"
+  ],
+  "id": "mafia-first-run-setup",
+  "lines": [],
+  "maxStage": 3,
+  "noFix": true,
+  "outcomes": [
+   "exited-early",
+   "crashed"
+  ],
+  "priority": 3,
+  "reason": "The first start of this copy opens only the game's own Setup window. Choose your settings there, press Save and exit, and start the game again."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Assertion failed: IsSet()",
+     "Optional.h"
+    ]
+   },
+   {
+    "has": [
+     "NtCreateUserProcess",
+     "-dx11"
+    ]
+   }
+  ],
+  "evidence": [
+   "satisfactory-epic-dx11-optional-2026-11-12 (Send Log 6S1K74, build 653)"
+  ],
+  "id": "ue-dx11-start-optional-unset",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 20,
+  "reason": "The game was started in Direct3D 11 (-dx11 in its launch arguments) and stopped there. Remove -dx11 (or -d3d11) from the launch arguments: BCD runs this game in Direct3D 12."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "import_dll Library UnityPlayer.dll",
+     "not found"
+    ]
+   },
+   {
+    "has": [
+     "loader_init Importing dlls for",
+     "c0000135"
+    ]
+   }
+  ],
+  "evidence": [
+   "moonsweepers-missing-unityplayer-2026-11-12 (Send Log 6ESQ36, build 653)"
+  ],
+  "id": "unity-copy-missing-unityplayer",
+  "lines": [],
+  "maxStage": 2,
+  "noFix": true,
+  "priority": 3,
+  "reason": "The game's own UnityPlayer.dll is not beside its program: only the .exe was copied. Copy the whole game folder (with its _Data folder and UnityPlayer.dll)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[win-name]",
+     "class='#32770'",
+     "text=\"Run In Safe Mode?\""
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "mw2cr-run-in-safe-mode-2026-11-12 (Send Log 9QYXC8, build 653; also ENNH40)"
+  ],
+  "id": "cod-run-in-safe-mode-prompt",
+  "lines": [],
+  "maxStage": 3,
+  "noFix": true,
+  "priority": 3,
+  "reason": "The game asks whether to start in safe mode. Touch one of its buttons (No starts it normally); closing the box with its X ends the game. If it froze on the loading screen before, send that log."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[win-name] #",
+     "Application load error"
+    ]
+   },
+   {
+    "has": [
+     "[dock-offline] enabled=1 network=down request=1"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "skyrim-steam-stub-offline-first-start-2026-11-10 (Send Log 6M70T3, build 653)"
+  ],
+  "id": "steam-stub-load-error-offline",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "game-started-online=1"
+    ]
+   },
+   {
+    "has": [
+     "[jit-shortcut] run input=start cellular"
+    ]
+   }
+  ],
+  "priority": 2,
+  "reason": "The game's Steam start check needs Valve's client online the first time, and the phone had no network. Connect to the internet and start the game once; after that it can start offline.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[mmap-place] ml1027 NO GAP FITS"
+    ]
+   },
+   {
+    "has": [
+     "NtAllocateVirtualMemory status=c0000017"
+    ]
+   },
+   {
+    "has": [
+     "[dock-game-end]",
+     "ended with status 0xc0000005"
+    ]
+   }
+  ],
+  "evidence": [
+   "re7-teaser-allocation-refused-4gb-2026-11-11 (Send Log RYRNW9, build 653)"
+  ],
+  "id": "allocation-refused-small-device",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[device] address-map=",
+     "increased-memory=0"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 47,
+  "ramMaxMB": 4200,
+  "reason": "The game asked for one block of memory larger than this device can give it at once, and stopped when it was refused. It needs a device with more memory (6 GB or more)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[win-name] #",
+     "suitable graphics card with Vulkan"
+    ]
+   },
+   {
+    "has": [
+     "[winios-vk] Vulkan is off for this session"
+    ]
+   }
+  ],
+  "evidence": [
+   "detroit-become-human-vulkan-box-2026-11-20 (Send Log 8XP4CG, build 686)",
+   "the same box in 5TVAZG, 67K6WS (the demo), NDM49C, whose builds printed other lines"
+  ],
+  "id": "vulkan-required-box-no-suitable-gpu",
+  "lines": [
+   "vulkan = kosmickrisp"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "vulkan=moltenvk: Vulkan is on for this session"
+    ]
+   },
+   {
+    "has": [
+     "vulkan=moltenvk-patched: Vulkan is on for this session"
+    ]
+   },
+   {
+    "has": [
+     "vulkan=kosmickrisp: Vulkan is on for this session"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 2,
+  "reason": "The game needs Vulkan, which is off for it. The line turns on BCD's experimental Vulkan for this game."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[win-name] #",
+     "failed to initialize Vulkan"
+    ]
+   }
+  ],
+  "evidence": [
+   "x-plane-12-installer-vulkan-box-2026-11-12 (Send Log 4BD4YM, build 653)",
+   "x-plane-12-gl-bridge-version-2026-11-18 (a KosmicKrisp session: not this rule)"
+  ],
+  "id": "vulkan-required-box",
+  "lines": [
+   "vulkan = moltenvk"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "vulkan=moltenvk: Vulkan is on for this session"
+    ]
+   },
+   {
+    "has": [
+     "vulkan=moltenvk-patched: Vulkan is on for this session"
+    ]
+   },
+   {
+    "has": [
+     "vulkan=kosmickrisp: Vulkan is on for this session"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 2,
+  "reason": "The program needs Vulkan, which is off for it. The line turns on BCD's experimental Vulkan for this game."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:import_dll Library glide2x.dll (which is needed by"
+    ]
+   },
+   {
+    "has": [
+     "failed, status c0000135"
+    ]
+   }
+  ],
+  "evidence": [
+   "requiem-glide2x-missing-2026-11-11 (Send Log F40PAW, build 653)"
+  ],
+  "id": "glide2x-not-beside-program",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 3,
+  "reason": "This program needs a Glide runtime (glide2x.dll) that is not in the game's folder. Start the game's other program (the Direct3D or software one), or put a Glide wrapper beside it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[winios-gl]",
+     "OpenGL ES 3.0 for a desktop"
+    ]
+   },
+   {
+    "has": [
+     "wined3d_parse_gl_version",
+     "Invalid OpenGL version string \"OpenGL ES"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[x86-fault] null-call"
+    ]
+   },
+   {
+    "has": [
+     "[wow-null32] rev="
+    ]
+   },
+   {
+    "has": [
+     "[dock-report] session-authenticated-online=1"
+    ]
+   }
+  ],
+  "evidence": [
+   "cod1-gles-wined3d-version-2026-11-12 (Send Log TXM1NB, build 653)"
+  ],
+  "id": "opengl-es-wined3d-version",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[dock-report] launch-request-submitted=1"
+    ]
+   }
+  ],
+  "priority": 2,
+  "reason": "This game draws through Wine's Direct3D-to-OpenGL layer, which needs desktop OpenGL. In the game's settings set \"OpenGL for this game\" to Desktop OpenGL (Zink) instead of OpenGL ES."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[unixlib] opengl32 (GL-absent stub table)"
+    ]
+   },
+   {
+    "has": [
+     "Load module SDL2.dll"
+    ]
+   },
+   {
+    "has": [
+     "NtTerminateProcess(handle=0x0, exit_code=0x0)"
+    ]
+   }
+  ],
+  "evidence": [
+   "fractal-block-world-gl-silent-exit-2026-11-13 (Send Log ZNNG9E, build 653)"
+  ],
+  "id": "gl-silent-exit-before-window",
+  "lines": [
+   "gl-backend = zink"
+  ],
+  "maxStage": 2,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "opengl32 (winios WGL)"
+    ]
+   }
+  ],
+  "outcomes": [
+   "exited-early"
+  ],
+  "priority": 30,
+  "reason": "The game looked for OpenGL, found none and closed before opening a window. The line gives it OpenGL through Zink."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[dock-installers] app=",
+     "program=uplay_steam_installer",
+     "status=missing"
+    ]
+   },
+   {
+    "has": [
+     "NtRaiseHardError 0x50000018"
+    ]
+   },
+   {
+    "has": [
+     "exit_code=0xdeadc0de"
+    ]
+   }
+  ],
+  "evidence": [
+   "trackmania-ubisoft-connect-missing-2026-11-17 (Send Log YQKE46, build 665)"
+  ],
+  "fixedIn": 666,
+  "id": "ubisoft-connect-depot-missing",
+  "lines": [],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 2,
+  "reason": "The game's Ubisoft Connect files were not part of its install (BCD left them out before build 666) and the game stopped at its start-up check. From build 666 BCD installs them: update BCD, then check the game's files on its page.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "NtRaiseHardError 0x50000018"
+    ]
+   },
+   {
+    "has": [
+     "exit_code=0xdeadc0de"
+    ]
+   }
+  ],
+  "evidence": [
+   "redmatch2-enforcer-exit-2026-11-12 (Send Log WYJ72A, build 653)"
+  ],
+  "id": "enforcer-protection-exit",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[dock-installers] app=",
+     "status=missing",
+     "uplay_steam_installer"
+    ]
+   }
+  ],
+  "priority": 2,
+  "reason": "The game's anti-cheat ended it. It does not run under BCD; changing settings will not help."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[win-name] #",
+     "Protection initialization failed"
+    ]
+   }
+  ],
+  "evidence": [
+   "ryse-protection-initialization-failed-2026-11-11 (Send Log 9G1NPG, build 653)"
+  ],
+  "id": "ryse-protection-initialization-failed",
+  "lines": [],
+  "noFix": true,
+  "priority": 2,
+  "reason": "The game's copy protection failed to start under BCD and the game ends. Changing settings will not help."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Redistributable (arm64)",
+     "[win-name] #"
+    ]
+   },
+   {
+    "has": [
+     "[vcrt-arm64] madeira-bcd:"
+    ]
+   },
+   {
+    "has": [
+     "NtTerminateProcess",
+     "exit_code=0x2329"
+    ]
+   }
+  ],
+  "evidence": [
+   "dumpster-gang-vcrt-arm64-newest-2026-11-11 (Send Log JPWFJN, build 653)"
+  ],
+  "id": "vcrt-arm64-marker-newest",
+  "lines": [
+   "env.MADEIRA_VCRT_ARM64_KEY = 14.99.65535.0"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "Version 14.99."
+    ]
+   },
+   {
+    "has": [
+     "NtCreateUserProcess: image=",
+     "-Shipping.exe"
+    ]
+   }
+  ],
+  "priority": 9,
+  "reason": "The game's start-up program asked for Microsoft's ARM64 Visual C++ runtime, and the version BCD wrote was older than the one it was built with. The line writes a version newer than any."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[early-detach] rev=ml524"
+    ]
+   },
+   {
+    "has": [
+     "[OK] Debugger detached."
+    ]
+   }
+  ],
+  "evidence": [
+   "p3r-lc-gone-after-detach-2026-11-13 (Send Log 3SE0G2, build 653)"
+  ],
+  "id": "jit-process-gone-after-detach",
+  "lines": [],
+  "maxStage": 0,
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "Starting wineserver..."
+    ]
+   },
+   {
+    "has": [
+     "[session] length="
+    ]
+   }
+  ],
+  "outcomes": [
+   "exited-early",
+   "crashed"
+  ],
+  "priority": 41,
+  "reason": "BCD ended right after the debugger that enabled JIT let go of it, before the game started. Try BCD's own Enable JIT instead of the other app's, and send the log of that start."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Runtime error 217 at"
+    ]
+   }
+  ],
+  "evidence": [
+   "sonic-patch-delphi-217-2026-11-13 (Send Log 3RNV1H, build 653)"
+  ],
+  "id": "delphi-runtime-error-217",
+  "lines": [
+   "env.MADEIRA_FILE_TRACE = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_FILE_TRACE="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 20,
+  "reason": "The program stopped in its start-up code (Runtime error 217). The line makes the next start record the files it reads; send that log."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "UHARC 0.4"
+    ]
+   },
+   {
+    "has": [
+     "Usage: UHARC command"
+    ]
+   }
+  ],
+  "evidence": [
+   "uharc-started-as-game-2026-11-12 (Send Log EJPTAJ, build 653)"
+  ],
+  "id": "uharc-archiver-started-as-game",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "exited-early",
+   "crashed"
+  ],
+  "priority": 3,
+  "reason": "The program chosen for this game is a file archiver, not the game. On the game's page choose the game's own program (for Call of Duty: CoDSP.exe or CoDMP.exe)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "FXC D3DCompile error",
+     "Shader model 5.1+ resource array"
+    ]
+   }
+  ],
+  "evidence": [
+   "skate2-sm51-resource-array-2026-11-11 (Send Log JQ0202, build 653)",
+   "tests/host/check-dxcompiler-optin.py"
+  ],
+  "id": "wgpu-fxc-sm51-dxcompiler",
+  "lines": [
+   "env.MADEIRA_OPTIN_DLLS = dxcompiler"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_OPTIN_DLLS: dxcompiler.dll -> dxcompiler-optin.dll"
+    ]
+   }
+  ],
+  "priority": 2,
+  "reason": "The game's graphics library compiled its Direct3D 12 shaders with Wine's old shader compiler, which cannot compile them; the line gives the game the DirectX Shader Compiler (dxcompiler.dll), which the library uses instead when it finds it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Shader model 5.1+ resource array"
+    ]
+   }
+  ],
+  "evidence": [
+   "skate2-sm51-resource-array-2026-11-11 (Send Log JQ0202, build 653)"
+  ],
+  "id": "d3dcompile-sm51-resource-array",
+  "lines": [],
+  "noFix": true,
+  "priority": 3,
+  "reason": "The game compiles its shaders with a feature (Shader Model 5.1 resource arrays) that Wine's shader compiler does not have yet. If the game has a Vulkan or Direct3D 11 option, use that."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "FFRS-Win64-Shipping.exe sec=0x14ad94000-0x15d95b860"
+    ]
+   },
+   {
+    "has": [
+     "ACCEPTING terminal root frame"
+    ]
+   }
+  ],
+  "evidence": [
+   "ffrs-full-protected-stop-2026-11-12 (Send Log 44VB6A, build 653)"
+  ],
+  "id": "ffrs-full-protected-code-stop",
+  "lines": [],
+  "noFix": true,
+  "priority": 40,
+  "reason": "The game's copy protection stopped it inside its protected code. BCD cannot run it past that point yet."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[WineProc] Target exe:",
+     "\\setup_",
+     ".exe (bundle="
+    ]
+   },
+   {
+    "has": [
+     "[session] length=",
+     "play=0s frames=0"
+    ]
+   }
+  ],
+  "evidence": [
+   "gog-installer-started-as-game-2026-11-14 (Send Log HSQDK4, build 653)"
+  ],
+  "id": "gog-installer-started-as-game",
+  "lines": [],
+  "maxStage": 3,
+  "noFix": true,
+  "priority": 3,
+  "reason": "The program started for this game is its installer (setup_...exe), not the game. Let it install the game, then add the game's own program (Add a game) and start that one. If the installer stops with an error, send its log."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[win-name]",
+     "Steamworks Error!"
+    ],
+    "sinceLaunch": true
+   },
+   {
+    "has": [
+     "No SteamUtils011"
+    ],
+    "sinceLaunch": true
+   }
+  ],
+  "evidence": [
+   "grim-dawn-steamworks-interface-2026-11-13 (Send Log RATVJF, build 653)",
+   "SteamRuntimeFiles.september (round 660 M139)",
+   "SteamRuntimeFiles.november (2026-11-21)",
+   "grim-dawn-steamworks-dialog-2026-11-13 (issue #48, build 634.1)",
+   "grim-dawn-steamworks-dialog-earlier-launch-2026-11-13"
+  ],
+  "id": "steamworks-interface-missing-box",
+  "lead": "Choose a newer Steam client in Settings > BCD Dock",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 3,
+  "reason": "The game asked Steam for an interface (SteamUtils011) that the January 2026 Steam client in BCD Dock does not have, and stopped. In Settings > BCD Dock, under Steam client, choose Nov 2026 (Sep 2026 has this interface too) and tap Switch: your games, saves and settings move along. If the game offers a SteamOS/Linux compatibility launch option (Grim Dawn does), choosing it under Options > Steam > Steam launch option works too: that build asks Steam for an older interface.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[store-noalias]",
+     "prot=1 max=3"
+    ]
+   },
+   {
+    "has": [
+     "[wr-strip-declined]",
+     "SEC_IMAGE"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[store-noalias]",
+     "insn=0xb8e"
+    ]
+   },
+   {
+    "has": [
+     "[store-noalias]",
+     "insn=0xf8e"
+    ]
+   },
+   {
+    "has": [
+     "[store-noalias]",
+     "insn=0x88e"
+    ]
+   },
+   {
+    "has": [
+     "[store-noalias]",
+     "insn=0xc8e"
+    ]
+   }
+  ],
+  "evidence": [
+   "fernbus-image-atomic-store-2026-11-13 (Send Log T340YY, build 653)"
+  ],
+  "id": "x64-image-atomic-store-nocopy",
+  "lines": [
+   "env.MADEIRA_X64_IMAGE_NOCOPY = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[x64-image]",
+     "mapped without a pool copy"
+    ]
+   },
+   {
+    "has": [
+     "[dep-off] promoting guest"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 14,
+  "reason": "The game writes into its own program image with an atomic instruction, and BCD's copy of the image could not take the write. The line runs the program from its loaded image, without a copy."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[oversize] ml1298 commit",
+     "past its real"
+    ]
+   },
+   {
+    "has": [
+     "[jumbo]",
+     "size=0x1140000000"
+    ]
+   }
+  ],
+  "evidence": [
+   "cod-iw-69gib-reserve-2026-11-13 (Send Log XKT0AD, build 653)"
+  ],
+  "id": "reserve-69gib-oversize-commit-fails",
+  "lines": [],
+  "noFix": true,
+  "priority": 2,
+  "reason": "The game reserves 69 GB of address space at start, and BCD can give it only part of that on this device; the game then uses memory beyond that part and stops. No setting fixes this yet."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "kIOGPUCommandBufferCallbackErrorPageFault"
+    ],
+    "sinceLaunch": true
+   },
+   {
+    "count": 20,
+    "has": [
+     "SubmissionsIgnored"
+    ],
+    "sinceLaunch": true
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "eiyuden-gpu-fault-then-dead-2026-11-13 (Send Log R5YPE5, build 653)"
+  ],
+  "id": "gpu-fault-then-dead",
+  "lines": [],
+  "noFix": true,
+  "priority": 27,
+  "reason": "The game's graphics work made the GPU fault, and iOS then stopped running any of its GPU work: the picture froze while the game went on. Lowering the game's graphics options may avoid it; send the log if it happens again."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Unhandled page fault on execute access"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "f4se_loader.exe sec="
+    ]
+   },
+   {
+    "has": [
+     "skse64_loader.exe sec="
+    ]
+   },
+   {
+    "has": [
+     "skse_loader.exe sec="
+    ]
+   },
+   {
+    "has": [
+     "nvse_loader.exe sec="
+    ]
+   },
+   {
+    "has": [
+     "obse_loader.exe sec="
+    ]
+   },
+   {
+    "has": [
+     "fose_loader.exe sec="
+    ]
+   }
+  ],
+  "evidence": [
+   "fallout4-f4se-loader-2026-11-11 (Send Log DBWAJ4, build 653)"
+  ],
+  "id": "script-extender-loader-injection",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 3,
+  "reason": "Script extenders (F4SE, SKSE and the like) put their code into the game by writing into its running process, which BCD cannot do yet. Start the game's own program, without the extender."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[x86-fault] #1 a 32-bit guest executed int3 at guest"
+    ]
+   },
+   {
+    "has": [
+     "[x86-fault]",
+     "code int3 -224:",
+     "55 8b ec 81 ec 44 02 00 00 56 68"
+    ]
+   }
+  ],
+  "evidence": [
+   "bo2-ceg-integrity-trap-2026-11-12 (Send Log AA07A1, build 653)",
+   "TRH25H (The Amazing Spider-Man)"
+  ],
+  "id": "ceg-integrity-trap",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 3,
+  "reason": "The game checks that Steam started it for its owner, and a program file started from the library is not. If you own it on Steam, sign in to Steam in BCD and start it from your Steam library (BCD Dock).",
+  "session": "library"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "to unimplemented function steam_api64.dll.SteamAPI_Init, aborting"
+    ]
+   }
+  ],
+  "evidence": [
+   "witcher3-steam-plugin-import-stub-2026-11-13 (Send Log EHMN4F, build 653; also ZQ37NG)"
+  ],
+  "id": "witcher3-steam-plugin-import-stub",
+  "lines": [],
+  "noFix": true,
+  "priority": 2,
+  "reason": "The game's call into its Steam library (SteamAPI_Init) was not found by BCD's loader, so the game stopped at its first Steam call. This is not solved yet; settings do not change it. Send the log."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[display-shape] resolution=640x480"
+    ]
+   },
+   {
+    "has": [
+     "[d3d9-modes] adapter 0 count=3"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled page fault on read access to 00000000"
+    ]
+   }
+  ],
+  "evidence": [
+   "dark-souls-ptde-640x480-2026-11-13 (Send Log 9S15HH, build 653)"
+  ],
+  "id": "d3d9-low-resolution-no-mode",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 3,
+  "reason": "The game's resolution is set to 640x480, and this game finds no display mode that small and stops. On the game's page set Resolution to 1024x768 or higher and play again."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "madeira_compile_diag",
+     "Aborting due to not yet implemented feature: Writ"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "madeira_compile_diag",
+     "Writing fx_2_0 sampler objects initializers is not implemented"
+    ]
+   },
+   {
+    "has": [
+     "madeira_compile_diag",
+     "Aborting due to not yet implemented feature: Write pass assignments"
+    ]
+   }
+  ],
+  "evidence": [
+   "astrotripper-fx2-effect-2026-11-11 (Send Log 41T6YN, build 653)",
+   "tests/host/check-vkd3d-fx2-effects.py"
+  ],
+  "fixedIn": 660,
+  "id": "hlsl-fx2-effect-writer",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "MADEIRA_FX_WRITER=0"
+    ]
+   }
+  ],
+  "priority": 4,
+  "reason": "The game builds its Direct3D 9 effects from text when it starts, and BCD's shader compiler could not write their sampler and pass settings, so an effect was missing and the game stopped. From build 660 the compiler writes them. Update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[mach_exc] bt[1]",
      "NtGdiEnumFonts+0x"
     ]
@@ -14320,7 +18204,53 @@ enum AutoTuneBuiltInRules {
   "lines": [],
   "noFix": true,
   "priority": 6,
-  "reason": "Steam's crash-report server (crash.steampowered.com) could not be reached on this network, and the start waited about two and a half minutes for it twice. The game itself is fine. From build 652, adding the line env.MADEIRA_DNS_REFUSE_CRASH = 1 to this game's own settings skips that wait.",
+  "reason": "Steam's crash-report server (crash.steampowered.com) could not be reached on this network, and the start waited about two and a half minutes for it twice. The game itself is fine. From build 674 BCD skips that wait by itself; on builds 652 to 673 the line env.MADEIRA_DNS_REFUSE_CRASH = 1 in this game's own settings does.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[dns] madeira-bcd begin",
+     "crash.steampowered.com"
+    ]
+   },
+   {
+    "has": [
+     "[srv-conn] owner=",
+     "dport=443",
+     "nb=0"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "steam-crash-host-connect-stall-2026-11-19 (Send Log PF26FK, build 665)",
+   "2defa967",
+   "tests/host/check-wine-dns-refuse-crash.py"
+  ],
+  "fixedIn": 674,
+  "id": "steam-crash-host-connect-stall",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "[srv-conn-done] dport=443"
+    ]
+   },
+   {
+    "has": [
+     "[dns] madeira-bcd refused"
+    ]
+   },
+   {
+    "has": [
+     "session-authenticated-online=1"
+    ]
+   }
+  ],
+  "priority": 6,
+  "reason": "Steam's crash-report server (crash.steampowered.com) did not answer, and the start waited for it while Steam was still connecting. The game itself is fine. From build 674 BCD skips that wait by itself; on builds 652 to 673 the line env.MADEIRA_DNS_REFUSE_CRASH = 1 in this game's own settings does.",
   "session": "dock"
  },
  {
@@ -14683,6 +18613,12 @@ enum AutoTuneBuiltInRules {
   "none": [
    {
     "has": [
+     "[device] address-map=",
+     "increased-memory=0"
+    ]
+   },
+   {
+    "has": [
      "[swap] ml1077 stats",
      "disk-full refusals 1"
     ]
@@ -14970,6 +18906,337 @@ enum AutoTuneBuiltInRules {
   "priority": 48,
   "ramMaxMB": 4500,
   "reason": "This device has too little memory for this game: iOS closed it at its memory limit with the swap file in use, and the swap file never filled up, so a larger one would not help. Lowering the game's own texture and shadow settings can help; a device with 6 GB of RAM or more is the safe choice."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[footprint] rev=ml358 phys="
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 backed"
+    ]
+   },
+   {
+    "has": [
+     "ml992: clamping reported physical memory",
+     "-> 4096 MB"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 0 |",
+     ", 0 MB kept in memory by swap-mb"
+    ]
+   }
+  ],
+  "evidence": [
+   "batman-arkham-knight-4gb-limit-2026-11-21 (Send Logs 72T8R9, NNCT8D, build 686)",
+   "YK359G (DARK SOULS III, build 686)"
+  ],
+  "id": "memory-limit-device-too-small-4gb-limit",
+  "lines": [],
+  "memoryMinPct": 90,
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[device] address-map=",
+     "increased-memory=0"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 1"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 2"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 3"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 4"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 5"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 6"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 7"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 8"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 9"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "1 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "2 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "3 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "4 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "5 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "6 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "7 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "8 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "9 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "10 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "20 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "30 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "40 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "50 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "60 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "70 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "80 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "90 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "00 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "1 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "2 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "3 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "4 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "5 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "6 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "7 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "8 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "9 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "10 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "20 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "30 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "40 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "50 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "60 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "70 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "80 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "90 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "00 MB committed past it"
+    ]
+   }
+  ],
+  "outcomes": [
+   "killed"
+  ],
+  "priority": 48,
+  "ramMaxMB": 6500,
+  "reason": "iOS lets BCD use only 4 GB of this device's memory, and this game needs more than that even with the compressed-texture and swap settings BCD uses. Lowering the game's own texture and shadow settings can help; a device with 8 GB of RAM or more is the safe choice."
  },
  {
   "all": [
@@ -15695,6 +19962,254 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[x64-fault] #1 a 64-bit guest faulted at address 0x0 at RIP 0x140272d0d"
+    ]
+   },
+   {
+    "has": [
+     "[oversize] ml1298 unhinted reserve of 65536 MB: real "
+    ]
+   },
+   {
+    "has": [
+     "[oversize] ml1298 OVERLAP r663:"
+    ]
+   }
+  ],
+  "evidence": [
+   "cyberpunk-oversize-overlap-2026-11-20 (Send Log 9SQQNR, build 682)",
+   "witcher3-oversize-virtual (5EV18N)"
+  ],
+  "id": "cyberpunk-oversize-virtual",
+  "lines": [
+   "oversize-reserve-virtual = 1"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[oversize] vres r663"
+    ]
+   },
+   {
+    "has": [
+     "[game-cfg]",
+     "oversize-reserve-virtual=1"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 87,
+  "reason": "The game reserved 16, 64 and 32 GB of address space and BCD could place only part of each; the 64 GB part lies inside the 16 GB one and the game handed a block to the wrong pool. The line keeps the 64 GB reservation apart (an experiment)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[oversize] ml1298 unhinted reserve of 65536 MB: real"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[x64-fault] #1 a 64-bit guest faulted at address 0x0 at RIP"
+    ]
+   },
+   {
+    "has": [
+     "[exc-disp] raise",
+     "code=c0000005",
+     "p0=0 p1=0"
+    ]
+   }
+  ],
+  "evidence": [
+   "cyberpunk-oversize-null-header-2026-11-17 (Send Log 518BAA, build 659; also 5VE8MN)",
+   "round 668 G1 S10 / N039",
+   "cyberpunk-oversize-handled-null-read-2026-11-21 (Send Log 9ZAYWX, build 682)"
+  ],
+  "id": "redengine-arena-served-in-part-scan",
+  "lines": [
+   "oversize-scan = 1",
+   "env.MADEIRA_X86_FAULT_DUMP = 1"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[game-cfg]",
+     "oversize-scan=1"
+    ]
+   },
+   {
+    "has": [
+     "[oversize-scan] r663"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 88,
+  "reason": "The game's memory manager reserved 64 GB of address space and BCD could place only part of it; the game then read an empty pool header. The line makes the next start log where the game's own code asks for that 64 GB, which is what a later fix needs."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[x64-fault] #1 a 64-bit guest faulted at address 0x0"
+    ]
+   }
+  ],
+  "evidence": [
+   "naruto-storm-x64-null-file-trace-2026-11-17 (Send Log VJ3P0R, build 665)"
+  ],
+  "id": "x64-null-fault-file-trace",
+  "lines": [
+   "env.MADEIRA_FILE_TRACE = 1",
+   "env.MADEIRA_FILE_TRACE_LIMIT = 12000"
+  ],
+  "maxStage": 5,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_FILE_TRACE="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 89,
+  "reason": "A 64-bit program stopped on an empty pointer in its own code and the register dump is in the log. The lines make the next start record the files it opens; the last ones before the stop say what it was loading."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[fault_rip]",
+     "addr=0x12"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[mach_exc] sym pc=",
+     "Madeira`ext_gl",
+     "lr=",
+     "__wine_unix_call_dispatcher"
+    ]
+   },
+   {
+    "has": [
+     "[mach_exc] sym pc=",
+     "Madeira`resolve_default_fbo",
+     "wrap_wglSwapBuffers"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "alien-tenant-gl-teb-null-2026-11-19 (Send Log KFW5H1, build 665; also YJBGY1)",
+   "tests/host/check-x18-store-retry.py"
+  ],
+  "fixedIn": 678,
+  "id": "gl-teb-null-unix-call",
+  "lines": [],
+  "priority": 88,
+  "reason": "A graphics call reached BCD's OpenGL layer with an empty thread pointer (iOS clears a register the call reads, rarely) and failed; from build 678 the call repeats the read until it holds."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[x86-fault] null-call: a 32-bit guest branched to 0x00000000"
+    ]
+   },
+   {
+    "has": [
+     "[winios-gl] zink: context",
+     "request"
+    ]
+   }
+  ],
+  "evidence": [
+   "day-of-the-tentacle-null-glgenframebuffers-2026-11-20 (Send Log HZDBH9, build 682; 2ET3QE, build 665)"
+  ],
+  "id": "gl-null-proc-warn-diag",
+  "lines": [
+   "env.WINEDEBUG = err+all,err-virtual,fixme-d3dcompiler,warn+wgl"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game WINEDEBUG="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 91,
+  "reason": "A 32-bit OpenGL game called a function that BCD's OpenGL never gave it. The line makes the next log say which function and why."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[fault_rip] cnt=1",
+     "kr=1(INVALID_ADDRESS)"
+    ]
+   },
+   {
+    "has": [
+     "[x86_live]",
+     "RDX=0xffffffff"
+    ]
+   }
+  ],
+  "evidence": [
+   "spider-man-remastered-empty-list-2026-11-21 (Send Log SQBCB3, build 686; VYBEBC has the same RIP)"
+  ],
+  "id": "x64-last-element-of-empty-list-diag",
+  "lines": [
+   "env.MADEIRA_X86_FAULT_DUMP = 1"
+  ],
+  "maxStage": 5,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[x64-fault] #"
+    ]
+   },
+   {
+    "has": [
+     "[x86-fault] #"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 91,
+  "reason": "A 64-bit program read the last element of a list that has no elements, and the log has only the first registers. The line makes the next log carry the objects around that place, so that the list can be named."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[rwx-fault] rev=ajan5-mhs3"
     ]
    }
@@ -15918,6 +20433,47 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 3,
   "reason": "Control's menu stops in the Coherent GT UI engine; no setting is known for it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "wine: Unhandled page fault on execute access to"
+    ]
+   },
+   {
+    "has": [
+     "[entry-fail]",
+     "NoExec block (null-read thunk)",
+     "(32-bit guest, window base"
+    ]
+   },
+   {
+    "has": [
+     "Load module DINPUT8.dll"
+    ]
+   }
+  ],
+  "evidence": [
+   "the-wolf-among-us-dinput-cdecl-2026-11-17 (Send Log 4VHH72, build 665)",
+   "tests/host/check-dinput-cdecl-callbacks.py"
+  ],
+  "fixedIn": 669,
+  "id": "dinput-ansi-callback-cdecl",
+  "lines": [],
+  "maxStage": 3,
+  "none": [
+   {
+    "has": [
+     "[iOS-noexec] status=NOEXEC BlockEntry=0xfffffffe GuestRIP=0xfffffffe"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 1,
+  "reason": "The game's controller code (DirectInput) is written for another calling convention, which Windows tolerates and this build of BCD did not: the game stopped when the first controller was listed. Build 669 fixes it. Until then, choose Controller: Its own support for this game."
  },
  {
   "all": [
@@ -16374,6 +20930,19 @@ enum AutoTuneBuiltInRules {
   "id": "game-folder-missing-steam-api",
   "lines": [],
   "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[jit-pool] EXHAUSTED"
+    ]
+   },
+   {
+    "has": [
+     "failed (error c0000017)",
+     "steam_api"
+    ]
+   }
+  ],
   "outcomes": [
    "crashed",
    "exited-early"
@@ -16577,6 +21146,7 @@ enum AutoTuneBuiltInRules {
    "killed"
   ],
   "priority": 56,
+  "ramMinMB": 7000,
   "reason": "iOS closed the game at its memory limit while the swap file was already in use: what fills the memory is the game's graphics memory (textures and buffers), which cannot move to a file. Lower the game's own graphics options (texture quality first, then the resolution) and start it again."
  },
  {
@@ -16757,16 +21327,31 @@ enum AutoTuneBuiltInRules {
    }
   ],
   "evidence": [
-   "astro-tripper-null-steam-client-2026-11-04 (Send Logs 6B2MKH = 4JPDV6, MK1ME2, WSXNYF, build 630)"
+   "astro-tripper-null-steam-client-2026-11-04 (Send Logs 6B2MKH = 4JPDV6, MK1ME2, WSXNYF, build 630)",
+   "astrotripper-fx2-effect-2026-11-11 (Send Log 41T6YN, build 653: the effect's compile refused 0.2 s before the fault)"
   ],
   "id": "steam-sdk-null-client-32bit",
   "lines": [],
   "noFix": true,
+  "none": [
+   {
+    "has": [
+     "madeira_compile_diag",
+     "Writing fx_2_0 sampler objects initializers is not implemented"
+    ]
+   },
+   {
+    "has": [
+     "madeira_compile_diag",
+     "Aborting due to not yet implemented feature: Write pass assignments"
+    ]
+   }
+  ],
   "outcomes": [
    "crashed"
   ],
   "priority": 40,
-  "reason": "The game's Steam connection was never made (its own Steam library returned nothing), and the game stopped on the first use of it. No setting is known; the log of this start says what the game saw of Steam at that moment.",
+  "reason": "The game builds its Direct3D 9 effects from text when it starts; its first effect (z_default.fx) was not built, and the game stopped on the first use of it. No setting is known; send the log.",
   "session": "dock"
  },
  {
@@ -16902,6 +21487,67 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[wow-window] adopted placeholder"
+    ]
+   },
+   {
+    "has": [
+     "[phase] spawn:",
+     "syswow64",
+     "dllhost.exe"
+    ]
+   },
+   {
+    "has": [
+     "[wow-window] refused: map too small"
+    ]
+   },
+   {
+    "has": [
+     "BOOT FAILED at stage 'guest-window-reserve'"
+    ]
+   },
+   {
+    "has": [
+     "GTAIV.exe",
+     "[phase] spawn:"
+    ]
+   }
+  ],
+  "evidence": [
+   "gta4-wow-placeholder-taken-by-surrogate-2026-11-17 (Send Log R7JQMP, build 665)",
+   "tests/host/check-wow-hold-for.py (build 632)"
+  ],
+  "id": "gta4-wow-placeholder-taken-by-surrogate",
+  "lines": [
+   "env.MADEIRA_WOW_HOLD_FOR_GAME = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_WOW_HOLD_FOR_GAME=1"
+    ]
+   },
+   {
+    "has": [
+     "[device] address-map=",
+     "increased-memory=0"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 4,
+  "reason": "A helper that Rockstar's Social Club browser starts (a 32-bit COM surrogate) took the one address window BCD keeps for the game, so the game found none when the launcher started it. The line keeps that window for the game's own folder.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[wow-window] session armed: a 32-bit process is expected"
     ]
    },
@@ -16918,7 +21564,7 @@ enum AutoTuneBuiltInRules {
    },
    {
     "has": [
-     "GTAIV.exe",
+     "\\\\GTAIV.exe",
      "[phase] spawn:"
     ]
    }
@@ -17219,6 +21865,60 @@ enum AutoTuneBuiltInRules {
    },
    {
     "has": [
+     "[fex-arena] ml793 PUBLISHED",
+     "size=0x100000000"
+    ]
+   },
+   {
+    "has": [
+     "[mmap-place] ml1027 NO GAP FITS size=0x20010000"
+    ]
+   },
+   {
+    "count": 200,
+    "has": [
+     "[bigres] tid=",
+     "size=0x1ffff000"
+    ]
+   }
+  ],
+  "evidence": [
+   "unity-reserve-loop-4gb-arena-2026-11-16 (Send Log PQZRPX = W2N8NY, build 665, iPad13,1, 17 GB map, Dressmaker)",
+   "Y5HR3K, G3AFNB (build 659, iPad13,18, 454 GB map)",
+   "tests/host/check-unity-small-va.py"
+  ],
+  "id": "unity-reserve-loop-4gb-arena-windows",
+  "lines": [
+   "env.MADEIRA_UNITY_SMALL_VA = 1",
+   "env.MADEIRA_FEX_CALLRET_RESERVE_KB = 64"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[unity-va] r669 on:"
+    ]
+   },
+   {
+    "has": [
+     "[unity-va] r669 MADEIRA_UNITY_SMALL_VA = 1"
+    ]
+   }
+  ],
+  "priority": 10,
+  "reason": "The game's engine reserves address space in 511 MB pieces, using a few MB of each, and this device leaves BCD only about 5 GB of free address space, of which the emulator keeps 4 GB. The lines give the engine up to 16 of its pieces as windows inside the emulator's own address space; a game that wants more pieces than that still stops. New, not yet tried on a device."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[device] address-map=",
+     "increased-memory=1"
+    ]
+   },
+   {
+    "has": [
      "[mmap-place] ml1027 NO GAP FITS size=0x20010000"
     ]
    },
@@ -17239,7 +21939,7 @@ enum AutoTuneBuiltInRules {
   "maxStage": 3,
   "noFix": true,
   "priority": 59,
-  "reason": "The game's engine reserves address space in 511 MB pieces, using a few MB of each, until it is told there is no more, and then keeps asking. This phone's iOS gives BCD only about 17 GB of address space even with the increased memory limit, which is too little for that; no setting changes it on this phone."
+  "reason": "The game's engine reserves address space in 511 MB pieces, using a few MB of each, until it is told there is no more, and then keeps asking. It wants 6 to 17 GB of address space in 12 to 34 pieces; this device leaves BCD only about 4 to 5 GB (of which the emulator keeps 2 to 4 GB), too little for that engine, and no setting changes it on this device."
  },
  {
   "all": [
@@ -17919,7 +22619,7 @@ enum AutoTuneBuiltInRules {
    "crashed"
   ],
   "priority": 40,
-  "reason": "A thread of the game used up its whole 32-bit stack in an endless recursion; no setting changes it. The log names the repeating code ([stack-ovf] lines)."
+  "reason": "A thread of the game used up its whole 32-bit stack in an endless recursion; no setting changes it. The log names the repeating code ([stack-ovf] lines). If the game uses a mod loader (modloader.asi and the like), start it without the mods: the repeating code was in the loader (round 668, GTA San Andreas BEEKBT)."
  },
  {
   "all": [
@@ -17993,6 +22693,11 @@ enum AutoTuneBuiltInRules {
    {
     "has": [
      "[madeira-env] game FEX_SMCCHECKS="
+    ]
+   },
+   {
+    "has": [
+     "[fexlock] STUCK write-wait"
     ]
    }
   ],
@@ -18284,6 +22989,12 @@ enum AutoTuneBuiltInRules {
      "choice=run pending=",
      "[dock-installers]"
     ]
+   },
+   {
+    "has": [
+     "[smc-atomic] ml657",
+     "handled pc"
+    ]
    }
   ],
   "outcomes": [
@@ -18377,6 +23088,57 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     " not render-target-capable"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "d3d9: CreateTexture: format 50 not render-target-capable"
+    ]
+   },
+   {
+    "has": [
+     "d3d9: CreateTexture: format 51 not render-target-capable"
+    ]
+   },
+   {
+    "has": [
+     "d3d9: CreateTexture: format 81 not render-target-capable"
+    ]
+   },
+   {
+    "has": [
+     "d3d9: CreateCubeTexture: format 50 not render-target-capable"
+    ]
+   },
+   {
+    "has": [
+     "d3d9: CreateCubeTexture: format 51 not render-target-capable"
+    ]
+   },
+   {
+    "has": [
+     "d3d9: CreateCubeTexture: format 81 not render-target-capable"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "d3d9-luminance-rt-refused-2026-11-09 (Send Log CZ4R49, build 634: the refusal twice, then the main thread stopped)",
+   "tests/host/check-dxmt-d9-luminance-rt.py"
+  ],
+  "id": "d3d9-luminance-rt-refused",
+  "lines": [],
+  "noFix": true,
+  "priority": 40,
+  "reason": "The game (or a mod in it) asked Direct3D 9 for a one-channel render target (L8, A8L8 or L16), which BCD gives only on request, and was refused. If it stopped or stays on its loading screen, add env.MADEIRA_D3D9_LUMINANCE_RT = 1 in the game's settings (Direct3D 9/10/11 (DXMT): Direct3D 9: luminance render targets) and start it again."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "x86=4a 8b 0c c1 48 8b 09 48 39 41 10",
      "[guest-exact] ml885"
     ]
@@ -18410,16 +23172,29 @@ enum AutoTuneBuiltInRules {
     ]
    }
   ],
-  "evaluateWhenRan": true,
   "evidence": [
    "nms-needs-opengl-or-vulkan-2026-11-02 (Send Log FE2GHX, build 626)",
    "docs/OPENGL.md"
   ],
   "id": "needs-opengl-or-vulkan",
-  "lines": [],
-  "noFix": true,
-  "priority": 40,
-  "reason": "This game draws with OpenGL or Vulkan only, and BCD has neither yet (docs/OPENGL.md); no setting changes that."
+  "lines": [
+   "vulkan = moltenvk"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "vulkan=moltenvk: Vulkan is on for this session"
+    ]
+   },
+   {
+    "has": [
+     "vulkan=moltenvk-patched: Vulkan is on for this session"
+    ]
+   }
+  ],
+  "priority": 11,
+  "reason": "This game draws with OpenGL or Vulkan only. BCD's Vulkan (experimental) is off unless a game's settings turn it on; the line turns it on for this game."
  },
  {
   "all": [
@@ -18595,18 +23370,27 @@ enum AutoTuneBuiltInRules {
   "evaluateWhenRan": true,
   "evidence": [
    "enshrouded-exit-runaway-2026-11-02 (Send Log F8WYGG = PG716Q, build 626; 0CAY0F, 2TKD32)",
-   "app/Madeira/SteamRuntime.swift"
+   "app/Madeira/SteamRuntime.swift",
+   "app/Madeira/SteamRuntime.swift (SteamRuntimeFiles.november, 2026-11-21)"
   ],
   "id": "steamworks-version-mismatch",
+  "lead": "Choose a newer Steam client in Settings > BCD Dock",
   "lines": [],
   "noFix": true,
+  "none": [
+   {
+    "has": [
+     "session-client-adapter=202611"
+    ]
+   }
+  ],
   "outcomes": [
    "crashed",
    "exited-early",
    "hung"
   ],
   "priority": 3,
-  "reason": "The game's Steam library is newer than the Steam client that BCD's Dock runs (Steamworks reports a version mismatch), so the game cannot connect to Steam and stops with its own 'Your Steam client is not running' box. No setting changes this; it needs a newer Steam client in BCD.",
+  "reason": "The game's Steam library is newer than the Steam client that BCD's Dock runs (Steamworks reports a version mismatch), so the game cannot connect to Steam and stops with its own 'Your Steam client is not running' box. In Settings > BCD Dock, under Steam client, choose Nov 2026 (Valve's current client) and tap Switch: your games, saves and settings move along.",
   "session": "dock"
  },
  {
@@ -18616,19 +23400,22 @@ enum AutoTuneBuiltInRules {
      "[guest-log]",
      "SteamAPI failed to initialize",
      "No SteamUtils011"
-    ]
+    ],
+    "sinceLaunch": true
    }
   ],
   "evaluateWhenRan": true,
   "evidence": [
    "hades-ii-steamworks-interface-2026-11-04 (Send Log 3XXGJE, build 630)",
-   "app/Madeira/SteamRuntime.swift"
+   "app/Madeira/SteamRuntime.swift (SteamRuntimeFiles.september, round 660 M139)",
+   "app/Madeira/SteamRuntime.swift (SteamRuntimeFiles.november, 2026-11-21)"
   ],
   "id": "steamworks-interface-missing",
+  "lead": "Choose a newer Steam client in Settings > BCD Dock",
   "lines": [],
   "noFix": true,
   "priority": 3,
-  "reason": "The game wants a newer Steam interface than the Steam client that BCD's Dock runs, so it plays without Steam features (achievements, cloud saves). No setting changes this; it needs a newer Steam client in BCD.",
+  "reason": "The game wants a newer Steam interface (SteamUtils011) than the January 2026 Steam client that BCD's Dock runs, so it plays without Steam features (achievements, cloud saves). In Settings > BCD Dock, under Steam client, choose Nov 2026 (Sep 2026 has this interface too) and tap Switch: your games, saves and settings move along.",
   "session": "dock"
  },
  {
@@ -18665,6 +23452,43 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 4,
   "reason": "The game ended itself, and BCD then kept working on the closed game instead of ending its session. From build 630 BCD ends it. Update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[jit-pool] tail FREE"
+    ]
+   },
+   {
+    "has": [
+     "[iOS-bogusrip]",
+     "band=host-heap"
+    ]
+   },
+   {
+    "has": [
+     "[spin] ml677 THREAD",
+     "SPINNING"
+    ]
+   }
+  ],
+  "evidence": [
+   "fm27-crashpad-exit-runaway-2026-11-11 (Send Log 06G98C, build 653)",
+   "tests/host/check-fex-exit-runaway.py"
+  ],
+  "fixedIn": 660,
+  "id": "fex-exit-runaway-cache-loop",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "[fexlock] UNPUB-COMPILE rip=0x7c"
+    ]
+   }
+  ],
+  "priority": 4,
+  "reason": "A program of the game ended, and BCD then kept running its closed code in a loop, which filled the log and memory. From build 660 BCD ends such a program at once. Update BCD."
  },
  {
   "all": [
@@ -18712,25 +23536,34 @@ enum AutoTuneBuiltInRules {
    },
    {
     "has": [
-     "[wow-null32]",
-     "wined3d.dll+"
-    ]
-   },
-   {
-    "has": [
      "[alias-own] ml640"
     ]
    },
    {
     "has": [
      "[alias-prot] ml638",
-     "requested prot=0x4"
+     "requested prot=0x4 (vprot=0x3)"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[wow-null32]",
+     "wined3d.dll+"
+    ]
+   },
+   {
+    "has": [
+     "[wow-null32]",
+     "d3d9-emulated.dll+"
     ]
    }
   ],
   "evidence": [
    "battlefield-2-dgvoodoo-stale-alias-2026-11-05 (Send Log 6E2PRX, build 630)",
    "ea-app-stale-alias-child-heap-2026-11-01",
+   "requiem-glide-wrapper-stale-alias-2026-11-16 (Send Log 70EG0Y, build 665)",
    "tests/host/check-alias-release.py"
   ],
   "id": "stale-alias-wow-null-store",
@@ -18743,6 +23576,9 @@ enum AutoTuneBuiltInRules {
      "[alias-release]"
     ]
    }
+  ],
+  "outcomes": [
+   "crashed"
   ],
   "priority": 14,
   "reason": "A 32-bit game released memory that it had made executable and BCD's records of that code outlived the memory; the new memory at the same address lost its first stores. The line drops the records together with the memory."
@@ -18896,6 +23732,7 @@ enum AutoTuneBuiltInRules {
     ]
    }
   ],
+  "evaluateWhenRan": true,
   "evidence": [
    "firefox-installer-small-map-slots-2026-11-01 (Send Log CD4WEH, build 626)"
   ],
@@ -19112,10 +23949,18 @@ enum AutoTuneBuiltInRules {
    "tests/host/check-ntdll-rtcs-null-area.py"
   ],
   "id": "exception-dispatcher-null-cpu-area",
-  "lines": [],
-  "noFix": true,
+  "lines": [
+   "env.MADEIRA_WIN64_FRESH = 1"
+  ],
+  "none": [
+   {
+    "has": [
+     "[WineProc] MADEIRA_WIN64_FRESH=1:"
+    ]
+   }
+  ],
   "priority": 60,
-  "reason": "A helper program that a game or installer started (a setup step or a command window) was ended by a defect in BCD's exception handling, which turned its first error into an endless loop. No setting changes this; a coming build fixes it. The helper may still fail for its own reason."
+  "reason": "A helper program that a game or installer started (a setup step or a command window) was ended by a defect in BCD's exception handling, which turned its first error into an endless loop. The line runs BCD's rebuilt 64-bit libraries, which have the fix; the helper may still fail for its own reason."
  },
  {
   "all": [
@@ -19342,6 +24187,29 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "[fex-arena] ml774 NO ARENA RESERVED"
+    ]
+   }
+  ],
+  "evidence": [
+   "fex-no-arena-kdp7sa-2026-11-24 (Send Log KDP7SA, build 712)",
+   "KXK1MJ (712), 3E13MW, 5X5G4K, 8RKH8J, XCMD9J"
+  ],
+  "id": "fex-no-arena-small-address-map",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 3,
+  "reason": "BCD could not reserve address space for the emulator itself, so no program can start on this install. If the install lacks the increased memory limit, add it with GetMoreRam (with SideStore or LiveContainer), or sign BCD with a paid developer account. A device whose address space is this small (an iPhone XR, 13 GB) cannot run BCD's Windows programs."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[fex-fault] pc="
     ]
    }
@@ -19360,9 +24228,26 @@ enum AutoTuneBuiltInRules {
    },
    {
     "has": [
+     "[fex-arena] ml774 NO ARENA RESERVED"
+    ]
+   },
+   {
+    "has": [
      "[fex-fault] pc=",
      "lr=ntdll.dll+0x5b9a0",
      "fault-addr=0xf0"
+    ]
+   },
+   {
+    "has": [
+     "[mach_exc] sym",
+     "NtProtectVirtualMemory"
+    ]
+   },
+   {
+    "has": [
+     "[redeliv] 256 identical redeliveries pc=0x",
+     "378 addr=0x0"
     ]
    }
   ],
@@ -19599,7 +24484,7 @@ enum AutoTuneBuiltInRules {
   "lines": [],
   "noFix": true,
   "priority": 8,
-  "reason": "Red Dead Redemption stops inside one of its own start-up files (MTLX.dll) with a privileged-instruction error. No setting changes it yet; this build records the instruction in the log, please send it."
+  "reason": "Red Dead Redemption stops inside one of its own start-up files (MTLX.dll), in code that rewrites itself. No setting is known to change it (the emulator's one-block and full-check modes were tried); please send the log."
  },
  {
   "all": [
@@ -19688,6 +24573,44 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 60,
   "reason": "A 32-bit program needs a 4 GB address window, and this install's address map is too small for one: it has the increased memory limit but not extended virtual addressing. Sign BCD with a paid developer account, or add extended virtual addressing (GetMoreRam with SideStore or LiveContainer), to start 32-bit games."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[luajit-compat] C-style comment variant available"
+    ],
+    "sinceLaunch": true
+   },
+   {
+    "has": [
+     "OutputDebugStringA: \"[bcd-luajit] C-style comment token\""
+    ],
+    "sinceLaunch": true
+   }
+  ],
+  "evidence": [
+   "Synthetic LuaJIT diagnostic replay; Grim Dawn campaign verified with the C-style comment variant (#51)"
+  ],
+  "id": "luajit-c-style-comments",
+  "lines": [
+   "env.MADEIRA_LUAJIT_C_COMMENTS = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[luajit-compat] mapping bundled GC64 LuaJIT with C-style comments"
+    ],
+    "sinceLaunch": true
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 2,
+  "reason": "The bundled Lua parser encountered a C-style comment. Try BCD's LuaJIT build that accepts those comments."
  },
  {
   "all": [
@@ -20035,6 +24958,112 @@ enum AutoTuneBuiltInRules {
     "has": [
      "[oversize] ml1298 unhinted reserve of 65536 MB does not fit the map and fails"
     ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[nt-fail]",
+     "NtAllocateVirtualMemory status=c0000017 proc=hitman.exe",
+     "size=0x1000000000"
+    ]
+   },
+   {
+    "has": [
+     "[nt-fail]",
+     "NtAllocateVirtualMemory status=c0000017 proc=hitman3.exe",
+     "size=0x1000000000"
+    ]
+   }
+  ],
+  "evidence": [
+   "hitman-2016-oversize-reserve-2026-11-12 (Send Log 128FS9, build 653)",
+   "hitman-woa-oversize-reserve-2026-11-17 (Send Log 2QVZ7D, build 665)"
+  ],
+  "id": "hitman-oversize-reserve",
+  "lines": [
+   "oversize-reserve = 1",
+   "oversize-reserve-virtual = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[oversize] ml1298 unhinted reserve of",
+     "real "
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "hung",
+   "exited-early"
+  ],
+  "priority": 22,
+  "reason": "The game asks for one 64 GB block of address space at start and tries again a little smaller each time, for minutes. These lines let BCD give it that block and keep the rest of it free of the game's other memory."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[oversize] ml1298 unhinted reserve of 65536 MB: real "
+    ]
+   },
+   {
+    "has": [
+     "Unhandled page fault on read access to 0000000000000018 at address 0000000142801F80"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "Steam game witcher3.exe"
+    ]
+   },
+   {
+    "has": [
+     "library launch The Witcher 3"
+    ]
+   }
+  ],
+  "evidence": [
+   "witcher3-dx12-arena-overlap-2026-11-13 (Send Log 5EV18N, build 653)",
+   "GW9R17 (build 653, the same crash)",
+   "tests/host/check-oversize-virtual.py (build 663)"
+  ],
+  "id": "witcher3-oversize-virtual",
+  "lines": [
+   "oversize-reserve = 1",
+   "oversize-reserve-mb = 6144",
+   "oversize-reserve-virtual = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[oversize] vres r663"
+    ]
+   },
+   {
+    "has": [
+     "[game-cfg]",
+     "oversize-reserve-virtual=1"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 21,
+  "reason": "The game was given part of its 64 GB reservation, and its other memory pools were then placed inside the rest of it; the game handed a block of one pool to another and crashed. The line keeps everything else out of that reservation. New, not yet tried on this game."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[oversize] ml1298 unhinted reserve of 65536 MB does not fit the map and fails"
+    ]
    },
    {
     "has": [
@@ -20212,13 +25241,21 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "internal error in the .NET Runtime at IP"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
      "AV READ of",
      "B848E0E4"
     ]
    },
    {
     "has": [
-     "internal error in the .NET Runtime at IP"
+     "[guest-exact] ml885",
+     "x86=48 8b 40 e5 c3 48 8b 42 1e eb f5"
     ]
    }
   ],
@@ -20250,6 +25287,305 @@ enum AutoTuneBuiltInRules {
   "all": [
    {
     "has": [
+     "AV WRITE of"
+    ]
+   },
+   {
+    "has": [
+     "[smc-gen] ml636",
+     "RIP_off=0x8"
+    ]
+   },
+   {
+    "has": [
+     "[smc-gen] ml636",
+     "tail WAS written"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000005"
+    ]
+   },
+   {
+    "has": [
+     "library launch Slay the Spire 2:"
+    ]
+   }
+  ],
+  "evidence": [
+   "slay-spire-2-seam-stub-write-2026-11-14 (Send Log AXH30R, build 653)"
+  ],
+  "id": "slay-spire-2-seam-stub-write",
+  "lines": [
+   "env.MADEIRA_SEAM_TRACE = 1",
+   "env.MADEIRA_ANON_POOL_ADJACENT = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_ANON_POOL_ADJACENT="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 31,
+  "reason": "The game's .NET runtime stopped on a code stub that was split across two pieces of BCD's code memory that are not next to each other. The lines make BCD place such pieces next to each other and log every pair."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_ANON_POOL_ADJACENT="
+    ]
+   },
+   {
+    "has": [
+     "library launch Slay the Spire 2:"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "AV READ of",
+     "B848E0E4"
+    ]
+   },
+   {
+    "has": [
+     "[guest-exact] ml885",
+     "x86=48 8b 40 e5 c3 48 8b 42 1e eb f5"
+    ]
+   },
+   {
+    "has": [
+     "[smc-gen] ml636",
+     "tail WAS written"
+    ]
+   }
+  ],
+  "evidence": [
+   "slay-spire-2-adjacent-still-crashes-2026-11-11 (Send Log YPG3MZ, build 653)"
+  ],
+  "id": "slay-spire-2-rwx-plain",
+  "lines": [
+   "env.MADEIRA_X64_RWX_PLAIN = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_X64_RWX_PLAIN="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 32,
+  "reason": "The game's .NET runtime still stopped on a damaged code stub with BCD's adjacent placement on. The line makes the runtime's code memory ordinary memory for this game (slower start, the emulator decodes those bytes). An experiment."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-log]",
+     "A fatal error has been detected by the Java Runtime Environment"
+    ]
+   },
+   {
+    "has": [
+     "[guest-log]",
+     "EXCEPTION_ACCESS_VIOLATION"
+    ]
+   }
+  ],
+  "evidence": [
+   "project-zomboid-jvm-fatal-ordering-2026-11-14 (Send Log 6ZTBA4, build 653; also 3W404B, 8J4RJD, KBBXF7, HH88YT, 3X8BRY)"
+  ],
+  "id": "jvm-fatal-error-ordering",
+  "lines": [
+   "env.FEX_VECTORTSOENABLED = 1",
+   "env.FEX_MEMCPYSETTSOENABLED = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "FEX: TSO config",
+     "vector=true"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 31,
+  "reason": "The game's Java runtime stopped on damaged memory, the way a lost memory order in the emulator would damage it. The lines make the emulator keep the order of vector stores and block copies too (slower). An experiment."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-log]",
+     "A fatal error has been detected by the Java Runtime Environment"
+    ]
+   },
+   {
+    "has": [
+     "[guest-log]",
+     "EXCEPTION_ACCESS_VIOLATION"
+    ]
+   },
+   {
+    "has": [
+     "FEX: TSO config",
+     "vector=true"
+    ]
+   },
+   {
+    "has": [
+     "[guest-log]",
+     "G1 Evacuation Pause"
+    ]
+   }
+  ],
+  "evidence": [
+   "project-zomboid-jvm-first-gc-2026-11-20 (Send Logs ZT3SWM and 8PZ68K, build 682)"
+  ],
+  "id": "jvm-fatal-error-after-first-gc",
+  "lines": [
+   "env.JAVA_TOOL_OPTIONS = -XX:+UseSerialGC -Xmn1g -Xms1536m"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game JAVA_TOOL_OPTIONS="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 32,
+  "reason": "The game's Java runtime stopped on damaged memory right after its first garbage collection. The line makes it use the simple collector with a large young generation, so the first collection comes much later. An experiment."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-log]",
+     "A fatal error has been detected by the Java Runtime Environment"
+    ]
+   },
+   {
+    "has": [
+     "[guest-log]",
+     "EXCEPTION_ACCESS_VIOLATION"
+    ]
+   },
+   {
+    "has": [
+     "[perf-hint] r624 emulated stores keep faulting at 20000 a second"
+    ]
+   },
+   {
+    "has": [
+     "FEX: TSO config",
+     "vector=true"
+    ]
+   }
+  ],
+  "evidence": [
+   "slay-the-spire-jvm-fatal-2026-11-20 (Send Logs QBDT7B, ZEYHZM, build 682/686)"
+  ],
+  "id": "jvm-rwx-plain-after-ordering",
+  "lines": [
+   "env.MADEIRA_X64_RWX_PLAIN = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_X64_RWX_PLAIN="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 33,
+  "reason": "The game's Java runtime stopped on damaged memory while BCD handled its code writes one at a time. The line makes the runtime's code memory ordinary memory for this game (an experiment, reverted if it does not help)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "--type=renderer"
+    ]
+   },
+   {
+    "has": [
+     "Load module nw.dll"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "bus_handler BUS->AV: unreadable target addr="
+    ]
+   },
+   {
+    "has": [
+     "the 32-bit guest used the NULL page"
+    ]
+   },
+   {
+    "has": [
+     "exit_code=0xffff7001"
+    ]
+   }
+  ],
+  "evidence": [
+   "nwjs-renderer-freed-v8-page-2026-11-19 (Send Log VQMNVK, build 665; also CNK98Z)",
+   "round 660 G1 S16 / M114 (CrossCode)"
+  ],
+  "id": "nwjs-renderer-v8-memory-order",
+  "lines": [
+   "env.FEX_VECTORTSOENABLED = 1",
+   "env.FEX_MEMCPYSETTSOENABLED = 1"
+  ],
+  "maxStage": 5,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "FEX: TSO config",
+     "vector=true"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "hung",
+   "exited-early"
+  ],
+  "priority": 31,
+  "reason": "The game's web engine lost its page-rendering process on damaged data, the way a lost memory order in the emulator would damage it. The lines make the emulator keep the order of vector stores and block copies too (slower). An experiment."
+ },
+ {
+  "all": [
+   {
+    "has": [
      "[perf-hint] r624 emulated stores keep faulting at 20000 a second"
     ]
    },
@@ -20275,6 +25611,11 @@ enum AutoTuneBuiltInRules {
     "has": [
      "[madeira-env] game MADEIRA_X64_RWX_PLAIN="
     ]
+   },
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_ANON_CAS_FLUSH=1"
+    ]
    }
   ],
   "outcomes": [
@@ -20284,6 +25625,197 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 28,
   "reason": "The game's .NET runtime wrote its code into memory that BCD handled one write at a time, about twenty thousand a second, so the start took minutes. The line (build 652) makes that memory ordinary memory for this game. New, not yet tried."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[perf-hint] r624 emulated stores keep faulting at 20000 a second"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[jit-pool] image",
+     "(coreclr.dll)"
+    ]
+   },
+   {
+    "has": [
+     "[x64-image]",
+     "coreclr.dll",
+     "mapped without a pool copy"
+    ]
+   },
+   {
+    "has": [
+     "[jit-pool] image",
+     "(mono-2.0-bdwgc.dll)"
+    ]
+   },
+   {
+    "has": [
+     "[jit-pool] image",
+     "(mono.dll)"
+    ]
+   },
+   {
+    "has": [
+     "[jit-pool] image",
+     "(jvm.dll)"
+    ]
+   }
+  ],
+  "evidence": [
+   "slay-the-spire-2-x64-store-storm-played-2026-11-12 (Send Log Y54K9E, build 653; JVYDZM, BVM2QE, Q9WK2Y)",
+   "Wolfpack VNJYRF (build 632), R.E.P.O. HPES1G and G0GAMG, Mycopunk 0K4CBK, Oxygen Not Included S1P30G",
+   "engine review 2026-11-17, FINDINGS I1 (out/store-storms-300k.txt)"
+  ],
+  "id": "x64-store-storm-played",
+  "lines": [
+   "env.MADEIRA_X64_RWX_PLAIN = 1"
+  ],
+  "priority": 60,
+  "reason": "The game played, but its .NET, Mono or Java runtime writes its code into memory that BCD handles one write at a time, tens of thousands of times a second, which takes time from the game. The line makes that memory ordinary memory for this game (build 652); it is new for these games, so auto-tune keeps it only if the game plays again without the slow writes.",
+  "whenPlayed": true
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[perf-hint] r624 emulated stores keep faulting at 20000 a second"
+    ]
+   },
+   {
+    "has": [
+     "[mono-cfg] ml623 module=mono-2.0-bdwgc.dll"
+    ]
+   }
+  ],
+  "evidence": [
+   "graveyard-keeper-wow-store-storm-played-2026-11-16 (Send Log SPB794, build 665)",
+   "Mini Motorways Z5158B (build 611)",
+   "engine review 2026-11-17, FINDINGS I1"
+  ],
+  "id": "wow-unity-store-storm-played",
+  "lines": [
+   "env.MADEIRA_WOW_RWX_PLAIN = 1"
+  ],
+  "none": [
+   {
+    "has": [
+     "[jit-pool] image",
+     "(mono-2.0-bdwgc.dll)"
+    ]
+   },
+   {
+    "has": [
+     "[x64-image]",
+     "mono-2.0-bdwgc.dll"
+    ]
+   }
+  ],
+  "priority": 61,
+  "reason": "The game played, but its Unity runtime rewrites its own code in memory that BCD handles one write at a time, tens of thousands of times a second, which takes time from the game. The line makes a 32-bit game's code memory ordinary memory, as it did for Breakneck and From the Darkness; auto-tune keeps it only if the game plays again without the slow writes.",
+  "whenPlayed": true
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[perf-hint] r624 emulated stores keep faulting at 20000 a second"
+    ]
+   },
+   {
+    "has": [
+     "PE probe: machine=0x14c"
+    ]
+   },
+   {
+    "count": 5,
+    "has": [
+     "[fault-cost] ml685 emulated-store faults="
+    ]
+   }
+  ],
+  "evidence": [
+   "requiem-wow-store-storm-2026-11-20 (Send Logs T2ZS9P, W9ZHJP, build 682)"
+  ],
+  "id": "wow-heap-store-storm-played",
+  "lines": [
+   "env.MADEIRA_WOW_RWX_PLAIN = 1"
+  ],
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_WOW_RWX_PLAIN="
+    ]
+   },
+   {
+    "has": [
+     "[mono-cfg] ml623 module=mono-2.0-bdwgc.dll"
+    ]
+   },
+   {
+    "has": [
+     "FNA3D.dll names"
+    ]
+   }
+  ],
+  "priority": 63,
+  "reason": "The game played, but it writes into its own memory so often that BCD handles every write one at a time, which takes most of the frame time. The line makes a 32-bit game's memory ordinary memory; auto-tune keeps it only if the game plays again without the slow writes.",
+  "whenPlayed": true
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[ios_audio] ml1230 pacing",
+     "client wrote"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[ios_audio] ml2300",
+     "asking iOS for a"
+    ]
+   },
+   {
+    "has": [
+     "[ios_audio] ml2301",
+     "env.MADEIRA_AUDIO_IO_MS="
+    ]
+   }
+  ],
+  "evidence": [
+   "doom-audio-short-passes-played-2026-11-17 (Send Log WWBA5W, build 665)",
+   "VVVVVV DFZ8PQ, N224JX; Autumn's End QZDWGM (builds 653-654)",
+   "engine review 2026-11-17, FINDINGS I1 (the audio driver's 5 ms request)"
+  ],
+  "id": "audio-short-passes-played",
+  "lines": [
+   "env.MADEIRA_AUDIO_IO_MS = 5"
+  ],
+  "none": [
+   {
+    "has": [
+     "[ios_audio] ml2300",
+     "largest pass 4096 frames"
+    ]
+   },
+   {
+    "has": [
+     "[ios_audio] ml2300",
+     "largest pass 2048 frames"
+    ]
+   }
+  ],
+  "priority": 62,
+  "reason": "The game played, but its first 20 seconds of sound were scratchy: it keeps less sound queued than iOS plays at a time, and BCD fixes that only once it notices. The line asks iOS for the smaller audio buffer from the start (it costs a little more work for the sound).",
+  "whenPlayed": true
  },
  {
   "all": [
@@ -20488,6 +26020,11 @@ enum AutoTuneBuiltInRules {
    },
    {
     "has": [
+     "vulkan=moltenvk-patched: Vulkan is on for this session"
+    ]
+   },
+   {
+    "has": [
      "[guest-log]",
      "Could not initialize ANGLE OpenGL"
     ]
@@ -20500,6 +26037,98 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 2,
   "reason": "This game (made with Godot 4) starts its Vulkan renderer and found no Vulkan. BCD's Vulkan on Metal is experimental and off by default; the line turns it on for this game."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:load_dll [dll-missing]",
+     "vulkan-1.dll",
+     "status=c0000135"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[msgbox-origin] box",
+     "Vulkan"
+    ]
+   },
+   {
+    "has": [
+     "err:process:NtTerminateProcess",
+     "NtTerminateProcess(handle=0x0, exit_code=0xffffffff)"
+    ]
+   }
+  ],
+  "evidence": [
+   "sims-legacy-vulkan-32bit-2026-11-07 (4DY7CR, build 634, iPad16,1)",
+   "docs/VULKAN.md",
+   "sims-legacy-vulkan-exit-2gcc6q-2026-11-16 (Send Log 2GCC6Q, build 665; also 7RFEJX)"
+  ],
+  "id": "vulkan-32bit-no-loader-box",
+  "lines": [
+   "vulkan = moltenvk"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "vulkan=moltenvk: Vulkan is on for this session"
+    ]
+   },
+   {
+    "has": [
+     "vulkan=moltenvk-patched: Vulkan is on for this session"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 2,
+  "reason": "This game's 32-bit program needs Vulkan and found no Vulkan on this device. BCD's Vulkan on Metal is experimental and off by default; the line turns it on for this game."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:load_dll [dll-missing]",
+     "vulkan-1.dll",
+     "status=c0000135"
+    ]
+   },
+   {
+    "has": [
+     "vulkan=moltenvk: Vulkan is on for this session"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[msgbox-origin] box",
+     "Vulkan"
+    ]
+   }
+  ],
+  "evidence": [
+   "sims-legacy-vulkan-32bit-key-on-2026-11-13 (VXCFEJ, build 653, iPhone16,1; HADDXD and MFTF29 are the same session)",
+   "docs/VULKAN.md"
+  ],
+  "fixedIn": 660,
+  "id": "vulkan-32bit-program",
+  "lines": [],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 3,
+  "reason": "This game's program is 32-bit, and until build 660 BCD's Vulkan reached 64-bit programs only, so the game's Vulkan switch could not help it. From build 660 the same switch gives a 32-bit game Vulkan as well."
  },
  {
   "all": [
@@ -21104,6 +26733,2964 @@ enum AutoTuneBuiltInRules {
   ],
   "priority": 10,
   "reason": "The game folder holds its own winmm.dll, which needs a library Wine's winmm does not have; the line makes the game use Wine's winmm.dll instead of the folder's."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[rwx-fault]",
+     "trap: OFF"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[rwx-fault]",
+     "trap: OFF",
+     "0f 05 81 05 f2 ff ff ff"
+    ]
+   },
+   {
+    "has": [
+     "[rwx-fault]",
+     "trap: OFF",
+     "0f 05 81 2d f2 ff ff ff"
+    ]
+   },
+   {
+    "has": [
+     "[entry-fail]",
+     "guest bytes -32..-1:",
+     "81 2d 00 00 00 00"
+    ]
+   }
+  ],
+  "evidence": [
+   "trap-off-syscall-thunk-undisputed-fyskbf-2026-11-12 (Send Log FYSKBF, build 653)",
+   "TUM-COZUMLER M013 (G7 S6)",
+   "dead-space-2023-selfrewrite-stub-2026-11-16 (Send Log 9NHDDJ, build 665)"
+  ],
+  "id": "trap-off-stale-translation-smc-full",
+  "lines": [
+   "env.FEX_SMCCHECKS = full"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_SMCCHECKS="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 1,
+  "reason": "The game's protection rewrites a small piece of its own code while it runs, on a page where the emulator does not notice the write, so the old translation ran. The line makes BCD's translator check code that rewrites itself more strictly (slower); if the game stops again, nothing in BCD's settings is known to change it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[rwx-fault]",
+     "trap: OFF"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[ill-guest]",
+     "FEX could not translate the block",
+     "81 05 f2 ff ff ff"
+    ]
+   },
+   {
+    "has": [
+     "[ill-guest]",
+     "FEX could not translate the block",
+     "81 2d f2 ff ff ff"
+    ]
+   },
+   {
+    "has": [
+     "[ill-guest]",
+     "FEX could not translate the block",
+     "81 35 f2 ff ff ff"
+    ]
+   }
+  ],
+  "evidence": [
+   "persona-3-reload-demo-ill-entry-2026-11-18 (Send Log HRBCQC, build 665, iPhone19,2)",
+   "round 660 TUM-COZUMLER M013 (G7 S6)"
+  ],
+  "id": "trap-off-stale-translation-ill-entry",
+  "lines": [
+   "env.FEX_SMCCHECKS = full"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_SMCCHECKS="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 1,
+  "reason": "The game's protection layer rewrites a small piece of its own code while it runs, on a memory page where the emulator does not notice the write, and the emulator then ran a block from the wrong place. The line makes BCD's translator check code that rewrites itself more strictly (slower); if the game stops again, nothing in BCD's settings is known to change it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_KUSER_KEEP_REGS=1"
+    ]
+   },
+   {
+    "has": [
+     "game_plugin.dll",
+     "mapped without a pool copy"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "Unhandled exception code c0000005"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c000001d"
+    ]
+   },
+   {
+    "has": [
+     "[unwind-root] ml633 ACCEPTING terminal root frame",
+     "this is the unhandled-exception filter frame"
+    ]
+   }
+  ],
+  "evidence": [
+   "fm27-protector-wall-96mx2r-2026-11-11 (Send Log 96MX2R, build 653)",
+   "DH4NMR, FR852Z, GS0V73, HPCR3K, NPJG0F, 62CWVY",
+   "fm27-protector-wall-filter-p4h95x-2026-11-16 (Send Log P4H95X, build 665; also 6429V1)"
+  ],
+  "id": "fm27-protector-wall-multiblock0",
+  "lines": [
+   "env.FEX_MULTIBLOCK = 0"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_MULTIBLOCK="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 62,
+  "reason": "Football Manager 27's plugin stops inside its copy protection after half a minute of play. The line makes the emulator translate the game's code one block at a time (slower); it does not touch the protection. If the game stops at the same place, nothing in BCD's settings is known to change it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[x86-fault] #1 a 32-bit guest faulted",
+     "0x7c2e6df0",
+     "HitmanBloodMoney.exe+0x5c7770"
+    ]
+   }
+  ],
+  "evidence": [
+   "hitman-blood-money-packer-y3dn0z-2026-11-11 (Send Log Y3DN0Z, build 653)",
+   "JP5NZQ (614), ZVQSNK (625)"
+  ],
+  "id": "packer-stub-double-init-multiblock0",
+  "lines": [
+   "env.FEX_MULTIBLOCK = 0"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_MULTIBLOCK="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 61,
+  "reason": "Hitman: Blood Money's start-up code (its packer) runs a second time and reads memory that does not exist. The line makes the emulator translate the game's code one block at a time (slower); if the game stops at the same place, nothing in BCD's settings is known to change it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Device error at frame"
+    ]
+   },
+   {
+    "has": [
+     "kIOGPUCommandBufferCallbackError"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "Caused GPU Hang Error"
+    ]
+   },
+   {
+    "count": 4,
+    "has": [
+     "kIOGPUCommandBufferCallbackErrorInnocentVictim"
+    ]
+   }
+  ],
+  "evidence": [
+   "witcher3-gpu-hang-2026-11-22 (Send Log 0DXDPE, build 686; also 2MTTPH, CT0AQ6, S3FFJ5)",
+   "RE7 2BFAP2, DMC5 36MCH0 (712)",
+   "Discord 2026-11-24: RE7's freeze gone with env.MADEIRA_DXMT_FRESH = 1"
+  ],
+  "id": "dxmt-hang-fresh-set",
+  "lines": [
+   "env.MADEIRA_DXMT_FRESH = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[WineProc] MADEIRA_DXMT_FRESH=1:"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_DXMT_FRESH="
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/GTA5.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/GTA5_Enhanced.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/PlayGTAV.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/RDR2.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/PlayRDR2.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/GhostOfTsushima.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/GoW.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/GoWR.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/HorizonZeroDawn.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/HorizonZeroDawnRemastered.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/HorizonForbiddenWest.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/Spider-Man.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/MilesMorales.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/Spider-Man2.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/RiftApart.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/tlou-i.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/HogwartsLegacy.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/FlightSimulator2024.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Session log: logs/Cyberpunk2077.exe-"
+    ]
+   },
+   {
+    "has": [
+     "Steam game GTA5.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game GTA5_Enhanced.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game PlayGTAV.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game RDR2.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game PlayRDR2.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game GhostOfTsushima.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game GoW.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game GoWR.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game HorizonZeroDawn.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game HorizonZeroDawnRemastered.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game HorizonForbiddenWest.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game Spider-Man.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game MilesMorales.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game Spider-Man2.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game RiftApart.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game tlou-i.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game HogwartsLegacy.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game FlightSimulator2024.exe:"
+    ]
+   },
+   {
+    "has": [
+     "Steam game Cyberpunk2077.exe:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Grand Theft Auto V:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Grand Theft Auto V Legacy:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Grand Theft Auto V Enhanced:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Red Dead Redemption 2:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Ghost of Tsushima:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Ghost of Tsushima DIRECTOR'S CUT:"
+    ]
+   },
+   {
+    "has": [
+     "library launch God of War:"
+    ]
+   },
+   {
+    "has": [
+     "library launch God of War Ragnar\u00f6k:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Horizon Zero Dawn:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Horizon Zero Dawn Remastered:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Horizon Forbidden West:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Horizon Forbidden West Complete Edition:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Marvel's Spider-Man Remastered:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Marvel's Spider-Man: Miles Morales:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Marvel's Spider-Man 2:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Ratchet & Clank: Rift Apart:"
+    ]
+   },
+   {
+    "has": [
+     "library launch The Last of Us Part I:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Hogwarts Legacy:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Microsoft Flight Simulator 2024:"
+    ]
+   },
+   {
+    "has": [
+     "library launch Cyberpunk 2077:"
+    ]
+   }
+  ],
+  "outcomes": [
+   "hung",
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 23,
+  "reason": "The GPU hung while the game was drawing. The next start runs BCD's newer Direct3D 11 translation layer, which fixes one known cause of this. If it still happens, send the log."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[x86-fault] #1 a 32-bit guest faulted",
+     "0x7c2e6df0",
+     "HitmanBloodMoney.exe+0x5c7770"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-env] game FEX_MULTIBLOCK=0"
+    ]
+   }
+  ],
+  "evidence": [
+   "hitman-blood-money-packer-smc-full-2026-11-22 (Send Log 3JPY0H, build 686)",
+   "TZ96M6, E8BSR5 (712)"
+  ],
+  "id": "packer-stub-double-init-smc-full",
+  "lines": [
+   "env.FEX_SMCCHECKS = full"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_SMCCHECKS="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early",
+   "hung"
+  ],
+  "priority": 62,
+  "reason": "Hitman: Blood Money's start-up code (its packer) ran a second time from a translation of the old code and read memory that does not exist. The line makes BCD's translator check every instruction against the program's current bytes (slower); if the game stops at the same place, nothing in BCD's settings is known to change it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "failed assertion `Render Pipeline Descriptor Validation"
+    ]
+   },
+   {
+    "has": [
+     "Dual source blending is used in combination with multiple render targets"
+    ]
+   }
+  ],
+  "evidence": [
+   "cyberpunk-metal-src1-later-target-2026-11-23 (Send Log D1DGGH, build 712; also 5DE5T4, DNXJPE, B2RSK8, M4Y4B4, P85MWH)",
+   "tests/host/check-d3d12-src1-later-targets.py"
+  ],
+  "fixedIn": 715,
+  "id": "d3d12-metal-src1-later-target-assert",
+  "lines": [],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 20,
+  "reason": "The game asked for a blend that reads the pixel shader's second colour on a render target other than the first, and Metal ends the whole process for such a pipeline. From build 715 BCD builds that pipeline without that blend. Update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_WOW_ALLOC_INSIDE=1"
+    ]
+   },
+   {
+    "has": [
+     "[jumbo-wow] r652 #1",
+     "size=0x40000000",
+     " inside=0 guest-visible=0x"
+    ]
+   },
+   {
+    "has": [
+     "[x86-fault] #1 a 32-bit guest faulted",
+     "isaac-ng.exe+0x"
+    ]
+   }
+  ],
+  "evidence": [
+   "isaac-repentance-noceiling-2026-11-23 (Send Log WVTJ39, build 712)",
+   "EYBPCX (712), FWN9ZF and ASYB2E (712)",
+   "tests/host/check-wow-ex-noceiling.py"
+  ],
+  "fixedIn": 715,
+  "id": "wow-ex-noceiling-outside-window",
+  "lines": [],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[wow-inside] r714"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 7,
+  "reason": "The 32-bit game was handed memory outside the part of the address space it can reach and crashed: its memory requests name no upper limit, and BCD's setting for it only looked at requests that name one. Build 715 gives such requests memory inside the game's own part. Update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[thread-sample]",
+     "Galaxy64.dll+0x"
+    ]
+   },
+   {
+    "has": [
+     "[winios-gl] ml1341 no GL present for"
+    ]
+   }
+  ],
+  "evidence": [
+   "stardew-galaxy64-blocks-2026-11-24 (Send Log 28ZPFC, build 712)",
+   "BDPYYK (the one run: Galaxy64.dll failed to load)"
+  ],
+  "id": "galaxy-sdk-blocks-main-thread",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game WINEDLLOVERRIDES="
+    ]
+   },
+   {
+    "has": [
+     "Loading library Galaxy64.dll",
+     "failed (error c0000017)"
+    ]
+   }
+  ],
+  "outcomes": [
+   "hung",
+   "exited-early"
+  ],
+  "priority": 25,
+  "reason": "The game stopped on a call into GOG Galaxy's online library, which waits for a Galaxy program that is not here. Adding env.WINEDLLOVERRIDES = galaxy64= to the game's settings switches that library off for this game (it then runs without GOG's online features); Stardew Valley's recommended settings have it from build 715."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Load module EOSSDK-Win64-Shipping.dll"
+    ]
+   },
+   {
+    "has": [
+     "[epic-launch] start",
+     "host=1"
+    ]
+   },
+   {
+    "has": [
+     "[bcd-host] no report"
+    ]
+   },
+   {
+    "has": [
+     "Exception: Code: C0000005"
+    ]
+   }
+  ],
+  "evidence": [
+   "mudrunner-epic-host-lost-2026-11-23 (Send Log S3A2NP, build 712; also BR12YM)",
+   "tests/host/check-epic-host-hold.py (build 598)"
+  ],
+  "id": "epic-host-start-lost-eos64-played",
+  "lines": [
+   "env.BCD_EPIC_HOST_START = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[epic-launch] host start held"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 14,
+  "reason": "The Epic game uses Epic's online services and ended in a fault; BCD meant to start it through its sign-in helper but did not, and the line makes the start go through it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[nvapi] query 0x0150e828 NvAPI_Initialize"
+    ]
+   },
+   {
+    "has": [
+     "detach-wait: presents=0 running=1 elapsed=120s"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "batman-arkham-knight-nvapi-initialize-never-answered-2026-11-24 (Send Log E874ZD, build 712; also 09S4HT, 8P4FZX)"
+  ],
+  "id": "nvapi-initialize-never-answered",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "NvAPI_Initialize ->"
+    ]
+   }
+  ],
+  "outcomes": [
+   "hung",
+   "exited-early",
+   "crashed"
+  ],
+  "priority": 28,
+  "reason": "The game asked BCD's NVIDIA stand-in whether an NVIDIA card is present and the answer never came back, so the game never started drawing. No setting is known to change this yet; send the log (Settings > Send log)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-insn] CURRENT address=",
+     "bytes=c9 0f 85 f2 ff ff ff e9 04 00 00 00 ed 9d 61 c7 48 89 e9"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000096"
+    ]
+   }
+  ],
+  "evidence": [
+   "sf6-demo-protected-block-x7yc77-2026-11-13 (Send Log X7YC77, build 653)",
+   "FKHQQQ"
+  ],
+  "id": "sf6-demo-protected-block-multiblock0",
+  "lines": [
+   "env.FEX_MULTIBLOCK = 0"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_MULTIBLOCK="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 61,
+  "reason": "The game stopped in its copy protection's self-modifying code, where the emulator ran a translation of code that had changed. The line makes the emulator translate the game's code one block at a time (slower); it does not touch the protection."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-insn] CURRENT address=",
+     "bytes=c9 0f 85 f2 ff ff ff e9 04 00 00 00 ed 9d 61 c7 48 89 e9"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000096"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-env] game FEX_MULTIBLOCK=0"
+    ]
+   }
+  ],
+  "evidence": [
+   "sf6-demo-protected-block-x7yc77-2026-11-13 (Send Log X7YC77, build 653): the step after FEX_MULTIBLOCK = 0"
+  ],
+  "id": "sf6-demo-protected-block-smc-full",
+  "lines": [
+   "env.FEX_SMCCHECKS = full"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_SMCCHECKS="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 62,
+  "reason": "The game stopped again in its copy protection's self-modifying code. The line makes BCD's translator check code that rewrites itself more strictly (slower); if the game stops again, nothing in BCD's settings is known to change it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[entry-fail]",
+     "NoExec block (null-read thunk)",
+     "(32-bit guest, window base"
+    ]
+   },
+   {
+    "has": [
+     "Add image SMC interval"
+    ]
+   }
+  ],
+  "evidence": [
+   "ets-2008-protector-entry-brh062-2026-11-11 (Send Log BRH062, build 653)",
+   "FZQNPT, GNZ4BJ, 5R6ZKZ (FTL, 2026-10-27)"
+  ],
+  "id": "wow-protector-entry-block-multiblock0",
+  "lines": [
+   "env.FEX_MULTIBLOCK = 0"
+  ],
+  "maxStage": 2,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_MULTIBLOCK="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 62,
+  "reason": "The game's protected start-up code jumped into its own code before it was unpacked. The line makes the emulator translate the code one block at a time (slower), in case the unpacking ran ahead of the translation; it does not touch the protection."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[entry-fail]",
+     "NoExec block (null-read thunk)",
+     "(32-bit guest, window base"
+    ]
+   },
+   {
+    "has": [
+     "Add image SMC interval"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-env] game FEX_MULTIBLOCK=0"
+    ]
+   }
+  ],
+  "evidence": [
+   "ets-2008-protector-entry-brh062-2026-11-11 (Send Log BRH062, build 653): the step after FEX_MULTIBLOCK = 0"
+  ],
+  "id": "wow-protector-entry-block-smc-full",
+  "lines": [
+   "env.FEX_SMCCHECKS = full"
+  ],
+  "maxStage": 2,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_SMCCHECKS="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 63,
+  "reason": "The game's protected start-up code again jumped into its own code before it was unpacked. The line makes BCD's translator check code that rewrites itself more strictly (slower); if the game stops again, nothing in BCD's settings is known to change it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[mach_exc] sym pc=",
+     "`NtProtectVirtualMemory+"
+    ]
+   },
+   {
+    "has": [
+     "[image-reload] unmapped image"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "hellblade-ii-ntprotect-stale-image-2026-11-16 (Send Log 3V6QHW, build 665; also NT5EP3, 9NGSEA)",
+   "K78C0Q (RDR2, build 659), H22TJN (EA app, build 626)",
+   "tests/host/check-iat-sync-owner.py"
+  ],
+  "fixedIn": 668,
+  "id": "ntprotect-sync-stale-image",
+  "lines": [],
+  "priority": 2,
+  "reason": "The game protected memory where a library had just been unloaded, and BCD's own bookkeeping read the unloaded library's address and ended the game's thread. Fixed from build 668: update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[mach_exc] sym pc=",
+     "`exit_thread+"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "`exit_thread+0x138 lr=",
+     "`exit_thread+0xfc"
+    ]
+   },
+   {
+    "has": [
+     "`exit_thread+0xc4 lr=",
+     "`exit_thread+0x94"
+    ]
+   }
+  ],
+  "evidence": [
+   "stale-teb-exit-thread-2026-11-16 (Send Log ATMD3Z, build 659)",
+   "AEKXPC (build 611), D6J99X (Far Cry 3, build 665)",
+   "tests/host/check-ea-thread-reap.py"
+  ],
+  "fixedIn": 668,
+  "id": "thread-reap-stale-teb",
+  "lines": [],
+  "priority": 2,
+  "reason": "When a 32-bit program of the session ended, BCD later read bookkeeping that lay in its released memory and stopped. Fixed from build 668: update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "parameters exceeds the 32 this build handles"
+    ]
+   }
+  ],
+  "evidence": [
+   "mechstermination-force-root-signature-38-2026-11-16 (Send Log CV5ZG0, build 665)"
+  ],
+  "fixedIn": 668,
+  "id": "d3d12-root-signature-over-32",
+  "lines": [],
+  "priority": 2,
+  "reason": "The game's Direct3D 12 renderer asked for more root parameters than BCD's Direct3D 12 layer handled (32) and stopped. From build 668 it handles 64, the most Direct3D 12 allows: update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[dock-report] launch-game-ended=1"
+    ]
+   },
+   {
+    "has": [
+     "[mach_exc] pc PE: sechost.dll+0x18098"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "enshrouded-dock-host-crash-2026-11-16 (Send Log 0GS36Y, build 665; also 9DE6YV, A0BJFQ, WF49CA, 7Q88YK)",
+   "2KWYNH (Exo7), W2N8NY and PQZRPX (Dressmaker)",
+   "tests/host/check-dock-game-end.py"
+  ],
+  "fixedIn": 668,
+  "id": "dock-host-crash-at-shutdown",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "[frontend] returned to library"
+    ]
+   }
+  ],
+  "priority": 12,
+  "reason": "The game ended, then Valve's Steam client crashed while it shut down, and BCD kept waiting for its report, so the session never closed. From build 668 BCD ends the session when that happens: update BCD.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[dock-offline] enabled=1 network=down request=1"
+    ]
+   },
+   {
+    "has": [
+     "[jit-shortcut] run input=start cellular"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "dock-offline-jit-shortcut-2026-11-16 (Send Log PE0FAY, build 665)",
+   "45 archive logs (A1 S7 group G-A)",
+   "tests/host/check-jit-network.py"
+  ],
+  "fixedIn": 668,
+  "id": "dock-offline-by-jit-shortcut",
+  "lines": [],
+  "priority": 5,
+  "reason": "BCD started Steam as if the phone had no network, because its JIT shortcut had switched cellular data off for a moment. Fixed from build 668: update BCD.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[dns] madeira-bcd end",
+     "steampowered.com",
+     "= 8"
+    ]
+   },
+   {
+    "has": [
+     "[dock-report] session-connection-result=3"
+    ]
+   }
+  ],
+  "evidence": [
+   "dock-steam-dns-2026-11-16 (Send Logs BRTR6F, SBKG5H, build 653)"
+  ],
+  "id": "dock-steam-names-unresolvable",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[dns] madeira-bcd end",
+     "api.steampowered.com",
+     "= 0 "
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 3,
+  "reason": "Steam's client could not look up any of Valve's server names (steampowered.com, steamserver.net): this device's network or its DNS settings block or lose them. Try another Wi-Fi or mobile data, and turn off DNS filters, content blockers and VPNs for a moment, then start again.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[msgbox-origin] box",
+     "Could not secure sufficient VRAM"
+    ]
+   }
+  ],
+  "evidence": [
+   "final-fantasy-xiii-vram-box-2026-11-16 (Send Log 2F8QNW, build 659)"
+  ],
+  "id": "ffxiii-vram-secure-box",
+  "lines": [
+   "env.DXMT_MAX_VRAM_MB = 2048"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game DXMT_MAX_VRAM_MB="
+    ]
+   }
+  ],
+  "priority": 4,
+  "reason": "The game checks how much video memory Direct3D 9 reports and refused to start with what BCD reported (1 GB). The line reports 2 GB."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "init_thread_stack iOS arm64ec: NOT setting cpu_area",
+     "owner machine=0xaa64 session is_arm64ec=1"
+    ]
+   },
+   {
+    "has": [
+     "[phase] spawn:L\"C:\\\\windows\\\\system32\\\\services.exe\""
+    ]
+   },
+   {
+    "has": [
+     "[x18-decline] #1 pc=",
+     "insn=39000230 rn=17"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "epic-gta5e-services-native-child-2026-11-16 (Send Log 8XM9K8, build 659)",
+   "KT9K9S (build 634)",
+   "tests/host/check-epic.py"
+  ],
+  "fixedIn": 668,
+  "id": "epic-rockstar-services-ec-native-child",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "[fex-fault] pc=",
+     "fault-addr=0x38"
+    ]
+   }
+  ],
+  "priority": 2,
+  "reason": "Windows' service manager, which Rockstar's launcher installer needs, could not start: it is a native ARM64 program and this start ran everything through the emulator. From build 668 BCD starts Rockstar's launcher route in a Wine desktop, where the service manager runs: update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "import_dll Library mfc140u.dll (which is needed by",
+     "CChromaEditorLibrary64.dll"
+    ]
+   },
+   {
+    "has": [
+     "CompileBlock: REFUSING low/invalid RIP=0x0"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000005 flags 0 addr 0x0"
+    ]
+   }
+  ],
+  "evidence": [
+   "tlou-i-launcher-mfc-dock-2026-11-16 (Send Logs 844JGJ, 235MGT, 29W32C, 8QRSRM, build 659)"
+  ],
+  "id": "tlou1-chroma-mfc-dock",
+  "lines": [
+   "env.MADEIRA_MFC_DOCK = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_MFC_DOCK=1:",
+     "linked into sysx64"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 3,
+  "reason": "The game's Razer Chroma plug-in needs Microsoft's MFC library, which a Dock start does not have where the game looks; the line links it from the Visual C++ runtime (download it once in Settings if it is missing).",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "BOOT FAILED at stage 'guest-window-reserve'"
+    ]
+   },
+   {
+    "has": [
+     "[wow-window] B=",
+     "REJECTED: the slot is in use by a running 32-bit process"
+    ]
+   },
+   {
+    "has": [
+     "UplayWebCore.exe"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "far-cry-3-uplayservice-slots-2026-11-16 (Send Log PE74HK, build 659)"
+  ],
+  "id": "ubisoft-uplayservice-poll-slots",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_OVERLAPPED_SYSTEM_APC=1"
+    ]
+   }
+  ],
+  "priority": 3,
+  "reason": "Ubisoft Connect's service program kept polling instead of ending, so every 32-bit address window stayed in use and the launcher could not start its web part. Reset to Recommended: the game's list line lets such a poll deliver its completions (an experiment; Far Cry 3)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[alloc-fail] ml798 FEXAlloc could not allocate",
+     "band=0x7c00000000..0x7fffffffff"
+    ]
+   },
+   {
+    "has": [
+     "[fex-arena] r652",
+     "kept (MADEIRA_FEX_ARENA_REAP is not set)"
+    ]
+   }
+  ],
+  "evidence": [
+   "far-cry-3-fex-arena-full-2026-11-16 (Send Log D6J99X, build 665)"
+  ],
+  "id": "fex-arena-full-programs-kept",
+  "lines": [
+   "env.MADEIRA_FEX_ARENA_REAP = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_FEX_ARENA_REAP="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "hung",
+   "exited-early"
+  ],
+  "priority": 1,
+  "reason": "The emulator's address area filled up: each program of the session that had ended still held its part. The line (build 652) gives it back a few seconds after a program ends."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-log]",
+     "vkCreateInstance failed with error 'VK_ERROR_INCOMPATIBLE_DRIVER'"
+    ]
+   },
+   {
+    "has": [
+     "FATAL ERROR: Graphics_DriverTooOld"
+    ]
+   }
+  ],
+  "evidence": [
+   "enshrouded-vulkan-off-7q88yk-2026-11-16 (Send Log 7Q88YK, build 665; also YR90JP)"
+  ],
+  "id": "vulkan-required-incompatible-driver",
+  "lines": [
+   "vulkan = kosmickrisp"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[game-cfg]",
+     "vulkan = "
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 2,
+  "reason": "The game needs Vulkan, which was off for it. The line turns on KosmicKrisp, BCD's Vulkan driver for iOS 26 and a Metal 4 GPU (it also has the draw-indirect-count feature the game asks for); on an older iOS or GPU the log says why it stays off."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-log]",
+     "skipping device because 'drawIndirectCount' is not supported"
+    ]
+   },
+   {
+    "has": [
+     "FATAL ERROR: Graphics_NoCompatibleDeviceFound"
+    ]
+   }
+  ],
+  "evidence": [
+   "enshrouded-moltenvk-indirect-count-pnjpsk-2026-11-16 (Send Log PNJPSK, build 665)"
+  ],
+  "id": "vulkan-moltenvk-no-draw-indirect-count",
+  "lines": [
+   "vulkan = kosmickrisp"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[game-cfg]",
+     "vulkan = kosmickrisp"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 2,
+  "reason": "The game needs a Vulkan feature (draw-indirect-count) that MoltenVK does not have; KosmicKrisp (iOS 26, a Metal 4 GPU) has it. On an older iOS or GPU the log says why KosmicKrisp stays off."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "--upload-dump"
+    ]
+   },
+   {
+    "has": [
+     "NtTerminateProcess(handle=0x0, exit_code=0x2a)"
+    ]
+   }
+  ],
+  "evidence": [
+   "enshrouded-keen-assert-9de6yv-2026-11-16 (Send Log 9DE6YV, build 665; also 0GS36Y, A0BJFQ)"
+  ],
+  "id": "keen-engine-assert-crash",
+  "lines": [
+   "env.MADEIRA_GUEST_LOG_LIMIT = 4000"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_GUEST_LOG_LIMIT="
+    ]
+   },
+   {
+    "has": [
+     "[kk-queue] commit done error=1"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 14,
+  "reason": "The game stopped itself on one of its own checks and wrote a crash dump; the line makes the next log carry the game's own message."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[madeira-d3d12] D3D12CreateDevice(",
+     "feature level 0xc200, probe)"
+    ]
+   },
+   {
+    "has": [
+     "[win-name] #",
+     "Graphics card is not supported"
+    ]
+   }
+  ],
+  "evidence": [
+   "fft-ivalice-gpu-box-p44kyq-2026-11-16 (Send Log P44KYQ, build 665; also TWX9VM)",
+   "fft-ivalice-gpu-box-dock-2026-11-21 (Send Log PJ43S9, build 686: the box for 352 s in a Dock session)",
+   "T8WFFG (build 682: d3d12-fl-12-1 = 1 in force, the same box)"
+  ],
+  "id": "d3d12-fl-12-1-game-box",
+  "lines": [
+   "d3d12-tiled-resources = 1",
+   "d3d12-tile-based = 0",
+   "d3d12-msaa8 = 1",
+   "d3d12-typed-uav-load = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[game-cfg]",
+     "d3d12-tiled-resources = "
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 10,
+  "reason": "The game surveyed the GPU's Direct3D 12 features, found answers that contradict each other and refused to start. The lines make the answers consistent (an experiment: which of them the game needs is not known)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[int3-guest]",
+     "guest_rip="
+    ]
+   },
+   {
+    "has": [
+     "[int3-guest]",
+     "ASCII x",
+     "= \"ntel"
+    ]
+   },
+   {
+    "has": [
+     "exit_code=0x80000003)"
+    ]
+   }
+  ],
+  "evidence": [
+   "exo7-int3-cpu-vendor-2kwynh-2026-11-16 (Send Log 2KWYNH, build 665)"
+  ],
+  "id": "program-breakpoint-after-cpu-vendor",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 30,
+  "reason": "The program stopped itself with a breakpoint in its own start-up code right after it read the processor's vendor name. It is a check inside the program that BCD does not change; no setting is known to help."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[device] address-map=",
+     ") 454GB "
+    ]
+   },
+   {
+    "has": [
+     "[wow-window] session armed: a 32-bit process is expected"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[wow-window] main-process reserve FAILED"
+    ]
+   },
+   {
+    "has": [
+     "BOOT FAILED at stage 'guest-window-reserve'"
+    ]
+   }
+  ],
+  "evidence": [
+   "ftl-wow-window-454gb-fb04v1-2026-11-16 (Send Log FB04V1, build 665)",
+   "postal-2-wow-window-454gb-kzwjyg-2026-11-16 (Send Log KZWJYG, build 659)",
+   "JZQ8RX (Project Landsword, build 659)"
+  ],
+  "id": "wow-window-no-4gb-hole",
+  "lines": [],
+  "maxStage": 3,
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[device] address-map=",
+     "increased-memory=0"
+    ]
+   },
+   {
+    "has": [
+     "[wow-window] reserved B="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 8,
+  "reason": "This device's address space has no free 4 GB piece for a 32-bit program, so the game cannot start here; no setting changes that. The Extended Virtual Addressing entitlement may add address space (GetMoreRam with SideStore or LiveContainer, or a paid developer account); otherwise a 32-bit game needs a device with a larger address map."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "wined3d_adapter_gl_init Failed to get a GL context"
+    ]
+   },
+   {
+    "has": [
+     "Direct3DCreate9 called -> d3d9_init FAILED"
+    ]
+   },
+   {
+    "has": [
+     "class='prism3d' text=\"wgldetect\""
+    ]
+   }
+  ],
+  "evidence": [
+   "ets2-d3d9-64bit-silent-exit-0dpmna-2026-11-16 (Send Log 0DPMNA, build 665; also 6GR8EN)"
+  ],
+  "id": "d3d9-64bit-dxmt-silent-exit",
+  "lines": [
+   "env.MADEIRA_D3D9_X64 = dxmt"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_D3D9_X64=dxmt: d3d9.dll -> d3d9-dxmt.dll"
+    ]
+   },
+   {
+    "has": [
+     "[wow-window]"
+    ]
+   },
+   {
+    "has": [
+     "wow64cpu"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 9,
+  "reason": "This 64-bit Direct3D 9 game ran on Wine's Direct3D 9, which needs OpenGL, and the device has none; it quit without a message. The line gives it BCD's Direct3D 9 for 64-bit games (DXMT, drawing through Metal)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[unixlib] opengl32 (GL-absent stub table)"
+    ]
+   },
+   {
+    "has": [
+     "[x64-fault] #1",
+     "faulted at address 0x0",
+     "RAX=0x0 RCX=0x1f02"
+    ]
+   }
+  ],
+  "evidence": [
+   "baldurs-gate-ii-ee-glgetstring-null-2026-11-16 (Send Log M6XHZQ, build 665)",
+   "docs/OPENGL.md"
+  ],
+  "id": "opengl-version-string-null",
+  "lines": [
+   "gl-backend = zink"
+  ],
+  "noRetry": true,
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 2,
+  "reason": "This game draws with OpenGL only, and BCD gives a game no OpenGL until it is turned on. The line turns on BCD's OpenGL (not yet tried on this game)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[ios_audio] ml2304"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "days-gone-spatial-bed-mtnbq0-2026-11-16 (Send Log MTNBQ0, build 665, with the 668 line added)",
+   "tests/host/check-audio-io-auto.py"
+  ],
+  "id": "audio-spatial-bed-starved",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[ios_audio] madeira-bcd MADEIRA_AUDIO_SPATIAL=0"
+    ]
+   }
+  ],
+  "priority": 80,
+  "ranOnly": true,
+  "reason": "This game plays its sound through Windows' spatial audio, which BCD could not feed fast enough, so the sound stutters. The line env.MADEIRA_AUDIO_SPATIAL = 0 in the game's settings gives it a plain stream instead (an experiment)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[footprint] rev=ml358 phys="
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 backed"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 0 |",
+     ", 0 MB kept in memory by swap-mb"
+    ]
+   }
+  ],
+  "evidence": [
+   "counter-strike-source-dock-small-phone-3qpxc0-2026-11-16 (Send Log 3QPXC0, build 665; also HWCQ8B, 2ZMP49, HEVGWZ)"
+  ],
+  "id": "memory-limit-dock-small-phone",
+  "lines": [],
+  "memoryMinPct": 80,
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[device] address-map=",
+     "increased-memory=0"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 1"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 2"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 3"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 4"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 5"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 6"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 7"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 8"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "disk-full refusals 9"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "1 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "2 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "3 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "4 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "5 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "6 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "7 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "8 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "9 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "10 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "20 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "30 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "40 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "50 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "60 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "70 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "80 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "90 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "00 MB kept in memory by swap-mb"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "1 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "2 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "3 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "4 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "5 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "6 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "7 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "8 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "9 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "10 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "20 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "30 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "40 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "50 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "60 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "70 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "80 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "90 MB committed past it"
+    ]
+   },
+   {
+    "has": [
+     "[swap] ml1077 stats",
+     "00 MB committed past it"
+    ]
+   }
+  ],
+  "outcomes": [
+   "killed"
+  ],
+  "priority": 47,
+  "ramMaxMB": 4500,
+  "reason": "iOS gives BCD only part of this device's memory, and the Steam client BCD runs for this game needs about 1.2 GB of it before the game starts; this game needs more than what is left. The swap file never filled up, so a larger one would not help. Devices with more memory (iPhone 15 Pro and newer, iPads with 8 GB) run it.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "CompileBlock: REFUSING low/invalid RIP"
+    ]
+   },
+   {
+    "has": [
+     "[mach_exc] UNHANDLED #",
+     "pc=0x0 addr=0x0"
+    ]
+   },
+   {
+    "has": [
+     "[ec-fault-regs]",
+     "peb->EcCodeBitMap=0x7"
+    ]
+   }
+  ],
+  "evidence": [
+   "spyro-reignited-low-rip-5hssm5-2026-11-16 (Send Log 5HSSM5, build 665)"
+  ],
+  "id": "x64-jump-to-low-address-diag",
+  "lines": [
+   "env.MADEIRA_X86_FAULT_DUMP = 1"
+  ],
+  "maxStage": 5,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[x64-fault] #"
+    ]
+   },
+   {
+    "has": [
+     "[x86-fault] #"
+    ]
+   },
+   {
+    "has": [
+     "[wow-low-rip]"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 91,
+  "reason": "A 64-bit program jumped to an address that is not code. No setting is known; the line makes the next log carry the registers and the objects around that place."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "NtTerminateProcess",
+     "exit_code=0x0)"
+    ]
+   },
+   {
+    "has": [
+     "[session] length=",
+     "play=0s frames=0"
+    ]
+   },
+   {
+    "has": [
+     "[term-stack] 32-bit sp"
+    ]
+   }
+  ],
+  "evidence": [
+   "tomb-raider-2013-early-clean-exit-7gzww2-2026-11-16 (Send Log 7GZWW2, build 665)"
+  ],
+  "id": "early-clean-exit-diag",
+  "lines": [
+   "env.MADEIRA_X86_FAULT_DUMP = 1"
+  ],
+  "maxStage": 3,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[term-code] 32-bit terminate"
+    ]
+   },
+   {
+    "has": [
+     "[x86-fault] #"
+    ]
+   },
+   {
+    "has": [
+     "[msgbox-origin]"
+    ]
+   },
+   {
+    "has": [
+     "[open-url]"
+    ]
+   }
+  ],
+  "outcomes": [
+   "exited-early"
+  ],
+  "priority": 92,
+  "reason": "The game ended itself within seconds, without a message, before it drew anything. The line makes the next log carry the code around the exit."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "wine: failed to start",
+     "msiexec.exe",
+     "c0000135"
+    ]
+   },
+   {
+    "has": [
+     "[main-exe] builtin-path retry: find_builtin_dll(search_machine=0xaa64)",
+     "Machine=0x14c"
+    ]
+   }
+  ],
+  "evidence": [
+   "dotnet-installer-msiexec-dg1av4-2026-11-16 (Send Log DG1AV4, build 665)",
+   "paradox-launcher-msiexec (the same key)"
+  ],
+  "id": "msiexec-64bit-missing",
+  "lines": [
+   "env.MADEIRA_MSIEXEC_SYSTEM32 = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[msiexec64]"
+    ]
+   }
+  ],
+  "outcomes": [
+   "exited-early",
+   "crashed",
+   "hung"
+  ],
+  "priority": 11,
+  "reason": "The installer asked for Windows' 64-bit installer service and BCD only has the 32-bit one; the line links it where the installer looks for it."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:load_dll [dll-missing]",
+     "PhysXLoader.dll",
+     "status=c0000135"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[x86-fault] #1 a 32-bit guest faulted at guest 0x00000000"
+    ]
+   },
+   {
+    "has": [
+     "[wow-null32] rev="
+    ]
+   }
+  ],
+  "evidence": [
+   "wolverine-physx-loader-missing-maphec-2026-11-16 (Send Log MAPHEC, build 665)"
+  ],
+  "id": "physx-loader-missing",
+  "lines": [],
+  "maxStage": 3,
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "Load module PhysXCore.dll"
+    ]
+   },
+   {
+    "has": [
+     "Load module PhysXLoader.dll"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 3,
+  "reason": "The game uses NVIDIA PhysX, but this device has no PhysX System Software, the part that provides the physics loader, and the game stops without it. Install it from the Start menu: BCD Runtimes \u203a PhysX (legacy), then start the game again."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[fexlock] STUCK write-wait"
+    ]
+   },
+   {
+    "has": [
+     "[smc-atomic] ml657"
+    ]
+   },
+   {
+    "has": [
+     "Handled self-modifying code"
+    ]
+   },
+   {
+    "has": [
+     "WRC7.exe sec="
+    ]
+   }
+  ],
+  "evidence": [
+   "wrc-7-fexlock-self-wait-1yazcx-2026-11-16 (Send Log 1YAZCX, build 665; also 60R7JV, RY11KN)"
+  ],
+  "id": "fex-lock-self-wait-smc",
+  "lines": [],
+  "noFix": true,
+  "none": [
+   {
+    "has": [
+     "[mono-bp] RW miss"
+    ]
+   },
+   {
+    "has": [
+     "[guest-bytes] ml631 #",
+     "RX from -32, 64 of 64 bytes: 7a 02 80 9a e0 03 08 2a"
+    ]
+   },
+   {
+    "has": [
+     "[guest-bytes] ml631 #",
+     "RX from -32, 64 of 64 bytes: 7b 02 80 9a e0 03 08 2a"
+    ]
+   },
+   {
+    "has": [
+     "[av-detail] ml613 #",
+     "p0=WRITE",
+     "hinsn=0xf9000356"
+    ]
+   },
+   {
+    "has": [
+     "[av-detail] ml613 #",
+     "p0=WRITE",
+     "hinsn=0xf9000376"
+    ]
+   }
+  ],
+  "priority": 7,
+  "reason": "The game's protection layer rewrites its own code, and BCD's emulator then waited for a lock it had already taken, so the game never opened a window. No setting is known (the emulator's full code checks did not change it)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[code-buffer]",
+     "EXEC ALLOC FAILED even at"
+    ]
+   }
+  ],
+  "evidence": [
+   "steam-ui-jit-pool-exec-exhausted-77vqjk-2026-11-16 (Send Log 77VQJK, build 665)"
+  ],
+  "id": "jit-pool-exec-exhausted",
+  "lines": [],
+  "noFix": true,
+  "priority": 3,
+  "reason": "BCD ran out of executable (JIT) memory: this device's free address space allowed only a small pool, and this program started many emulated processes that each need code buffers. It is a limit of the device and of this program; a smaller game, or a device with more memory, is the way."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[dock-shared-redist] app=",
+     "could not rewrite its record"
+    ]
+   },
+   {
+    "has": [
+     "[dock-report] launch-client-error=17"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "call-of-duty-hq-shared-redist-6v2h6w-2026-11-16 (Send Log 6V2H6W, build 665)"
+  ],
+  "id": "dock-shared-redist-write-failed",
+  "lines": [],
+  "noFix": true,
+  "priority": 6,
+  "reason": "Steam is waiting for a shared Steam component (the redistributables) that BCD cannot install here, and BCD could not change this game's Steam record because its folder could not be written. Use a drive that can be written to, or install the game on this device.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[dock-installers]",
+     "held: file=EAappInstaller.exe is the EA app's installer"
+    ]
+   },
+   {
+    "has": [
+     "[win-name] #",
+     "There is no Windows program configured to open this type of file"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "ea-game-ea-app-held-86vxxd-2026-11-16 (Send Log 86VXXD, build 665)"
+  ],
+  "id": "dock-ea-app-held-no-handler",
+  "lines": [],
+  "noFix": true,
+  "priority": 7,
+  "reason": "This EA game starts through the EA app, whose installer is waiting for Wine's HTML engine, so Windows has nothing to open the game's launch link with. Download it in Settings > HTML engine for installers, then start the game again; BCD runs the EA app's installer first (several minutes) and asks for a restart.",
+  "session": "dock"
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "import_dll Library NvLowLatencyVk.dll",
+     "RDR2.exe",
+     "not found"
+    ]
+   },
+   {
+    "has": [
+     "loader_init Importing dlls for",
+     "RDR2.exe",
+     "failed, status c0000135"
+    ]
+   }
+  ],
+  "evidence": [
+   "rdr2-copy-missing-nvlowlatencyvk-g4c8x3-2026-11-16 (Send Log G4C8X3, build 665)"
+  ],
+  "id": "rdr2-copy-missing-nvlowlatencyvk",
+  "lines": [],
+  "maxStage": 2,
+  "noFix": true,
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 3,
+  "reason": "This copy of Red Dead Redemption 2 lacks NvLowLatencyVk.dll (NVIDIA's low-latency library, about 77 KB, beside RDR2.exe), a file of the game itself that its program needs to start. Install the game again, or copy the whole game folder again so that every file is there, and try once more."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "NOT setting cpu_area (owner machine=0xaa64 session is_arm64ec=1)"
+    ]
+   },
+   {
+    "has": [
+     "NtCreateUserProcess: image=L\"C:\\\\windows\\\\system32\\\\cmd.exe\""
+    ]
+   },
+   {
+    "has": [
+     "[redeliv] ending only the Windows process cmd.exe"
+    ]
+   }
+  ],
+  "evidence": [
+   "quantum-break-ec-native-cmd-b4trec-2026-11-16 (Send Log B4TREC, build 665; also EC9Y8N, FVJKYE, PA5TPA)",
+   "tools/build-wine-extra-dlls.sh (cmd.exe for ARM64EC sessions)"
+  ],
+  "fixedIn": 668,
+  "id": "ec-native-child-cmd",
+  "lines": [],
+  "none": [
+   {
+    "has": [
+     "NtCreateUserProcess: image=L\"C:\\\\windows\\\\system32\\\\cmd.exe\"",
+     "cmd.exe /c start "
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 3,
+  "reason": "The game's launcher started the Windows command interpreter (cmd.exe) to run a batch file, and the one BCD had could not run next to a 64-bit game; the launcher then quit. From build 668 BCD has a command interpreter built for this case. Update BCD."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:import_dll Library mscms.dll (which is needed by",
+     "Adobe AIR.dll"
+    ]
+   }
+  ],
+  "evidence": [
+   "brawlhalla-air-msi-mscms-2026-11-16 (Send Log 8C0WRA, build 665; also H91CMC, build 626)"
+  ],
+  "id": "air-runtime-msi-mscms",
+  "lines": [
+   "env.MADEIRA_OPTIN_DLLS = msi,mspatcha,odbccp32,sxs,rstrtmgr,mscms"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_OPTIN_DLLS: mscms.dll -> mscms-optin.dll"
+    ]
+   }
+  ],
+  "priority": 10,
+  "reason": "This game's Adobe AIR runtime needs Windows Installer's msi.dll and the colour-management DLL mscms.dll, which BCD ships only to the games that ask; the line gives this game both."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:import_dll Library icuuc.dll (which is needed by",
+     "Qt6Core.dll"
+    ]
+   }
+  ],
+  "evidence": [
+   "bloodborne-qt6core-icuuc-missing-2026-11-21 (Send Log 7S40B4, build 686)",
+   "tests/host/check-icu-optin.py"
+  ],
+  "fixedIn": 708,
+  "id": "qt6core-icuuc-missing-before-708",
+  "lines": [],
+  "maxBuild": 707,
+  "priority": 4,
+  "reason": "The program is built on Qt 6, which needs Windows' ICU libraries (icuuc.dll and icuin.dll); the build that ran has no copy of them."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "err:module:import_dll Library icuuc.dll (which is needed by",
+     "Qt6Core.dll"
+    ]
+   }
+  ],
+  "evidence": [
+   "bloodborne-qt6core-icuuc-missing-build708-2026-11-21 (the log of 7S40B4 with build 708's number)",
+   "tests/host/check-icu-optin.py"
+  ],
+  "id": "qt6core-icuuc-missing",
+  "lines": [
+   "env.MADEIRA_OPTIN_DLLS = icuuc,icuin"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "MADEIRA_OPTIN_DLLS: icuuc.dll -> icuuc-optin.dll"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 5,
+  "reason": "The program is built on Qt 6, which needs Windows' ICU libraries; the line gives it BCD's own copy."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "exit_code=0x80000101"
+    ]
+   },
+   {
+    "has": [
+     "libcef.dll+0xfe103f"
+    ]
+   },
+   {
+    "has": [
+     "[ubi-cef] upc.exe browser: appended"
+    ]
+   }
+  ],
+  "evidence": [
+   "ubisoft-connect-cef-abort-mtf7zz-2026-11-16 (Send Log MTF7ZZ, build 665)"
+  ],
+  "id": "ubisoft-cef-abort",
+  "lines": [],
+  "noFix": true,
+  "priority": 40,
+  "reason": "Ubisoft Connect's browser stopped inside its Chromium (a check inside the browser failed); no setting is known. The game itself is not started by this program."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Exception in thread \"main\" java.lang.ExceptionInInitializerError"
+    ]
+   },
+   {
+    "has": [
+     "Caused by: java.lang.ArrayIndexOutOfBoundsException: 0"
+    ]
+   },
+   {
+    "has": [
+     "sun.launcher.LauncherHelper"
+    ]
+   }
+  ],
+  "evidence": [
+   "the-way-jvm-launcher-c2n7mx-2026-11-16 (Send Log C2N7MX, build 665)"
+  ],
+  "id": "jvm-launcher-empty-enum-ordering",
+  "lines": [
+   "env.FEX_VECTORTSOENABLED = 1",
+   "env.FEX_MEMCPYSETTSOENABLED = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "FEX: TSO config",
+     "vector=true"
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 31,
+  "reason": "The game's Java runtime stopped on damaged memory in its first seconds, the way a lost memory order in the emulator would damage it; the lines make the emulator keep the order of vector stores and block copies too (slower). An experiment."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-insn] CURRENT address=",
+     "bytes=8d d7 8e 6d bc 90 e9 eb a1 90 a8 e8 b4 fe 0a 00 90 eb a1 90"
+    ]
+   },
+   {
+    "has": [
+     "MTLX.dll+0x2779"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000096"
+    ]
+   }
+  ],
+  "evidence": [
+   "rdr1-mtlx-stale-translation-tj2r4v-2026-11-16 (Send Log TJ2R4V, build 659)"
+  ],
+  "id": "rdr1-mtlx-stale-translation-multiblock0",
+  "lines": [
+   "env.FEX_MULTIBLOCK = 0"
+  ],
+  "maxStage": 4,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_MULTIBLOCK="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 6,
+  "reason": "The game's protection code rewrites itself, and the emulator ran an old translation of it. The line makes the emulator translate the game's code one block at a time (slower); it does not touch the protection."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-insn] CURRENT address=",
+     "bytes=8d d7 8e 6d bc 90 e9 eb a1 90 a8 e8 b4 fe 0a 00 90 eb a1 90"
+    ]
+   },
+   {
+    "has": [
+     "MTLX.dll+0x2779"
+    ]
+   },
+   {
+    "has": [
+     "Unhandled exception code c0000096"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-env] game FEX_MULTIBLOCK=0"
+    ]
+   }
+  ],
+  "evidence": [
+   "rdr1-mtlx-stale-translation-tj2r4v-2026-11-16 (Send Log TJ2R4V, build 659; the step after the first rule's line)"
+  ],
+  "id": "rdr1-mtlx-stale-translation-smc-full",
+  "lines": [
+   "env.FEX_SMCCHECKS = full"
+  ],
+  "maxStage": 4,
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game FEX_SMCCHECKS="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 7,
+  "reason": "The game's protection code rewrites itself, and one-block translation did not catch it. The line makes the emulator check every block for changed code (slower); it does not touch the protection."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[win-name] #",
+     "class='#32770'",
+     "Minimum Recommended Hardware Check Failure"
+    ]
+   }
+  ],
+  "evaluateWhenRan": true,
+  "evidence": [
+   "rdr2-minimum-hardware-box-qad77y-2026-11-16 (Send Log QAD77Y, build 665)",
+   "90GP7Y, 2SR5VJ, S2B3GE (the game went on after Yes)"
+  ],
+  "id": "game-minimum-hardware-box",
+  "lines": [],
+  "noFix": true,
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 5,
+  "reason": "The game itself showed its Minimum Recommended Hardware Check: this device has less memory than it recommends. It is the game's warning, not an error: answer Yes (or OK) to go on; answering No ends the game."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[vkmt]",
+     "OpenAdapterFromDeviceName",
+     "-> 0xc000000d hAdapter=0"
+    ]
+   },
+   {
+    "has": [
+     "[guest-state]",
+     "rax=0x8007007e"
+    ]
+   }
+  ],
+  "evidence": [
+   "resident-evil-4-kmt-open-adapter-2026-11-21 (Send Log 25BYYE, build 686)",
+   "HH8RG9 (build 630)"
+  ],
+  "id": "kmt-open-adapter-device-name-then-null-call",
+  "lines": [
+   "env.MADEIRA_KMT_ADAPTER = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_KMT_ADAPTER="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed"
+  ],
+  "priority": 8,
+  "reason": "The game asked Windows for its graphics card by name, BCD said it could not open it, and the game went on without checking the answer and stopped a few seconds later. The line lets BCD open the card it lists."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "Couldn't find DXGI adapter matching the selected Vulkan device"
+    ]
+   }
+  ],
+  "evidence": [
+   "x-plane-12-dxgi-luid-2026-11-16 (the owner's own test, build 667, iPhone18,2)",
+   "tests/host/check-kmt-adapter.py"
+  ],
+  "id": "vulkan-dxgi-adapter-luid",
+  "lines": [
+   "env.MADEIRA_KMT_ADAPTER = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_KMT_ADAPTER="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 9,
+  "reason": "The game looks for its Vulkan GPU among the DXGI adapters by its LUID, and BCD's Vulkan did not give it the LUID DXGI reports. The line makes both report the same GPU (from build 668)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-log]",
+     "Adapter Local ID doesn't match OpenGL bridge device"
+    ]
+   },
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_KMT_ADAPTER=1"
+    ]
+   }
+  ],
+  "evidence": [
+   "x-plane-12-gl-bridge-luid-2026-11-17 (Send Log KCJ7BB, the owner's own test, build 669, iPhone18,2)",
+   "tests/host/check-kmt-adapter.py"
+  ],
+  "fixedIn": 670,
+  "id": "xplane-gl-bridge-luid",
+  "lines": [],
+  "noRetry": true,
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 7,
+  "reason": "X-Plane matches its Vulkan GPU to the GPU of its OpenGL plugins by an adapter ID, and BCD's OpenGL did not report the ID its Vulkan and DXGI report. From build 670 all three report the same GPU (with the game's recommended settings)."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-log]",
+     "The OpenGL version is too low to run the OpenGL bridge"
+    ]
+   }
+  ],
+  "evidence": [
+   "x-plane-12-gl-bridge-version-2026-11-18 (the owner's X-Plane test 11:41, build 670, iPhone18,2)",
+   "HJZ5AX (12:31, the same lines in the game's file: past the check)"
+  ],
+  "id": "xplane-gl-bridge-version",
+  "lines": [
+   "env.MESA_GL_VERSION_OVERRIDE = 4.6",
+   "env.MESA_GLSL_VERSION_OVERRIDE = 460"
+  ],
+  "noRetry": true,
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 7,
+  "reason": "X-Plane's OpenGL bridge for its plugins asks for a newer OpenGL than the 4.1 BCD reports by default. The lines report 4.6 for this game; with them X-Plane passed this check on the owner's iPhone."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[soft-pool] GRANTED soft 0x7800000000",
+     "base returned 0x77ffff0000",
+     "size=0x400010000"
+    ]
+   },
+   {
+    "has": [
+     "[nt-fail]",
+     "NtAllocateVirtualMemory status=c000000d",
+     "proc=x-plane.exe",
+     "type=0x1000"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[session-log] Steam game X-Plane.exe:"
+    ]
+   },
+   {
+    "has": [
+     "library launch X-Plane 12:"
+    ]
+   }
+  ],
+  "evidence": [
+   "x-plane-12-cef-pools-2026-11-18 (the owner's own test MX3R0X, build 670, iPhone18,2)",
+   "tests/host/check-ea-cef.py",
+   "tests/host/check-cef-pool-images.py"
+  ],
+  "id": "xplane-cef-pools",
+  "lines": [
+   "env.MADEIRA_SC_PA_POOLS = 2",
+   "env.MADEIRA_CEF_POOL_IMAGES = x-plane.exe,cefclient.exe"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_CEF_POOL_IMAGES="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 8,
+  "reason": "X-Plane's built-in browser (Chromium) needs four 16 GB memory pools and BCD gave two of them the same address space; the lines run the browser in one process and give each pool its own slot."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "used as a blended color attachment but doesn't support blending capability"
+    ]
+   },
+   {
+    "has": [
+     "[winios-vk] Vulkan library",
+     "libvulkan_kosmickrisp.dylib loaded"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[session-log] Steam game X-Plane.exe:"
+    ]
+   },
+   {
+    "has": [
+     "library launch X-Plane 12:"
+    ]
+   }
+  ],
+  "evidence": [
+   "x-plane-12-kk-snorm-blend-2026-11-19 (the owner's own test, build 672, iPhone18,2)",
+   "tests/host/check-kk-snorm-blend.py"
+  ],
+  "id": "xplane-kk-snorm-blend",
+  "lines": [
+   "env.MADEIRA_KK_SNORM_BLEND = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_KK_SNORM_BLEND="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 8,
+  "reason": "X-Plane's Vulkan renderer stops because the graphics driver says one of its formats cannot be blended; the line lets the driver report the blending it already does."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "VK_ERROR_INVALID_SHADER_NV"
+    ]
+   },
+   {
+    "has": [
+     "invalid access value 'a' for 'texture2d_ms"
+    ]
+   },
+   {
+    "has": [
+     "[winios-vk] Vulkan library",
+     "libvulkan_kosmickrisp.dylib loaded"
+    ]
+   }
+  ],
+  "any": [
+   {
+    "has": [
+     "[session-log] Steam game X-Plane.exe:"
+    ]
+   },
+   {
+    "has": [
+     "library launch X-Plane 12:"
+    ]
+   }
+  ],
+  "evidence": [
+   "x-plane-12-kk-ms-store-drop-2026-11-19 (the owner's own test, build 674, iPhone18,2)",
+   "tests/host/check-kk-ms-store-drop.py"
+  ],
+  "id": "xplane-kk-ms-store-drop",
+  "lines": [
+   "env.MADEIRA_KK_MS_STORE_DROP = 1"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_KK_MS_STORE_DROP="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 8,
+  "reason": "X-Plane's Vulkan renderer stops because one of its shaders writes to a multisampled image, which Metal cannot do; the line leaves those writes out so the shader can be built."
+ },
+ {
+  "all": [
+   {
+    "has": [
+     "[guest-log]",
+     "cannot run Vulkan X-Plane"
+    ]
+   },
+   {
+    "has": [
+     "[WineProc] vulkan=kosmickrisp: Vulkan is on for this session"
+    ]
+   }
+  ],
+  "evidence": [
+   "x-plane-12-vulkan-profile-2026-11-17 (the owner's own test, build 668, iPhone18,2)",
+   "x-plane-12-dxgi-luid-2026-11-16 (the same lines in build 667)",
+   "tests/host/check-kk-opaque-fd.py"
+  ],
+  "id": "xplane-vulkan-gl-bridge-sharing",
+  "lines": [
+   "env.MADEIRA_KK_OPAQUE_FD = 1",
+   "env.MADEIRA_ZINK_VULKAN = kosmickrisp"
+  ],
+  "noRetry": true,
+  "none": [
+   {
+    "has": [
+     "[madeira-env] game MADEIRA_KK_OPAQUE_FD="
+    ]
+   }
+  ],
+  "outcomes": [
+   "crashed",
+   "exited-early"
+  ],
+  "priority": 8,
+  "reason": "X-Plane's Windows renderer needs its Vulkan images and semaphores shared with the OpenGL context of its plugins, which BCD's Vulkan did not offer. The lines turn that sharing on and run the OpenGL side on the same driver (from build 669; not yet tried on a device)."
  },
  {
   "all": [

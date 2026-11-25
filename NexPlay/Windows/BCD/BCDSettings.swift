@@ -43,6 +43,8 @@ import UIKit
     var custom: [BCDSettingsSection: () -> AnyView] = [:]
     /// A game's page, from Storage's list of games; nil until the game page is wired in.
     var openGame: ((BCDGame) -> Void)? = nil
+    /// Recommended settings' catalog of the list in use (BCDRecommendedCatalogLive.swift); nil in the preview build, which shows a sample.
+    var recommended: (any BCDRecommendedBackend)? = nil
 }
 
 /// B in a section built elsewhere (Accounts, JIT, BCD Dock): the section hands Settings its own
@@ -849,6 +851,7 @@ struct BCDSettingsDetail: View {
         case .dotnet: Self.dotNet(model.backends.dotNet)
         case .logs: Self.logs(model.backends.logs)
         case .feedback: Self.feedback(model.backends.feedback)
+        case .recommended: BCDRecommendedSettings(backend: model.backends.recommendedBackend)
         case .all: Self.allSettings(model.backends.allSettings)
         case .developer: Self.developer(model.backends.developer)
         case .updates: BCDUpdatesSettings()
@@ -1045,6 +1048,7 @@ struct BCDSettingsValueRow: View {
     let choices: [BCDSettingsChoice]
     let value: String
     var enabled = true
+    var showsMenuButton = false
     let set: (String) -> Void
     @Environment(\.bcdLayout) private var layout
 
@@ -1060,17 +1064,29 @@ struct BCDSettingsValueRow: View {
             }
         } label: {
             BCDSettingsRowLabel(title: title, note: note, enabled: enabled) {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left").font(.system(size: 11, weight: .bold))
-                        .opacity((index ?? 1) > 0 ? 0.8 : 0.25)
-                    Text(shown)
-                        .font(BCDStyle.label(layout == .pad ? 15 : 14)).foregroundStyle(BCDStyle.lavender)
-                        .multilineTextAlignment(.trailing).lineLimit(2).minimumScaleFactor(0.85)
-                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
-                        .opacity((index ?? -1) < choices.count - 1 ? 0.8 : 0.25)
+                if showsMenuButton {
+                    HStack(spacing: 6) {
+                        Text(shown).font(BCDStyle.label(layout == .pad ? 15 : 14))
+                        Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
+                            .accessibilityHidden(true)
+                    }
+                    .foregroundStyle(BCDStyle.lavender)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(BCDStyle.surfaceRaised, in: Capsule())
+                    .overlay(Capsule().strokeBorder(BCDStyle.stroke, lineWidth: 1))
+                } else {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left").font(.system(size: 11, weight: .bold))
+                            .opacity((index ?? 1) > 0 ? 0.8 : 0.25)
+                        Text(shown)
+                            .font(BCDStyle.label(layout == .pad ? 15 : 14)).foregroundStyle(BCDStyle.lavender)
+                            .multilineTextAlignment(.trailing).lineLimit(2).minimumScaleFactor(0.85)
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
+                            .opacity((index ?? -1) < choices.count - 1 ? 0.8 : 0.25)
+                    }
+                    .foregroundStyle(BCDStyle.textSoft)
+                    .frame(maxWidth: layout == .phonePortrait ? 150 : 230, alignment: .trailing)
                 }
-                .foregroundStyle(BCDStyle.textSoft)
-                .frame(maxWidth: layout == .phonePortrait ? 150 : 230, alignment: .trailing)
             }
         }
         .disabled(!enabled)

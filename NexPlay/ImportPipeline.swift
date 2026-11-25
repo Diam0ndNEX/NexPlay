@@ -468,7 +468,9 @@ enum ImportPipeline {
         for entry in entries {
             if count % 50 == 0 { try cancel.check() }
             count += 1
-            var path = entry.path(using: encoding)
+            // 8.20.0 (after Empo #311): a name with the UTF-8 flag stays UTF-8; only unflagged names use the
+            // archive's legacy code page (a zip can mix both).
+            var path = isFlaggedUTF8(entry) ? entry.path : entry.path(using: encoding)
             if path.isEmpty { path = entry.path }
             path = path.replacingOccurrences(of: "\\", with: "/")
             let parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
@@ -507,9 +509,22 @@ enum ImportPipeline {
         String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(value.rawValue)))
     }
 
+    /// True for an entry whose name carries the UTF-8 flag (or is plain ASCII): ZIPFoundation's `path` then reads
+    /// it as UTF-8, the same as an explicit UTF-8 read.
+    private static func isFlaggedUTF8(_ entry: Entry) -> Bool {
+        let utf8 = entry.path(using: .utf8)
+        return !utf8.isEmpty && entry.path == utf8
+    }
+
+    /// The code page of the names without the UTF-8 flag. 8.20.0 (after Empo #311, "BLACK SOULS"): only names that
+    /// are not valid UTF-8 decide it, and it then applies to every unflagged name, also one whose bytes happen to be
+    /// valid UTF-8 (the GBK bytes of 隆 are the UTF-8 bytes of ¡). A Windows zip that mixes both used to come out
+    /// as UTF-8 with broken names, and the game could not find "Audio/BGM/タイトル".
     private static func chooseEncoding(_ entries: [Entry]) -> (String.Encoding, String) {
-        // Names marked UTF-8, or plain ASCII, decode as UTF-8.
-        if entries.allSatisfy({ !$0.path(using: .utf8).isEmpty }) { return (.utf8, "UTF-8") }
+        let unflagged = entries.filter { !isFlaggedUTF8($0) }
+        // Every unflagged name valid as UTF-8 (zip tools that write UTF-8 without the flag): UTF-8.
+        if unflagged.allSatisfy({ !$0.path(using: .utf8).isEmpty }) { return (.utf8, "UTF-8") }
+        let legacy = unflagged.filter { $0.path(using: .utf8).isEmpty }
         let candidates: [(String.Encoding, String)] = [
             (.shiftJIS, "Shift-JIS"),
             (cfEncoding(.GB_18030_2000), "GBK"),
@@ -518,7 +533,7 @@ enum ImportPipeline {
         ]
         func decodes(_ encoding: String.Encoding) -> [String]? {
             var names: [String] = []
-            for entry in entries {
+            for entry in legacy {
                 let name = entry.path(using: encoding)
                 if name.isEmpty { return nil }
                 names.append(name)

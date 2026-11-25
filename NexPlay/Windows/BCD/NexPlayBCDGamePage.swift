@@ -12,7 +12,7 @@ import SwiftUI
 @MainActor enum NexBCDGamePage {
     /// BCD's sections NexPlay doesn't show: stores (hidden in NexPlay), the game's name/cover/removal (NexPlay's own
     /// Options do those) and BCD's external-drive location.
-    static let hiddenGroups: Set<String> = ["steam", "dlc", "version", "download", "library", "location"]
+    static let hiddenGroups: Set<String> = ["steam", "dlc", "version", "download", "library", "location", "gog-galaxy"]
 
     static var backend: BCDGameDetailBackend? { BCDGameDetailSource.backend }
 
@@ -480,5 +480,28 @@ struct NexBCDPCSetupView: View {
                 if !path.isEmpty { path.removeLast() }
             }
         }
+    }
+}
+
+/// 8.20.0: BCD's Japanese locale (v0.1.721, BCDJapanese.c: Shift-JIS code page and a Japanese font for one game) from
+/// NexPlay's game page: a Japanese game is recognised by its file names, and the page offers the switch that BCD keeps
+/// under PC Setup › Compatibility. The switch is the same line (env.MADEIRA_JAPANESE = 1 in the game's own file).
+@MainActor enum NexBCDJapanese {
+    /// Only builds whose engine carries the font (BCD's tools/fetch-japanese-font.sh) have the locale.
+    static let available = Bundle.main.path(forResource: "NotoSansJP-Regular", ofType: "otf", inDirectory: "fonts-ja") != nil
+
+    static func isOn(for game: Game) -> Bool {
+        guard let entry = NexBCDGamePage.entry(for: game, create: false) else { return false }
+        return GameProfile(windowsPath: entry.windowsPath).get("env.MADEIRA_JAPANESE") == "1"
+    }
+
+    /// Writes the line (and makes the game's library entry if needed). False when the engine's drive is not ready yet.
+    @discardableResult
+    static func set(_ on: Bool, for game: Game) -> Bool {
+        guard let entry = NexBCDGamePage.entry(for: game, create: true) else { return false }
+        GameProfile(windowsPath: entry.windowsPath).set("env.MADEIRA_JAPANESE", on ? "1" : nil)
+        if !LibraryModel.shared.entries.contains(where: { $0.id == entry.id }) { LibraryModel.shared.save(entry) }
+        AppLog.log("windows: \(game.name): Japanese locale \(on ? "on" : "off")")
+        return true
     }
 }

@@ -1,7 +1,7 @@
 # BCD's app code in NexPlay: origin and changes
 
-This folder holds the app code of BCD (https://github.com/thebcd69/bcd-games, tag **v0.1.653**, commit
-c3c2d152fca4d491b703b910d112ab54299c36c1), from `app/Madeira`: every file of its Madeira target's Sources phase
+This folder holds the app code of BCD (https://github.com/thebcd69/bcd-games, tag **v0.1.721**, commit
+8c784fe (updated from v0.1.653 on 2026-11-25, NexPlay 8.20.0)), from `app/Madeira`: every file of its Madeira target's Sources phase
 (340 files) and the headers next to them. BCD is a fork of Madeira by Will Faust (https://github.com/willfaust/Madeira).
 Every file keeps its own header and licence (GPL-3.0-only with BCD's additional terms, GPL-3.0-or-later from Madeira,
 the Madeira Converter Exception). The licence files are in `third_party/bcd/` at the top of the repository.
@@ -65,3 +65,17 @@ into its own target (only in builds with the Windows engine, see `NexPlayWindows
 ## 2026-11-15 (NexPlay 8.7.10)
 - `ContentView.swift`: `ControlsWindow.hitTest` also returns nil unless `NexWindowsHost.sessionOnScreen` (NexPlay's Windows
   game screen is up). The window stays above the app after a session and swallowed the library's Back, Play and menu touches.
+
+
+## 2026-11-25 (NexPlay 8.20.0): update to BCD v0.1.721
+- Every BCD file NexPlay had not changed was replaced by its v0.1.721 version (the type renames of 8.0.0 applied again);
+  the five files NexPlay changes (`BCDSession.swift`, `ContentView.swift`, `JITAllocator.c`, `Library.swift`,
+  `WineProcessBridge.m`) were merged three-way (BCD v0.1.653 → v0.1.721 on top of NexPlay's changes), which kept every
+  NexPlay change listed above. The 46 sources BCD added to its Madeira target were copied (Amazon, GOG Galaxy and Steam for
+  Windows store code included: compiled, never shown, as the rule of 2026-11-13 says).
+- `BCDJapanese.c`: its `../../build/madeira_cfg.h` include points at `build-headers/` (as JITAllocator.c), plus the
+  "Modified for NexPlay" line.
+- `recommendations.json` and `build-headers/` refreshed from v0.1.721 (`recommended/`, `build/`).
+- NexPlay's code: `NexPlayBCDGamePage.swift` hides BCD's new "gog-galaxy" game page group and adds `NexBCDJapanese`
+  (the Japanese locale switch for NexPlay's game page hint); `NexPlayBCDSettings.swift` shows BCD's new CPU limit in the
+  background, Ask Before Trying a Fix, Make Big Logs Smaller and the external drive speed test.

@@ -4,6 +4,8 @@
 // under GPL-3.0-or-later and modified for BCD in October 2026. See THIRD-PARTY-NOTICES.md.
 // Portions copyright 2026 intraducine and David Brookes: code taken from https://github.com/willfaust/Madeira (pull request #464)
 // under GPL-3.0-or-later and modified for BCD in November 2026. See THIRD-PARTY-NOTICES.md.
+// Portions copyright 2026 The Porthole authors: the second fetch of a cut-short file, the failure details and the other packings
+// (SteamCloudTransfer.fetch / checked / otherPackings), after https://github.com/tylerkaska112/Porthole 1.3.1 (6d4d1aa), November 2026.
 //
 // Steam Cloud saves for games in Madeira Dock's Steam library
 // (docs/STEAM_CLOUD.md). Written from Steam's published service messages
@@ -477,21 +479,90 @@ enum SteamCloudTransfer {
         }
         var request = URLRequest(url: url)
         for header in info.headers { request.setValue(header.value, forHTTPHeaderField: header.name) }
-        let (body, response) = try await http.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw SteamFileError.invalid("Steam Cloud returned an error (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)).")
-        }
-        var file = body
-        if info.fileSize != info.rawSize || (body.count != Int(info.rawSize) && body.starts(with: [0x50, 0x4b, 0x03, 0x04])) {
-            guard let unpacked = unzipFirstEntry(body, rawSize: Int(info.rawSize)) else {
-                throw SteamFileError.invalid("A file from Steam Cloud couldn't be decompressed.")
+        func get() async throws -> Data {
+            let (body, response) = try await http.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                throw SteamFileError.invalid("Steam Cloud returned an error (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)).")
             }
-            file = unpacked
+            return body
         }
-        guard Data(Insecure.SHA1.hash(data: file)) == expectedSHA else {
-            throw SteamFileError.invalid("A file from Steam Cloud failed its integrity check.")
+        var body = try await get()
+        var outcome = checked(body, info: info, expectedSHA: expectedSHA)
+        // madeira-bcd (Porthole 1.3.1, 6d4d1aa): a link that was cut short (fewer bytes than Steam said it serves) is fetched once more
+        // before the file is given up on.
+        if case .failure = outcome, info.fileSize > 0, body.count != Int(info.fileSize) {
+            body = try await get()
+            outcome = checked(body, info: info, expectedSHA: expectedSHA)
         }
-        return file
+        return try outcome.get()
+    }
+
+    /// madeira-bcd (Porthole 1.3.1): what arrived when a cloud file does not check out, for the log (the player sees `userText`).
+    struct FetchError: LocalizedError {
+        let kind: String
+        let detail: String
+        let userText: String
+        var errorDescription: String? { userText }
+    }
+
+    /// The file's bytes, checked against Steam's SHA-1. As before: the bytes as served, or the zip's first entry when Steam says the
+    /// served form differs from the file. Only when that fails (madeira-bcd, Porthole 1.3.1): the other ways Steam may have packed it
+    /// (a zlib stream, gzip, bare deflate), each kept only if its SHA-1 is the one Steam listed.
+    static func checked(_ body: Data, info: SteamCloudDownloadInfo, expectedSHA: Data) -> Result<Data, Error> {
+        func ok(_ d: Data) -> Bool { Data(Insecure.SHA1.hash(data: d)) == expectedSHA }
+        let rawSize = Int(info.rawSize)
+        var unpackFailed = false
+        if info.fileSize != info.rawSize || (body.count != rawSize && body.starts(with: [0x50, 0x4b, 0x03, 0x04])) {
+            if let unpacked = unzipFirstEntry(body, rawSize: rawSize) {
+                if ok(unpacked) { return .success(unpacked) }
+            } else { unpackFailed = true }
+        } else if ok(body) { return .success(body) }
+        for candidate in otherPackings(body, rawSize: rawSize) {
+            if let data = candidate(), ok(data) { return .success(data) }
+        }
+        let head = body.prefix(8).map { String(format: "%02x", $0) }.joined()
+        let detail = "served=\(body.count) head=\(head.isEmpty ? "-" : head) steam-served=\(info.fileSize) raw=\(info.rawSize)"
+        return .failure(unpackFailed
+            ? FetchError(kind: "decompress", detail: detail, userText: "A file from Steam Cloud couldn't be decompressed.")
+            : FetchError(kind: "checksum", detail: detail, userText: "A file from Steam Cloud failed its integrity check."))
+    }
+
+    /// zlib (78 xx, header and Adler-32 around a deflate stream), gzip (1f 8b 08 and its header) and bare deflate, each decoded into
+    /// exactly `rawSize` bytes (at most maxFileBytes).
+    private static func otherPackings(_ body: Data, rawSize: Int) -> [() -> Data?] {
+        guard rawSize > 0, rawSize <= maxFileBytes, body.count >= 2 else { return [] }
+        let b = [UInt8](body.prefix(10))
+        var list: [() -> Data?] = []
+        if b[0] & 0x0F == 8, b[0] >> 4 <= 7, (UInt16(b[0]) << 8 | UInt16(b[1])) % 31 == 0, body.count > 6 {
+            list.append { inflate(body.dropFirst(2).dropLast(4), rawSize: rawSize) }
+            list.append { inflate(body.dropFirst(2), rawSize: rawSize) }
+        }
+        if b.count >= 10, b[0] == 0x1f, b[1] == 0x8b, b[2] == 8 {
+            list.append {
+                let all = [UInt8](body), flags = all[3]
+                var at = 10
+                if flags & 4 != 0, all.count >= at + 2 { at += 2 + (Int(all[at]) | Int(all[at + 1]) << 8) }   // FEXTRA
+                if flags & 8 != 0 { while at < all.count, all[at] != 0 { at += 1 }; at += 1 }             // FNAME
+                if flags & 16 != 0 { while at < all.count, all[at] != 0 { at += 1 }; at += 1 }            // FCOMMENT
+                if flags & 2 != 0 { at += 2 }                                                            // FHCRC
+                return at < all.count ? inflate(Data(all[at...]), rawSize: rawSize) : nil
+            }
+        }
+        list.append { inflate(body, rawSize: rawSize) }
+        return list
+    }
+
+    /// A raw deflate stream (Compression's ZLIB is RFC 1951) decoded into exactly `rawSize` bytes, or nil.
+    private static func inflate(_ data: Data, rawSize: Int) -> Data? {
+        guard !data.isEmpty else { return nil }
+        var out = Data(count: rawSize)
+        let written = out.withUnsafeMutableBytes { dst -> Int in
+            data.withUnsafeBytes { src -> Int in
+                guard let d = dst.bindMemory(to: UInt8.self).baseAddress, let s = src.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+                return compression_decode_buffer(d, rawSize, s, data.count, nil, COMPRESSION_ZLIB)
+            }
+        }
+        return written == rawSize ? out : nil
     }
 
     /// Puts downloaded bytes in place. An existing file is first copied under
@@ -603,6 +674,21 @@ enum SteamRemoteCache {
         }
         return out + "}\n"
     }
+
+    /// madeira-bcd (round 714, D1-S1): what the client's list says about the comparison's `remote` files (Cloud API saves; no %Root%):
+    /// `device` files the device holds (identical, differing or device-only), `listed` of them named in the list (any case), `missing`
+    /// identical files the list does not name. A missing one is a save the account has that the game cannot see in a Dock session.
+    static func census(audit: SteamCloudAudit, paths: SteamCloudPaths) -> (listed: Int, device: Int, missing: Int) {
+        let url = paths.remoteFolder.deletingLastPathComponent().appendingPathComponent("remotecache.vdf")
+        let names = Set(((try? String(contentsOf: url, encoding: .utf8)).flatMap(parse)?.files ?? []).map { $0.name.lowercased() })
+        let remote = audit.entries.filter { SteamCloudPaths.split($0.path).root == nil && $0.kind != .cloudOnly }
+        let listed = remote.filter { names.contains($0.path.lowercased()) }.count
+        let missing = remote.filter { $0.kind == .same && !names.contains($0.path.lowercased()) }.count
+        return (listed, remote.count, missing)
+    }
+
+    /// True when a file identical on both sides is missing from the client's list: the default (`when-missing`) rewrites only then.
+    static func listMisses(audit: SteamCloudAudit, paths: SteamCloudPaths) -> Bool { census(audit: audit, paths: paths).missing > 0 }
 
     /// Rewrites the app's list from a comparison. Returns the counts written,
     /// or nil when there is nothing to write (no `remote` files, or no change).
@@ -787,6 +873,17 @@ struct SteamCloudUploadBlock: Sendable {
 }
 
 extension SteamCloudTransfer {
+    /// madeira-bcd: the bytes of a file of `fileCount` bytes that one upload block asks for, or nil when the block lies outside the file.
+    /// offset and length come from Steam: a sum past 2^64 or a length past Int.max stopped the app before; both lie outside the file.
+    static func blockRange(offset: UInt64, length: UInt64, fileCount: Int) -> Range<Int>? {
+        let (stop, overflow) = offset.addingReportingOverflow(length)
+        guard !overflow, length <= UInt64(fileCount) else { return nil }
+        let start = Int(min(offset, UInt64(fileCount)))
+        let end = Int(min(stop, UInt64(fileCount)))
+        guard end - start == Int(length) else { return nil }
+        return start..<end
+    }
+
     /// Sends the parts of one file where Steam asked for them. k_EHTTPMethodPOST
     /// is 3; Steam's storage otherwise takes PUT. Returns each part's HTTP status.
     @discardableResult
@@ -796,10 +893,10 @@ extension SteamCloudTransfer {
             guard let url = block.url else { throw SteamFileError.invalid("Steam gave no usable address for an upload.") }
             var body = block.explicitBody
             if body.isEmpty {
-                let start = Int(min(block.offset, UInt64(file.count)))
-                let end = Int(min(block.offset + block.length, UInt64(file.count)))
-                guard end - start == Int(block.length) else { throw SteamFileError.invalid("Steam asked for a part outside the file.") }
-                body = file.subdata(in: start..<end)
+                guard let range = blockRange(offset: block.offset, length: block.length, fileCount: file.count) else {
+                    throw SteamFileError.invalid("Steam asked for a part outside the file.")
+                }
+                body = file.subdata(in: range)
             }
             var request = URLRequest(url: url)
             request.httpMethod = block.method == 3 ? "POST" : "PUT"
@@ -830,6 +927,10 @@ struct SteamCloudState: Equatable, Sendable {
     }
     /// What the last comparison leaves to the user.
     var conflicts: [SteamCloudEntry] = []
+    /// madeira-bcd: what the last comparison's plan would move without asking: up to the cloud, and down to this device. For the
+    /// game's page, which lists them before anything moves; a sync works from its own fresh plan, not from these.
+    var pendingUp: [SteamCloudEntry] = []
+    var pendingDown: [SteamCloudEntry] = []
     var phase: Phase = .checking
     var audit = SteamCloudAudit()
     var checked: Date?

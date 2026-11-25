@@ -11,10 +11,14 @@ if [ -f tools/windows/ENGINE_OFF ]; then
 fi
 REPO="${GITHUB_REPOSITORY:?}"
 DEST=vendor/bcd-engine
+# 8.20.0: the engine must be built from the BCD version NexPlay's BCD code (NexPlay/Windows/BCD) comes from: newer app code
+# calls engine functions an older engine lacks (frame generation, present-fx...) and the link fails. Only a release of
+# tools/windows/runtime.version is used; without one the app is built without the engine, with a warning.
+WANT=$(tr -d ' \n' < tools/windows/runtime.version)
 TAG=$(gh release list --repo "$REPO" --limit 100 --json tagName,isDraft \
-  --jq '[.[] | select(.isDraft | not) | .tagName | select(startswith("windows-engine-"))][0] // ""' || true)
+  --jq "[.[] | select(.isDraft | not) | .tagName | select(startswith(\"windows-engine-$WANT-\"))][0] // \"\"" || true)
 if [ -z "$TAG" ]; then
-  echo "::warning::No windows-engine release yet, so this build has no Windows games. Run the \"Build Windows runtime\" workflow once."
+  echo "::warning::No windows-engine release for BCD $WANT yet, so this build has no Windows games. Run the \"Build Windows runtime\" workflow, then build again."
   exit 0
 fi
 if [ -f "$DEST/ENGINE.tag" ] && [ "$(cat "$DEST/ENGINE.tag")" = "$TAG" ] && [ -d "$DEST/lib" ]; then

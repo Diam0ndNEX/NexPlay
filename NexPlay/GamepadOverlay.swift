@@ -173,9 +173,21 @@ final class ControlView: UIView {
 
     // MARK: - Play touches
 
+    /// True while a finger holds this control.
+    var isTracking: Bool { trackedTouch != nil }
+
+    /// A floating stick or D-pad (8.20.0).
+    var isFloating: Bool { item.action.isDirectional && item.floating == true }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard !isEditing, let touch = touches.first else { return }
         trackedTouch = touch
+        if isFloating, let parent = superview {
+            // The stick jumps under the thumb (its home stays the layout's position).
+            let point = touch.location(in: parent)
+            let home = CGPoint(x: frame.midX - transform.tx, y: frame.midY - transform.ty)
+            transform = CGAffineTransform(translationX: point.x - home.x, y: point.y - home.y)
+        }
         if item.action.isDirectional {
             updateDirections(touch.location(in: self))
         } else {
@@ -201,7 +213,11 @@ final class ControlView: UIView {
         trackedTouch = nil
         if item.action.isDirectional {
             updateDirections(nil)
-            UIView.animate(withDuration: 0.12) { self.setNeedsLayout(); self.layoutIfNeeded() }
+            UIView.animate(withDuration: 0.12) {
+                if self.isFloating { self.transform = .identity }
+                self.setNeedsLayout()
+                self.layoutIfNeeded()
+            }
         } else {
             setPressed(false)
         }
@@ -404,7 +420,21 @@ final class GamepadOverlayView: UIView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let view = super.hitTest(point, with: event)
         if isEditing { return view }
+        if view === self, let floating = floatingControl(at: point) { return floating }
         return view === self ? nil : view
+    }
+
+    /// 8.20.0: the free floating stick whose zone holds `point`: the lower 65% of the screen, on the stick's side
+    /// (left or right half). Touches elsewhere still reach the game.
+    private func floatingControl(at point: CGPoint) -> ControlView? {
+        let rect = area
+        guard point.y > rect.minY + rect.height * 0.35 else { return nil }
+        for control in views.values where control.isFloating && !control.isHidden && !control.isTracking {
+            let homeX = control.frame.midX - control.transform.tx
+            let leftSide = homeX < rect.midX
+            if (point.x < rect.midX) == leftSide { return control }
+        }
+        return nil
     }
 
     // MARK: - Edit chrome

@@ -16,7 +16,7 @@ import SwiftUI
 // MARK: - What the interface shows
 
 enum BCDStoreFront: String, CaseIterable, Codable, Hashable {
-    case steam, epic, gog, itch, ea, local
+    case steam, epic, gog, itch, ea, amazon, local
     var title: String {
         switch self {
         case .steam: return "Steam"
@@ -24,9 +24,13 @@ enum BCDStoreFront: String, CaseIterable, Codable, Hashable {
         case .gog: return "GOG"
         case .itch: return "itch.io"
         case .ea: return "EA games"
+        case .amazon: return "Amazon Games"   // madeira-bcd (Porthole port, item 13): only while the experimental store is on
         case .local: return "Local"
         }
     }
+    /// The stores whose games the game page offers to install on an external drive (Settings › Storage › External drives):
+    /// Steam's, and Epic's from 2026-11-20.
+    var installsOnDrive: Bool { self == .steam || self == .epic }
 }
 
 enum BCDInstallPlace: String, Codable, Hashable {

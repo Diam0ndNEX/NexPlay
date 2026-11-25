@@ -1,3 +1,5 @@
+// Portions copyright 2026 The Porthole authors: code taken from https://github.com/tylerkaska112/Porthole (commit 99ec315,
+// app/Sources/UI/HUD.swift) under GPL-3.0-or-later and modified for BCD in November 2026. See THIRD-PARTY-NOTICES.md.
 import Foundation
 import SwiftUI
 import UIKit
@@ -113,9 +115,18 @@ struct TouchPadSurface: UIViewRepresentable {
     let control: UUID
     let action: String
     let changed: (CGSize, Bool) -> Void
+    /// madeira-bcd (Porthole port, item 9): a floating stick's diameter (the surface is then its whole zone) and where its ring is drawn
+    /// while a thumb is on it, from the surface's centre (nil at rest). nil: the stick as it always was.
+    var floatDiameter: CGFloat? = nil
+    var landed: ((CGSize?) -> Void)? = nil
+    /// madeira-bcd (build 666, issue #45): a button that holds from one press to the next (BCDTouchItem.holds); never a stick.
+    var latches = false
     func makeUIView(context: Context) -> TouchPadView { TouchPadView() }
     func updateUIView(_ view: TouchPadView, context: Context) {
         view.configure(control: control, action: action, changed: changed)
+        view.floatDiameter = floatDiameter
+        view.landed = landed
+        view.latches = latches && floatDiameter == nil && action != "LS" && action != "RS"
     }
     static func dismantleUIView(_ view: TouchPadView, coordinator: ()) { view.releaseAll() }
 }
@@ -127,6 +138,21 @@ final class TouchPadView: UIView {
     private var action = ""
     private var changed: ((CGSize, Bool) -> Void)?
     private var previousSize = CGSize.zero
+    /// madeira-bcd (Porthole port, item 9): set for a floating stick only (TouchPadSurface.floatDiameter, .landed).
+    var floatDiameter: CGFloat?
+    var landed: ((CGSize?) -> Void)?
+    /// madeira-bcd (build 666, issue #45): a lifted finger leaves the button held (`held`, its touch owner) and the next press
+    /// lets it go; that press's finger is then only watched to its lift (`swallowed`). Turned off while held, it lets go.
+    var latches = false {
+        didSet {
+            guard oldValue && !latches, let owner = held else { return }
+            held = nil
+            GamepadInput.shared.touch(owner: owner, control: control, value: nil)
+            if fingers.isEmpty { changed?(.zero, false) }
+        }
+    }
+    private var held: UUID?
+    private var swallowed: Set<ObjectIdentifier> = []
 
     init() {
         super.init(frame: .zero)
@@ -146,25 +172,51 @@ final class TouchPadView: UIView {
         if previousSize != bounds.size { releaseAll(); previousSize = bounds.size }
     }
     override func didMoveToWindow() { super.didMoveToWindow(); if window == nil { releaseAll() } }
-    @objc private func interrupted() { releaseAll(); changed?(.zero, false) }
+    @objc private func interrupted() { releaseAll(); changed?(.zero, false); landed?(nil) }
     func releaseAll() {
         for finger in fingers.values {
             GamepadInput.shared.touch(owner: finger.owner, control: control, value: nil)
         }
         fingers.removeAll()
+        if let owner = held {   // build 666: a held button too, and its face no longer pressed
+            held = nil
+            GamepadInput.shared.touch(owner: owner, control: control, value: nil)
+            changed?(.zero, false)
+        }
+        swallowed.removeAll()
     }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
+            if let owner = held {   // build 666 (issue #45): this press lets the held button go
+                held = nil
+                GamepadInput.shared.touch(owner: owner, control: control, value: nil)
+                swallowed.insert(ObjectIdentifier(touch))
+                if fingers.isEmpty { changed?(.zero, false) }
+                continue
+            }
+            if let d = floatDiameter {
+                // A floating stick: one thumb moves it; its ring is centred where the thumb landed, kept on the screen.
+                guard fingers.isEmpty else { continue }
+                let c = BCDFloatingStick.centre(touch: touch.location(in: self), diameter: d, field: field())
+                fingers[ObjectIdentifier(touch)] = Finger(owner: UUID(), start: c)
+                landed?(CGSize(width: c.x - bounds.midX, height: c.y - bounds.midY))
+                continue
+            }
             fingers[ObjectIdentifier(touch)] = Finger(owner: UUID(), start: touch.location(in: self))
         }
         update(touches)
+    }
+    /// The part of the screen a floating stick's ring may be drawn in (the window's safe area), in this view's points.
+    private func field() -> CGRect? {
+        guard let w = window else { return nil }
+        return convert(w.bounds.inset(by: w.safeAreaInsets), from: w)
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { update(touches) }
     private func update(_ touches: Set<UITouch>) {
         guard UIApplication.shared.applicationState == .active else { interrupted(); return }
         for touch in touches {
             guard let finger = fingers[ObjectIdentifier(touch)] else { continue }
-            let point = touch.location(in: self), radius = max(1, bounds.width * 0.35)
+            let point = touch.location(in: self), radius = max(1, (floatDiameter ?? bounds.width) * 0.35)
             let (x, y) = TouchPadAction.vector(x: Double((point.x - finger.start.x) / radius),
                                               y: Double((finger.start.y - point.y) / radius))
             GamepadInput.shared.touch(owner: finger.owner, control: control,
@@ -176,9 +228,11 @@ final class TouchPadView: UIView {
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { finish(touches) }
     private func finish(_ touches: Set<UITouch>) {
         for touch in touches {
+            if swallowed.remove(ObjectIdentifier(touch)) != nil { continue }   // build 666: the press that let a held button go
             guard let finger = fingers.removeValue(forKey: ObjectIdentifier(touch)) else { continue }
+            if latches && held == nil && fingers.isEmpty { held = finger.owner; continue }   // build 666: the button stays held
             GamepadInput.shared.touch(owner: finger.owner, control: control, value: nil)
         }
-        if fingers.isEmpty { changed?(.zero, false) }
+        if fingers.isEmpty { changed?(.zero, held != nil); landed?(nil) }
     }
 }

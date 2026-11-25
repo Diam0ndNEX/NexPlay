@@ -12,6 +12,11 @@ enum MkxpCompat {
 # died at load time. Here a "pointer" is a plain byte array, and every library function goes through Win32API,
 # whose stand-ins answer the calls the core knows and return 0 (logged once) for the rest.
 # Plain Ruby 1.8/1.9 syntax on purpose: the core runs the game's own Ruby version.
+# NexPlay 8.20.0: mkxp core v27+ has its own DL.malloc / DL::CPtr on Win32API_Impl::FakeHeap (Hime's keyboard script in
+# LonaRPG: GetKeyboardState writes into that heap). Then the core's memory is kept: NexPlay's malloc/free/dlopen would
+# hand out addresses the core's Win32 stand-ins can't write into. Only the missing pieces are added below.
+NEX_CORE_DL = (defined?(Win32API_Impl::FakeHeap) && defined?(DL) && DL.respond_to?(:malloc)) ? true : false unless defined?(NEX_CORE_DL)
+
 module DL
   NEX_BASE = 0x600000000000 unless const_defined?(:NEX_BASE)
   @nex_mem = {}
@@ -29,18 +34,6 @@ module DL
       end
     end
 
-    def malloc(size, *rest)
-      size = size.to_i
-      @nex_next += ((size + 15) / 16) * 16 + 16
-      @nex_mem[@nex_next] = Array.new(size, 0)
-      @nex_next
-    end
-
-    def free(addr)
-      @nex_mem.delete(addr.to_i)
-      0
-    end
-
     def nex_buffer(addr)
       @nex_mem[addr.to_i]
     end
@@ -50,10 +43,49 @@ module DL
       buffer = @nex_mem[addr.to_i]
       buffer ? DL::CPtr.new(addr.to_i, buffer.size) : nil
     end
+  end
 
-    def dlopen(name, *rest)
-      DL::Handle.new(name)
+  unless NEX_CORE_DL
+    class << self
+      def malloc(size, *rest)
+        size = size.to_i
+        @nex_next += ((size + 15) / 16) * 16 + 16
+        @nex_mem[@nex_next] = Array.new(size, 0)
+        @nex_next
+      end
+
+      def free(addr)
+        @nex_mem.delete(addr.to_i)
+        0
+      end
+
+      def dlopen(name, *rest)
+        DL::Handle.new(name)
+      end
     end
+  else
+    class << self
+      def free(addr)
+        0
+      end unless DL.respond_to?(:free)
+    end
+    # The core's CPtr has new/to_i/[]/[]=; scripts also call these.
+    class CPtr
+      def to_int; to_i; end unless method_defined?(:to_int)
+      def size; (Win32API_Impl::FakeHeap.block(to_i) || '').bytesize; end unless method_defined?(:size)
+      def null?; to_i == 0; end unless method_defined?(:null?)
+      def free; 0; end unless method_defined?(:free)
+      unless method_defined?(:to_s) && instance_method(:to_s).owner == self
+        def to_s(len = nil)
+          block = Win32API_Impl::FakeHeap.block(to_i) || ''
+          len ? block[0, len].to_s : block.dup
+        end
+      end
+      def self.malloc(size, free = nil)
+        new(DL.malloc(size), size)
+      end unless respond_to?(:malloc)
+    end
+    DL.nex_log("DL.malloc and DL::CPtr come from the mkxp core (FakeHeap)")
   end
 
   unless const_defined?(:CPtr)

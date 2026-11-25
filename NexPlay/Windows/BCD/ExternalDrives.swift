@@ -383,7 +383,7 @@ final class ExternalDrives: ObservableObject {
     @MainActor func remove(_ id: UUID) {
         guard let folder = folders.first(where: { $0.id == id }) else { return }
         guard wine_process_is_running() == 0, GameMover.shared.moving == nil,
-              !SteamOwnedLibrary.shared.hasStorageWork else {
+              !SteamOwnedLibrary.shared.hasStorageWork, !BCDContentQueue.shared.hasWork else {   // 2026-11-20: an Epic or GOG download too
             LogStore.shared.log("[external] drive kept while a game, download or cloud operation uses storage")
             return
         }
@@ -397,6 +397,7 @@ final class ExternalDrives: ObservableObject {
         unlink(folder)
         mounted.removeValue(forKey: id)?.stopAccessingSecurityScopedResource()
         SteamOwnedLibrary.shared.forgetTargets(onDrive: folder.name)   // BCD: downloads meant for this drive
+        BCDEpic.forgetTargets(onDrive: folder.name)   // 2026-11-20: Epic's too
         publishOpened()
         refreshSteam()
         Task { @MainActor in SteamGamesModel.shared.refresh() }
@@ -445,6 +446,8 @@ final class ExternalDrives: ObservableObject {
                 guard path.hasPrefix(base + "/") else { continue }
                 let below = path.dropFirst(base.count + 1).split(separator: "/").map(String.init)
                 guard !below.isEmpty else { continue }
+                // 2026-11-20: Epic's folder on the drive holds BCD's Epic installs, which have their records and entries already.
+                guard below.count < 2 || below[0] != "Epic Games" else { continue }
                 let relative = "External/\(name)/" + below.joined(separator: "/")
                 let linked = drive.appendingPathComponent(relative)
                 let folders = below.dropLast()
@@ -565,6 +568,10 @@ enum ExternalGameScan {
     private static let skipNames = ["unins", "setup", "install", "redist", "vcredist", "vc_redist", "dxsetup", "directx",
                                     "dotnet", "crash", "report", "update", "patch", "launcherhelper", "helper", "cef",
                                     "touchup", "easyanticheat", "battleye", "ue4prereq", "prereq", "config", "settings"]
+    /// madeira-bcd (round 660, M011): a crash handler or reporter is never the game, wherever its name has the word: Unity's
+    /// UnityCrashHandler64.exe ("unity" first, so the prefix test above let it through) became Timberborn's card from an external drive
+    /// (5BM9HV: the card started the crash handler, which exits 0 after 0.8 s). Names such as Crashlands or Crash Bandicoot stay.
+    static let skipAnywhere = ["crashhandler", "crashreport", "crashpad"]
     private static let skipFolders: Set<String> = ["steamapps", "_commonredist", "commonredist", "redist",
                                                    "redistributables", "directx", "dotnet", "vcredist", "__installer", "windows", "system32",
                                                    "$recycle.bin", "system volume information", "engine", "node_modules"]
@@ -587,7 +594,8 @@ enum ExternalGameScan {
             let name = item.lastPathComponent.lowercased()
             if (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                 if depth > 0, !skipFolders.contains(name), !item.isSymlink { walk(item, depth: depth - 1, into: &found, budget: &budget) }
-            } else if item.pathExtension.lowercased() == "exe", !skipNames.contains(where: { name.hasPrefix($0) || name.contains("_" + $0) || name.contains("-" + $0) }) {
+            } else if item.pathExtension.lowercased() == "exe", !skipNames.contains(where: { name.hasPrefix($0) || name.contains("_" + $0) || name.contains("-" + $0) }),
+                      !skipAnywhere.contains(where: { name.contains($0) }) {
                 found.append(item)
             }
         }

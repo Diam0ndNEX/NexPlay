@@ -186,6 +186,10 @@ struct ControlEditorView: View {
                 get: { item.eightWay ?? true },
                 set: { item.eightWay = $0 }
             ))
+            Toggle("Floating", isOn: Binding(
+                get: { item.floating == true },
+                set: { item.floating = $0 ? true : nil }
+            ))
             Picker("Keys", selection: Binding(
                 get: { item.wasd == true },
                 set: { item.wasd = $0 ? true : nil }
@@ -197,7 +201,7 @@ struct ControlEditorView: View {
         } header: {
             Text("Directions")
         } footer: {
-            Text("Presses the arrow keys, or W/A/S/D for PC games. Turn off Eight Directions for games that only move in four.")
+            Text("Presses the arrow keys, or W/A/S/D for PC games. Turn off Eight Directions for games that only move in four. Floating: put your thumb anywhere on this side of the lower screen and the stick starts there.")
         }
     }
 }

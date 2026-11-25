@@ -42,8 +42,10 @@ echo "FEX headers: $(find "$E/fex" -type f | wc -l | tr -d ' ') files, $(du -sh 
 echo "::endgroup::"
 
 echo "::group::App resources"
+# 8.20.0 (BCD v0.1.721): fonts-ja = the Japanese locale's font (Noto Sans JP, fetched by BCD's "Fetch the Japanese
+# locale's font" step; without it the game page hides the switch).
 for item in nls aarch64-windows arm64ec-windows i386-windows x86_64-vcruntime compat gl vulkan d3d12 legal licenses \
-            soundfont prefix-template.tar.gz cacert.pem; do
+            soundfont prefix-template.tar.gz cacert.pem fonts-ja; do
   if [ -e "$M/$item" ]; then
     cp -R "$M/$item" "$E/resources/"
     echo "  $item: $(du -sh "$M/$item" | cut -f1)"

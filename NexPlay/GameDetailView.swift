@@ -92,6 +92,8 @@ struct GameDetailView: View {
     @State private var installers: [String] = []
     @State private var askInstaller = false
     @State private var askClose = false
+    /// 8.20.0: a Windows game with Japanese file names, whose Japanese locale is off (the hint offers to turn it on).
+    @State private var japaneseHint = false
     /// 8.7.1: a controller on the game page (NexMenuNavigation.swift): the ring over Play, the chips and the cards' rows;
     /// A presses, B closes the panel then the page, L1/R1 switch the panel's pages, Menu closes the page.
     @StateObject private var navigator = NexMenuNavigator()
@@ -513,6 +515,16 @@ struct GameDetailView: View {
             list.append(GamePageNote(id: "crash", text: "NexPlay closed while starting this game on \(crashedOn.title) last time. Try another runtime, or play again if it was a one-off.",
                                      warning: true, fixes: fixes))
         }
+        if caps.pcSetup && japaneseHint {
+            list.append(GamePageNote(id: "japanese", text: "This looks like a Japanese game. If its text shows as boxes or garbled characters, or it doesn't start, run it with a Japanese system locale (Shift-JIS and a Japanese font).",
+                                     fixes: [
+                                        GamePageFix(id: "japanese.on", title: "Use Japanese Locale", symbol: "character.ja") { setJapanese(game) },
+                                        GamePageFix(id: "japanese.no", title: "Not Needed", symbol: "xmark") {
+                                            UserDefaults.standard.set(true, forKey: "japaneseHintDismissed.\(game.id.uuidString)")
+                                            japaneseHint = false
+                                        },
+                                     ]))
+        }
         if caps.pcSetup {
             if installerRan(game) {
                 list.append(GamePageNote(id: "restart", text: "The installer ran. Windows starts once per launch, so installing and playing are two launches: close NexPlay, open it again and tap Play.",
@@ -826,6 +838,31 @@ struct GameDetailView: View {
         play(game)
     }
 
+    private func setJapanese(_ game: Game) {
+        #if NEXPLAY_WINDOWS
+        if NexBCDJapanese.set(true, for: game) {
+            japaneseHint = false
+            message = "The Japanese locale is on for \(game.name) from its next start. Turn it off under PC Setup › Compatibility."
+        } else {
+            message = "Start any Windows game once (it sets up drive C:), then try again."
+        }
+        #endif
+    }
+
+    /// Shows the Japanese locale hint for a Windows game with Japanese file names whose locale is off.
+    private func checkJapanese(_ game: Game) async {
+        #if NEXPLAY_WINDOWS
+        guard GameRuntimes.kind(for: game) == .windows, NexBCDJapanese.available,
+              !UserDefaults.standard.bool(forKey: "japaneseHintDismissed.\(game.id.uuidString)"),
+              !NexBCDJapanese.isOn(for: game) else {
+            japaneseHint = false
+            return
+        }
+        let folder = Paths.folder(for: game)
+        japaneseHint = await Task.detached(priority: .utility) { JapaneseText.looksJapanese(folder: folder) }.value
+        #endif
+    }
+
     private func closeNexPlay() {
         AppLog.log("windows: closing NexPlay from the game page (restart and play)")
         WindowsPendingPlay.note(gameID)
@@ -839,6 +876,7 @@ struct GameDetailView: View {
         guard let game else { return }
         let target = game
         crashedOn = LaunchGuard.crashedRuntime(for: target.id)
+        await checkJapanese(target)
         hero = await Task.detached(priority: .userInitiated) { GameArt.hero(for: target) }.value
         switch target.engine {
         case .rpgXP, .rpgVX, .rpgVXAce:

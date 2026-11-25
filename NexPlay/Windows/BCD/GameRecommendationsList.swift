@@ -424,20 +424,30 @@ struct RecommendationsPolicy {
     static let allowedEnvNames: Set<String> = [
         "BCD_EPIC_HOST_START",
         "_JAVA_OPTIONS", "DOTNET_EnableWriteXorExecute", "DOTNET_GCRegionRange",
-        "DXMT_SMALL_RINGS", "DXMT_WSI_MODE_TABLE", "DXMT_WSI_MONITOR_IDENTITY", "FEX_MEMCPYSETTSOENABLED", "FEX_TSOENABLED", "FEX_VECTORTSOENABLED", "FEX_X87REDUCEDPRECISION", "FEX_MULTIBLOCK", "LC_ALL",
+        "DXMT_SMALL_RINGS", "DXMT_WSI_MODE_TABLE", "DXMT_WSI_MONITOR_IDENTITY", "FEX_MEMCPYSETTSOENABLED", "FEX_TSOENABLED", "FEX_VECTORTSOENABLED", "FEX_X87REDUCEDPRECISION", "FEX_MULTIBLOCK", "FEX_SMCCHECKS", "LC_ALL",
         "MADEIRA_ALIAS_RELEASE", "MADEIRA_ANON_CAS_FLUSH", "MADEIRA_ANON_LDADDAL32", "MADEIRA_APP_DLL_SHADOW", "MADEIRA_BAND_CENSUS", "MADEIRA_CAGE_RELEASE",
-        "MADEIRA_CHILD_ARGS", "MADEIRA_CTX_FRAME", "MADEIRA_D3D11_SRC", "MADEIRA_D3D9", "MADEIRA_D3D9_LAST", "MADEIRA_D3D9_X64", "MADEIRA_DEVICE_STATS", "MADEIRA_STEAM_IDENTITY", "MADEIRA_DOCK_GAME_SCM",
+        "MADEIRA_CHILD_ARGS", "MADEIRA_CTX_FRAME", "MADEIRA_D3D11_SRC", "MADEIRA_DXMT_FRESH", "MADEIRA_D3D9", "MADEIRA_D3D9_LAST", "MADEIRA_D3D9_X64", "MADEIRA_DEVICE_STATS", "MADEIRA_STEAM_IDENTITY", "MADEIRA_DOCK_GAME_SCM",
         "MADEIRA_DOCK_KEEP_ALIVE", "MADEIRA_DOCK_SCRIPT_REGISTRY", "MADEIRA_DXGI_BUDGET_EVENTS", "MADEIRA_DXGI_SRC", "MADEIRA_EC_HOOK_TRACE", "MADEIRA_ECO_NATIVE",
         "MADEIRA_EXECREQ_LEAVE", "MADEIRA_FASTSYNC_SEM", "MADEIRA_FAULT_GUARD_GUEST_RIP", "MADEIRA_FAULT_GUARD_RATE", "MADEIRA_FEX_AVX", "MADEIRA_FEX_BAND_KEEP_MB",
         "MADEIRA_FILE_TRACE", "MADEIRA_FILE_TRACE_LIMIT", "MADEIRA_FREE_DELAY_MS", "MADEIRA_GUEST_LOG", "MADEIRA_GUEST_LOG_LIMIT",
+        "DXMT_MAX_VRAM_MB",   // round 668 (K1 S6; FINAL FANTASY XIII 2F8QNW): the 32-bit Direct3D 9 layer's texture-memory report caps at 1024 MB without it
+        "MADEIRA_FEX_ARENA_REAP",   // round 668 (G2 S9; Far Cry 3 D6J99X): the emulator's 16 GB area full of views left by ended programs
+        "MADEIRA_HLSL_FAIL_DUMP",   // round 668 (G4 S2; S.T.A.L.K.E.R. Clear Sky J9T2CM): the source of a shader the HLSL compiler refused (build 652)
+        "MADEIRA_WOW_JUMBO_INSIDE",   // round 668 (K1 S7; The Binding of Isaac): a 32-bit program's 1 GB reserve inside its window (build 666, issue #53)
         "MADEIRA_INPUT_FOREGROUND", "MADEIRA_JUMBO_HALF", "MADEIRA_KMT_ADAPTER", "MADEIRA_LD_BOUNDS",
         "MADEIRA_OPTIN_DLLS", "MADEIRA_WINTYPES",
+        "MADEIRA_IMPORT_APPDIR",   // round 669 (B S7; Doki Doki Literature Club): a missing import looked for in the program's folder (build 669)
         "MADEIRA_LEAN_DIAG", "MADEIRA_LOCK_ORPHAN", "MADEIRA_METAL_HUD_MAIN", "MADEIRA_MFC_DOCK", "MADEIRA_NLS_EXTRA", "MADEIRA_PAD_MODE",
         "MADEIRA_PIN_GRAPHICS_DLLS", "MADEIRA_POOL_HEAD_RESERVE_MB", "MADEIRA_POOL_LOW_IMAGES",
         "MADEIRA_POOL_RECYCLE_IMAGES", "MADEIRA_PRELOAD_DLLS", "MADEIRA_RDR2_VA_HOLD", "MADEIRA_RECOVERY_LOG_SAMPLE", "MADEIRA_SC_PA_POOLS",
-        "MADEIRA_SMALL_STACK_EXES", "MADEIRA_SPAWN_BLOCK", "MADEIRA_SPAWN_SWAP", "MADEIRA_SRV_FGETPATH", "MADEIRA_SWAP_MIN_KB",
+        "MADEIRA_SMALL_STACK_EXES", "MADEIRA_SPAWN_BLOCK", "MADEIRA_SPAWN_SWAP", "MADEIRA_SRV_FGETPATH", "MADEIRA_SWAP_HEAT", "MADEIRA_SWAP_MIN_KB",
         "MADEIRA_SWAP_RESERVE_MAX_MB", "MADEIRA_THREAD_STACK_SPILL", "MADEIRA_TINY_WINDOW_FIX", "MADEIRA_TLS_CLEAR_OWN_PROCESS",
         "MADEIRA_TOUCH_MOUSE",
+        // build 665 (owner 2026-11-15): netheritenee's RDR2 lines (rdr2-steam v16, rdr2-other v7, each with minBuild 665)
+        "MADEIRA_BG_QOS_DELAY_S", "MADEIRA_PROBES", "MADEIRA_FEX_CALLRET_LEAN", "MADEIRA_POOL_MARGIN_MB", "MADEIRA_POOL_MORE",
+        "MADEIRA_POOL_FEX", "MADEIRA_POOL_MIN_KB", "MADEIRA_D3D12_ONEPASS",
+        // build 666: Trackmania (pull request #55 by bogsen; trackmania row v1, minBuild 666)
+        "MADEIRA_OVERLAPPED_SYSTEM_APC", "MADEIRA_THREAD_REAP_CHECKED", "MADEIRA_SELF_WRITE_PRIVATE",
         "MADEIRA_USER_VA_GB", "MADEIRA_VA_PRESSURE_GAP_OK", "MADEIRA_VCRT_ARM64_KEY", "MADEIRA_VDCFG_PATH", "MADEIRA_WGI_HOST_PADS", "MADEIRA_WG_64BIT",
         "MADEIRA_WG_VIDEO",
         "MADEIRA_WOW_MIN_FREE_GB",
@@ -446,12 +456,19 @@ struct RecommendationsPolicy {
         "MADEIRA_GPU_STALL_MS",   // build 624 (agent D2 S15, Just Cause 3): a command buffer unfinished that many ms is named; 100 to 60000 (checked below)
         "DXMT_QUERY_TS_WATCHDOG",   // build 624 (agent D2 S11, WRC 9): a timestamp query pending 2 s is answered as complete; 1 only (checked below)
         "MADEIRA_AUDIO_IO_MS",   // build 625 (Dead Rising's crackle, agent D1 S3-b): the audio IO buffer iOS is asked for; 1 to 100 ms (checked below)
+        "MADEIRA_AUDIO_SPATIAL",   // round 668 (G1; Days Gone 4N2KES): 0 refuses Wine's spatial audio, the game renders a plain stream (checked below)
+        "MADEIRA_KK_OPAQUE_FD",   // build 669 (X-Plane 12): KosmicKrisp shares memory and semaphores through in-process opaque fds; 1 only (checked below)
+        "MADEIRA_KK_SNORM_BLEND",   // build 673 (X-Plane 12): KosmicKrisp reports blending for SNORM color formats (nir_lower_blend blends them); 1 only (checked below)
+        "MADEIRA_KK_MS_STORE_DROP",   // build 675 (X-Plane 12): KosmicKrisp binds multisampled storage images read-only and leaves stores to them out (Metal cannot write one); 1 only (checked below)
+        "MADEIRA_ZINK_VULKAN",   // build 669 (X-Plane 12): Zink runs on the session's KosmicKrisp; kosmickrisp only (checked below)
+        "MADEIRA_CEF_POOL_IMAGES",   // round 670 (X-Plane 12, MX3R0X): the program that hosts Chromium and its helpers, run in one process (virtual_ios.c, process_ios.c; with env.MADEIRA_SC_PA_POOLS = 2); 1 to 4 .exe names (checked below)
         "MADEIRA_AUDIO_LEAD_MS",   // build 652 lists (Far Cry 3, Far Cry 4): the audio lead kept in the ring, read since before 600; 0 or 10 to 500 ms (checked below)
-        "MADEIRA_MIP_CLAMP_AUTO",   // build 625 (Outlast 2, agent L4 2.6): DXMT's memory-pressure BC texture clamp (read since ml2000); 0 or 1 (checked below)
+        "MADEIRA_MIP_CLAMP_AUTO",   // build 625 (Outlast 2, agent L4 2.6): DXMT's memory-pressure BC texture clamp (read since ml2000); 0, 1 or 2 (2: build 680; checked below)
         "MADEIRA_MFC32",   // build 625 (the owner's item 26): Microsoft's 32-bit MFC, downloaded in Settings, in a 32-bit game's syswow64; 0 or 1 (checked below)
         "MADEIRA_X86_FAULT_DUMP",
         "MADEIRA_WIN_TEXT",   // build 624 (FINAL FANTASY VII's launcher MMJZ8K): an error box's read-only details pane in the log; a diagnostic
         "MADEIRA_D2R_PROBE_RECOVERY", "MADEIRA_FAULT_LOOP_GUEST_PROGRESS", "MADEIRA_NTDLL_DATA_SYNC_RANGE", "MADEIRA_NTDLL_XSEC", "MADEIRA_SHARED_SECTION_EXEC",   // Diablo II: Resurrected's executable-section switches (build 598; thebcd69/bcd-games#4)
+        "MADEIRA_WIN64_FRESH",   // round 2026-11-15: the rebuilt 64-bit Wine set (tools/build-wine-fresh-dlls.sh), off unless a game's own line turns it on; 0 or 1 (checked below)
         "MADEIRA_X64_GRAPHICS_ENTRY", "MADEIRA_X64_IMAGE_NOCOPY", "MADEIRA_X64_MACHINE", "SteamDeck", "WINEDEBUG",
         "MADEIRA_FEX_ALIAS_MAX",   // build 624 (agent A S7, Borderlands GOTY Enhanced): FEX's alias table limit, 256 to 1024 (checked below)
         "MADEIRA_FEX_CALLRET_RESERVE_KB",   // build 631 (round 630 agent R S8, the Rockstar Launcher chain): KB per thread's call-ret region, 64 to 8191 (checked below)
@@ -475,11 +492,12 @@ struct RecommendationsPolicy {
         "MADEIRA_SRV_GETDESC_RESOLVE",   // build 624: an SRV's GetDesc reports the real mip count (Dark Souls III; tools/patch-dxmt-srv-getdesc-mips.py)
         "MADEIRA_FEX_SHA",   // build 624: 0 tells the guest the processor has no SHA extension (Gal*Gun 2, Hello Neighbor: OpenSSL 1.0.2's SHA-NI routine)
         "DXMT_D9_IB_RANGE",   // build 624: an indexed Direct3D 9 draw refreshes only the index bytes it reads, on by default; 0 turns it off (tools/patch-dxmt-d9-ib-range.py)
+        "DXMT_D9_VB_RANGE",   // a non-indexed Direct3D 9 draw refreshes only the vertex bytes it reads; off unless 1 (Resident Evil 4: 788 MB of copying a frame; tools/patch-dxmt-d9-vb-range.py)
         "MADEIRA_REG_TRACE",   // build 624: the wineserver logs each failed registry request ([reg-miss], 400 at most; Far Cry 3's updater)
         "MADEIRA_WOW_UNITY_PLAIN",   // build 624: a 32-bit Unity game's own Mono makes its window's RWX memory plain (From the Darkness)
         "MADEIRA_GDI_SHARED_SECTION",   // read since build 580; lists from 626 (BioShock Remastered from Epic, VV1JGH: a 32-bit game under BCD Host); 0 or 1 (checked below)
         "MADEIRA_WG_VPROC",   // build 626 (Unity cutscenes, agent V): BCD's raw video converter wg_transform; 0 or 1 (checked below)
-        "MADEIRA_FEX_CPUID_CLASSIC",   // build 626 (Burnout Paradise, agent G1 S7): CPUID leaf 1 reports DE and PSE; 0 or 1 (checked below)
+        "MADEIRA_FEX_CPUID_CLASSIC",   // build 626 (Burnout Paradise, agent G1 S7): CPUID leaf 1 reports DE and PSE; build 660: 2 adds 1 GB pages; 0, 1 or 2 (checked below)
         "MADEIRA_FEX_MOFFS_RIP",   // build 630 (Unreal Gold, agent O3 S9): MOV moffs records its guest RIP in the 32-bit emulator; 0 or 1 (checked below)
         "MADEIRA_USD_OSVERSION",   // build 630 (SHINOBI and the protected family, agent U S10): the shared page's Windows version block as wineboot writes it; 0 or 1 (checked below)
         "MADEIRA_PAD_EARLY_SLOT",   // build 630 (Dokimon Quest, agent T1 S1): player 1 connected from the session start, read from the game's file; 0 or 1 (checked below)
@@ -493,12 +511,18 @@ struct RecommendationsPolicy {
         "MADEIRA_DOCK_INSTALL_SKIP",   // build 626 (six games' DirectX setup, agent A1 S7): one-time installs BCD provides; names (checked below)
         "MADEIRA_MESSAGE_CLASS",   // build 630 (FINAL FANTASY VII's launcher, Discord/agent D S3): the Message window class in every program; 0 or 1 (checked below)
         "MADEIRA_WOW_PLACEHOLDER_SLOTS",   // build 630 (GTA IV through BCD Dock, agent R S4): 32-bit windows reserved at the start; 0, 1 or 2 (checked below)
+        "MADEIRA_WOW_HOLD_FOR_GAME",   // build 632 (round 669, agent E; GTA IV through BCD Dock): the held 32-bit window is for the game's own folder; 0 or 1 (checked below)
         "MADEIRA_DOCK_DIRECTX_FIRST",   // build 630 (Dock one-time installs, agent A2 S14): DirectX's setup provided at the first start; 0 or 1 (checked below)
         "MADEIRA_SWP_LSE2",   // build 632 (Unity Mono games that die of a refused misaligned swap, upstream Madeira ml2190): the swap is completed on LSE2 devices; 0 or 1 (checked below)
         "MADEIRA_ALIAS_HONOR_PROT",   // build 632 (Stardew Valley and other .NET games, upstream Madeira 0db1b82): executable aliases keep their write protection; 0 or 1 (checked below)
         "MADEIRA_DIRCACHE",   // build 632 (Wine fork commit 11f6aa3a9; Source-engine rows): case-insensitive lookups answered from cached directory listings, off unless 1; 0 or 1 (checked below)
+        "MADEIRA_APC_DEFER_ISSUER",   // build 660 (Wine fork commit 7f9dbec02f1, upstream Madeira's 243c626d56f behind a switch): the completion of a synchronous request stays with the thread that issued it, off unless 1; 0 or 1 (checked below)
         "MADEIRA_D3D9_DIRECT_MAP",   // build 632 (dxmt 880241a, TF2 42.8 -> 83.7 fps upstream): a 64-bit Direct3D 9 game locks its dynamic buffers in place, off unless 1; 0 or 1 (checked below)
+        "MADEIRA_D3D9_LUMINANCE_RT",   // build 660 (dxmt e82c8646 of Madeira #575; a mod's L8 targets, CZ4R49): Direct3D 9 L8 / A8L8 / L16 render targets, off unless 1; 0 or 1 (checked below)
+        "MADEIRA_FX_WRITER",   // build 660 (Wine fork: Madeira #575's fx_2_0 writer + BCD's compile-state reset): 0 restores the effect writer of the builds before 660, on unless 0; 0 or 1 (checked below)
+        "MADEIRA_JAPANESE",   // build 660 (Madeira #567, BCDJapanese.c): the game's Japanese locale (code page 932) and font, off unless 1; 0 or 1 (checked below)
         "MADEIRA_FEX_SPLIT_LOCK",   // build 652 (Far Cry 3/4, Ubisoft Connect): an x86 atomic across a 16-byte boundary is done inline instead of trapping; 0 or 1 (checked below)
+        "MADEIRA_FEX_X87_EXACT_INT64",   // build 660 (Batman: Arkham City's 64-bit list head): FILD m64 / FISTP m64 exact in the fast x87 mode, off unless 1; 0 or 1 (checked below)
         "MADEIRA_SELF_WRITE",   // build 652 (Ubisoft Connect, Far Cry 4's FC64.dll): a program's WriteProcessMemory into itself is done in ntdll; 0 or 1 (checked below)
         "MADEIRA_X64_HOOK_ZONE",   // build 652 (Far Cry 4's FC64.dll): 16 MB free above each 64-bit program's ntdll for hook code; 0 or 1 (checked below)
         "MADEIRA_SLEEP_KERNEL_APC",   // build 652 (Far Cry 3 behind Ubisoft Connect): a non-alertable sleep runs I/O completions; 0 or 1 (checked below)
@@ -507,11 +531,25 @@ struct RecommendationsPolicy {
         "MADEIRA_POOL_CARVE_MERGE",   // build 652 (Far Cry 3/4 behind Ubisoft Connect): free code buffers merge and are cut to the size asked; 0 or 1 (checked below)
         "MADEIRA_POOL_CODE_FOREGROUND",   // build 652 (Far Cry 3/4 behind Ubisoft Connect): the session's other programs get code buffers of at most 16 MB; 0 or 1 (checked below)
         "MADEIRA_GL_EMPTY_EXTENSIONS",   // build 652 (Far Cry 4's hardware detection): a 64-bit glGetString(GL_EXTENSIONS) gets "" without OpenGL; 0 or 1 (checked below)
+        "MADEIRA_GL_EXTENSIONS_MAX",   // build 660 in lists (round 660, DOOM 3: BFG Edition MSSWB4): the longest GL_EXTENSIONS text a 32-bit game gets (unix_wgl.c, build 632; 0 = no cut); 0 to 65536 (checked below)
         "MADEIRA_THIN_RESERVE", "MADEIRA_THIN_RESERVE_MB",   // build 652 (round 2026-11-11, Mewgenics, agent G7 S4): thin 1-2 GB reservations (virtual_ios.c ios_thin_config), off unless 1; the slot size 16 to 512 MB (checked below)
+        "MADEIRA_UNITY_SMALL_VA", "MADEIRA_UNITY_SMALL_VA_HEAD_MB",   // build 669 (round 2026-11-17, K2/N112, Unity on 4-5 GB installs): Unity's 511 MB pieces as windows in the emulator's 4 GB arena (virtual_ios.c, ios_unity_va.h), off unless 1; the head 16 to 128 MB (checked below). A list line needs minBuild 669; auto-tune sets it (unity-reserve-loop-4gb-arena-windows)
         "MADEIRA_D3D12_CAPS_BY_FAMILY",   // build 652 in lists (round 2026-11-11, REANIMAL, agent G8 S2): D3D12's 64-bit atomics and wave operations follow the GPU family, off unless 1; 0 or 1 (checked below)
         "DXMT_DISPLAY_MODE_STATS",   // build 652 in lists (round 2026-11-11, Crash Bandicoot, agent A1 S6): DXMT logs the display-mode list queries ([dxgi-modes] ml1190), a diagnostic; 0 or 1 (checked below)
         "MADEIRA_SPIN_DUMP_REGS",   // build 652 in lists (round 2026-11-11, Control, agent T1 S9): the [spin] report prints guest memory at the busy registers, a diagnostic; 0 or 1 (checked below)
         "MESA_GL_VERSION_OVERRIDE", "MESA_GLSL_VERSION_OVERRIDE",   // build 652 (round 2026-11-11, THE KING OF FIGHTERS XIV, agent G10 S7): the OpenGL version zink advertises (opengl_ios.c sets 4.1 only when unset); 4.2 to 4.6 and 420 to 460 (checked below)
+        // build 660 (upstream merge 2026-11-14, the dxmt fork's commits): DXMT's new switches, each off by default (the Vulkan swap chain: on), so
+        // that a list can turn one on for a game once testers' logs show it helps, without a build; values checked below
+        "DXMT_CMDLIST_KEEP_BLOCK", "DXMT_DYN_KEEP", "DXMT_DYN_KEEP_KB", "DXMT_D9_LATE_READBACK", "MADEIRA_D3D11_LOCAL_SHARE", "DXMT_TYPELESS_COMPRESSION", "DXMT_TYPELESS_PFV", "MADEIRA_DXGI_VK_SWAPCHAIN",
+        // build 708 in lists (round 707, owner 2026-11-22): three switches the engine reads for years, now for a game's row
+        "MADEIRA_DINPUT_PAD",   // M2-S13 (NARUTO SHIPPUDEN: Ultimate Ninja STORM): the host gamepad as a DirectInput joystick (joystick_ios.c); 0 or 1 (checked below)
+        "MADEIRA_WER",   // S1 (TEKKEN 7): Wine's wer.dll for the game that imports it (wer-optin.dll, WineProcessBridge.m); 0 or 1 (checked below)
+        "MADEIRA_HLSL_LOOP_FALLBACK",   // M4-S5 (S.T.A.L.K.E.R. CoP 13CYSY): a Shader Model 1-3 loop vkd3d cannot unroll as N guarded copies (tools/patch-wine-vkd3d-loop-fallback.py, new in 708); 0, 1 or 8 to 256 (checked below)
+        "MADEIRA_CODESIGN_ROOTS",   // M3-S18 (METAL GEAR SOLID V E4QKPA): one pinned code-signing root for wintrust's own chains, never the root store (tools/patch-wine-wintrust-root-pin.py, new in 708); 0 or 1 (checked below)
+        "MADEIRA_WOW_ALLOC_INSIDE",   // G2-S15 (The Binding of Isaac 12PA5Y): a 32-bit program's placement outside its window asked again inside, or refused (virtual_ios.c, new in 708); 0 or 1 (checked below)
+        "MADEIRA_GUARD_NEIGHBOUR_PASS",   // M4-S7 (Half-Life 2 J17QEB): a store beside a committed guard page in the same 16 KB host page passes (virtual_ios.c, new in 708); 0 or 1 (checked below)
+        "MADEIRA_TOTAL_PHYS_MB",   // A1-S13 (Dark Souls Remastered CR9EAN): the physical memory a game is told, cut to the device's own (virtual_ios.c ml992); 0 or 2048 to 65536 (checked below)
+        "MADEIRA_PRECISE_MINMAX",   // build 660 in lists (read since 2026-10-01, tools/patch-airconv-float-experiments.py): DXBC min/max ignore a NaN operand as Direct3D does, with its own shader cache table; 1 only (checked below)
     ]
 
     var configKeys: Set<String>
@@ -553,18 +591,57 @@ struct RecommendationsPolicy {
                 // (Assassin's Creed Black Flag Resynced), ntdsapi (Sony's PsPcSdk.dll, Ghost of Tsushima Director's Cut), mfplay (Unreal's WmfMedia),
                 // avicap32 (Football Manager 2020's fm.exe), coremessaging (Momo Game): each a library a 64-bit program imports (<name>-optin.dll, from build 652). combase
                 // (Meccha Chameleon, Hubert): the shipped combase.dll with an implicit MTA for a thread that never started COM (combase-optin.dll).
+                // dxcompiler (round 663, skate. 2 PC port): not one of Wine's: Microsoft's open-source DirectX Shader Compiler for 64-bit programs, built
+                // by BCD (tools/build-dxcompiler.sh, dxcompiler-optin.dll); a wgpu game then compiles its Direct3D 12 shaders with it instead of FXC.
+                // mscms (round 668, Brawlhalla): Adobe AIR.dll imports Windows' colour management with msi.dll (mscms-optin.dll, from build 668).
+                // icuuc, icuin (M1-S10, Bloodborne's launcher): ICU, which a Qt 6 program's Qt6Core.dll imports from Windows; built by BCD (tools/build-icu-optin.sh,
+                // icuuc-optin.dll and icuin-optin.dll, from build 708).
                 let names = value.lowercased().split(whereSeparator: { ",; ".contains($0) })
                 guard !names.isEmpty, names.allSatisfy({ ["dxva2", "evr", "xpsprint", "sfc", "sfc_os", "tbs", "twinapi.appcore", "setupapi"].contains($0)
                         || ["mfasfsrcsnk", "wmvdecod", "wmadmod"].contains($0) || ["oledlg", "fwpuclnt", "sensapi", "ddraw"].contains($0) || $0 == "dxdiagn"
                         || ["msi", "mspatcha", "odbccp32", "sxs", "rstrtmgr"].contains($0) || ["glu32", "tdh", "gamingtcui", "qwave"].contains($0)
-                        || ["msvcp_win", "bluetoothapis", "gameinput", "ntdsapi", "mfplay", "avicap32", "coremessaging", "combase"].contains($0)
+                        || ["msvcp_win", "bluetoothapis", "gameinput", "ntdsapi", "mfplay", "avicap32", "coremessaging", "combase"].contains($0) || $0 == "dxcompiler" || $0 == "mscms" || ["icuuc", "icuin"].contains($0)
                         || $0 == "kernelbase" || $0 == "dcomp" || $0 == "msvproc" || $0 == "xinputuap" || $0 == "httpapi" || $0 == "dbgcore" }) else {
-                    throw RecommendationsError.policy("\(path): MADEIRA_OPTIN_DLLS may only name dxva2, evr, xpsprint, sfc, sfc_os, tbs, twinapi.appcore or setupapi, or mfasfsrcsnk, wmvdecod, wmadmod, or oledlg, fwpuclnt, sensapi, ddraw, dxdiagn, or msi, mspatcha, odbccp32, sxs, rstrtmgr, or glu32, tdh, gamingtcui, qwave, or kernelbase, dcomp, msvproc, xinputuap, httpapi, dbgcore, or msvcp_win, bluetoothapis, gameinput, ntdsapi, mfplay, avicap32, coremessaging, combase")
+                    throw RecommendationsError.policy("\(path): MADEIRA_OPTIN_DLLS may only name dxva2, evr, xpsprint, sfc, sfc_os, tbs, twinapi.appcore or setupapi, or mfasfsrcsnk, wmvdecod, wmadmod, or oledlg, fwpuclnt, sensapi, ddraw, dxdiagn, or msi, mspatcha, odbccp32, sxs, rstrtmgr, or icuuc, icuin, or glu32, tdh, gamingtcui, qwave, or kernelbase, dcomp, msvproc, xinputuap, httpapi, dbgcore, or msvcp_win, bluetoothapis, gameinput, ntdsapi, mfplay, avicap32, coremessaging, combase, or dxcompiler, or mscms")
+                }
+            case "MADEIRA_CEF_POOL_IMAGES":
+                // Round 670 (X-Plane 12, send log MX3R0X): 1 to 4 program file names, comma separated, blanks around a name ignored, each 5 to 64
+                // ASCII letters, digits, . _ - ending in .exe, the whole value at most 511 characters (build/ntdll-unix/ios_cef_images.h,
+                // ios_cef_list_parse): the first program hosts
+                // Chromium (it runs --single-process and takes its four PartitionAlloc pools from the address band), the others are its
+                // Chromium helpers, whose --type= starts are refused. A list never names the EA app's own programs (the engine leaves them to the EA app's own switch).
+                let blanks = CharacterSet(charactersIn: " \t")
+                let names = value.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: blanks) }
+                guard value.utf8.count <= 511, (1...4).contains(names.count), names.allSatisfy({ name in
+                    name.count >= 5 && name.count <= 64 && name.lowercased().hasSuffix(".exe")
+                        && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-") }
+                }) else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_CEF_POOL_IMAGES is 1 to 4 program names ending in .exe")
                 }
             case "MADEIRA_WG_VPROC":
                 // build 626 (Unity cutscenes): BCD's raw video converter (winegstreamer_vproc_ios.c); off unless a game's list says 1.
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): MADEIRA_WG_VPROC is 0 or 1")
+                }
+            // build 717 (round 714, agent D1 S2): MADEIRA_DXMT_FRESH, the 64-bit DXMT set built from the pin (the engine reads only "1").
+            case "MADEIRA_DINPUT_PAD", "MADEIRA_WER", "MADEIRA_GUARD_NEIGHBOUR_PASS", "MADEIRA_WOW_ALLOC_INSIDE", "MADEIRA_CODESIGN_ROOTS", "MADEIRA_DXMT_FRESH":
+                // build 708 (round 707): joystick_ios.c turns the DirectInput view on for a value starting with 1; WineProcessBridge.m links
+                // wer-optin.dll as wer.dll for 1; virtual_ios.c's guard neighbour pass is on for exactly 1. A list says 1 for the game that needs it
+                // (0 is the default, written out).
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): \(name) is 0 or 1")
+                }
+            case "MADEIRA_HLSL_LOOP_FALLBACK":
+                // build 708 (round 707, M4 S5): the patched vkd3d-shader reads 1 as 64 copies, a plain whole number from 8 to 256 as that
+                // many, anything else as off.
+                guard value == "0" || value == "1" || (Int(value).map { (8...256).contains($0) && String($0) == value } ?? false) else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_HLSL_LOOP_FALLBACK is 0, 1 or a whole number from 8 to 256")
+                }
+            case "MADEIRA_TOTAL_PHYS_MB":
+                // build 708 (round 707, Dark Souls Remastered): virtual_ios.c's ml992 reports that many MB as the machine's physical memory
+                // instead of the app's measured limit, and only ever lowers the report (a smaller device keeps its own); 0 is the measured limit.
+                guard value == "0" || (Int(value).map { (2048...65536).contains($0) && String($0) == value } ?? false) else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_TOTAL_PHYS_MB is 0 or a whole number of MB from 2048 to 65536")
                 }
             case "MADEIRA_HINT_STORM_N":
                 // build 626: virtual_ios.c's NtAllocateVirtualMemory (0 = off; the parser takes 256..65536, anything else is off).
@@ -614,6 +691,16 @@ struct RecommendationsPolicy {
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): \(name) is 0 or 1")
                 }
+            case "MADEIRA_UNITY_SMALL_VA":
+                // build 669 (round 2026-11-17, K2/N112): Unity's 511 MB pieces as windows in the emulator's 4 GB arena (virtual_ios.c, ios_unity_va.h); off unless 1.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_UNITY_SMALL_VA is 0 or 1")
+                }
+            case "MADEIRA_UNITY_SMALL_VA_HEAD_MB":
+                // build 669: the head of each window in MB; ios_usva_head_mb clamps it to 16..128 and rounds it down to a multiple of 16.
+                guard value.range(of: #"^[0-9]{2,3}$"#, options: .regularExpression) != nil, let n = Int(value), n >= 16, n <= 128 else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_UNITY_SMALL_VA_HEAD_MB is a whole number of MB from 16 to 128")
+                }
             case "MADEIRA_THIN_RESERVE_MB":
                 // build 652 (Mewgenics): the slot (head) size of a thin reservation in MB; ios_thin_config clamps it to 16..512.
                 guard value.range(of: #"^[0-9]{2,3}$"#, options: .regularExpression) != nil, let n = Int(value), n >= 16, n <= 512 else {
@@ -630,10 +717,47 @@ struct RecommendationsPolicy {
                 guard ["420", "430", "440", "450", "460"].contains(value) else {
                     throw RecommendationsError.policy("\(path): MESA_GLSL_VERSION_OVERRIDE is 420, 430, 440, 450 or 460")
                 }
+            case "DXMT_CMDLIST_KEEP_BLOCK", "DXMT_D9_LATE_READBACK", "MADEIRA_D3D11_LOCAL_SHARE", "DXMT_TYPELESS_COMPRESSION", "DXMT_TYPELESS_PFV", "MADEIRA_DXGI_VK_SWAPCHAIN":
+                // build 660 (dxmt fork, upstream merge 2026-11-14): a recycled command list keeps its first block (d3d11_context_impl.cpp), tiny Direct3D 9
+                // readbacks one frame late (d3d9_device.cpp), shared texture handles inside the process (d3d11_texture_device.cpp), colour typeless textures
+                // without pixelFormatView and its undo (d3d11_resource_helper.cpp), DXGI swap chains through a Vulkan factory (dxgi_swapchain_vk.cpp).
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): \(name) is 0 or 1")
+                }
+            case "DXMT_DYN_KEEP":
+                // build 660 (dxmt_dynamic.cpp dynKeepFor): retired names kept per dynamic buffer; 0 (off) or 65 to 65536 (the code keeps 64 at least and reads no more).
+                guard let n = Int(value), String(n) == value, n == 0 || (65...65536).contains(n) else {
+                    throw RecommendationsError.policy("\(path): DXMT_DYN_KEEP is 0 or 65 to 65536")
+                }
+            case "DXMT_DYN_KEEP_KB":
+                // build 660 (dxmt_dynamic.cpp dynKeepFor): the kept names' bound per buffer in KB, 64 to 65536 (the code's own default is 4096).
+                guard let n = Int(value), String(n) == value, (64...65536).contains(n) else {
+                    throw RecommendationsError.policy("\(path): DXMT_DYN_KEEP_KB is 64 to 65536")
+                }
+            case "MADEIRA_PRECISE_MINMAX":
+                // airconv's NaN-ignoring min/max (tools/patch-airconv-float-experiments.py): on (1) or absent.
+                guard value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_PRECISE_MINMAX is 1")
+                }
             case "MADEIRA_D3D9_DIRECT_MAP":
                 // build 632: the 64-bit Direct3D 9 frontend (d3d9-dxmt.dll) locks DEFAULT + DYNAMIC buffers in place (d3d9_buffer.cpp); off unless 1.
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): MADEIRA_D3D9_DIRECT_MAP is 0 or 1")
+                }
+            case "MADEIRA_D3D9_LUMINANCE_RT":
+                // build 660: DXMT's Direct3D 9 accepts L8, A8L8 and L16 render targets (d3d9_format.cpp isColorRTFormat); off unless 1.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_D3D9_LUMINANCE_RT is 0 or 1")
+                }
+            case "MADEIRA_FX_WRITER":
+                // build 660: vkd3d-shader's effect writer (fx.c fx_writer_enabled, the i386 farm's wined3d.dll); 0 = the writer before 660 and its refusals.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_FX_WRITER is 0 or 1")
+                }
+            case "MADEIRA_JAPANESE":
+                // build 660: the bridge runs the game with a Japanese locale and links BCD's Japanese font (BCDJapanese.c); off unless 1.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_JAPANESE is 0 or 1")
                 }
             case "MADEIRA_REPORT_HZ":
                 // build 626: the virtual monitor reports the session's rate (sysparams_ios.c ios_report_hz); off unless 1.
@@ -645,15 +769,27 @@ struct RecommendationsPolicy {
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): FEX_MULTIBLOCK is 0 or 1")
                 }
+            case "FEX_SMCCHECKS":
+                // build 715 (Hitman: Blood Money, round 714 M2 S1): FEX's own self-modifying-code switch, none | mtrack (FEX's default) | full.
+                guard value == "none" || value == "mtrack" || value == "full" else {
+                    throw RecommendationsError.policy("\(path): FEX_SMCCHECKS is none, mtrack or full")
+                }
             case "MADEIRA_FEX_CPUID_CLASSIC":
                 // build 626 (Burnout Paradise): the emulator reports CPUID.1:EDX DE and PSE (tools/patch-fex-ios-cpuid-classic.py); off unless 1.
-                guard value == "0" || value == "1" else {
-                    throw RecommendationsError.policy("\(path): MADEIRA_FEX_CPUID_CLASSIC is 0 or 1")
+                // build 660: 2 also reports 1 GB pages in CPUID.80000001h:EDX (a build before 660 takes 2 as off: a line with it carries minBuild 660).
+                guard value == "0" || value == "1" || value == "2" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_FEX_CPUID_CLASSIC is 0, 1 or 2")
                 }
             case "MADEIRA_FEX_MOFFS_RIP":
                 // build 630 (Unreal Gold): MOV moffs gets a guest-RIP entry in the 32-bit emulator (tools/patch-fex-ios-moffs-rip.py); off unless 1.
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): MADEIRA_FEX_MOFFS_RIP is 0 or 1")
+                }
+            case "MADEIRA_GL_EXTENSIONS_MAX":
+                // round 660 (DOOM 3: BFG Edition): the byte limit of a 32-bit game's GL_EXTENSIONS text (opengl32 unix_wgl.c max_extensions_length,
+                // default 3072 for an id Tech 2/3 copy into a stack buffer); 0 = no cut. A whole number from 0 to 65536.
+                guard value.range(of: #"^[0-9]{1,5}$"#, options: .regularExpression) != nil, let n = Int(value), n <= 65536 else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_GL_EXTENSIONS_MAX is a whole number from 0 to 65536")
                 }
             case "MADEIRA_GL_EMPTY_EXTENSIONS":
                 // build 652: Far Cry 4's hardware detection (virtual_ios.c gl-empty-extensions); off unless 1.
@@ -690,10 +826,21 @@ struct RecommendationsPolicy {
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): MADEIRA_FEX_SPLIT_LOCK is 0 or 1")
                 }
+            case "MADEIRA_FEX_X87_EXACT_INT64":
+                // build 660: the fast x87 mode keeps the 64-bit integer of FILD m64 for FISTP m64 (FEX fork, FPState::X87ExactInt64); off unless 1.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_FEX_X87_EXACT_INT64 is 0 or 1")
+                }
             case "MADEIRA_SELF_WRITE":
                 // build 652: a program's write into its own memory is done in ntdll (virtual_ios.c self-write); off unless 1.
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): MADEIRA_SELF_WRITE is 0 or 1")
+                }
+            case "MADEIRA_SELF_WRITE_PRIVATE", "MADEIRA_OVERLAPPED_SYSTEM_APC", "MADEIRA_THREAD_REAP_CHECKED":
+                // build 666 (Trackmania, pull request #55): the write into the program's own allocations (virtual_ios.c), the nonblocking
+                // overlapped poll (patch-wine-overlapped-system-apc.py) and the checked thread reaping (thread_ios.c); each off unless 1.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): \(name) is 0 or 1")
                 }
             case "MADEIRA_X64_HOOK_ZONE":
                 // build 652 (Far Cry 4): a 16 MB hook zone above each 64-bit program's ntdll (virtual_ios.c x64-hook-zone); off unless 1.
@@ -746,14 +893,44 @@ struct RecommendationsPolicy {
             case "MADEIRA_MIP_CLAMP_AUTO":
                 // DXMT's memory-pressure clamp (d3d11_texture_device.cpp GetMipClampAutoConfig; build 625 in lists): 1 on, 0 off. A list gives
                 // it this way, not as a dxmt line, so the game's dxmt key stays free for auto-tune's blanket clamp (Outlast 2).
-                guard value == "0" || value == "1" else {
-                    throw RecommendationsError.policy("\(path): MADEIRA_MIP_CLAMP_AUTO is 0 or 1")
+                // 2 (build 680, round 677 G3 S1; tools/patch-dxmt-bc-half.py, d3d11-src.dll only): the clamp from 256 px and single-level
+                // BC textures at half size; builds before 680 check only the lines they get, so a "2" line carries minBuild 680. From
+                // build 681 the app links d3d11-src.dll for it only on a GPU that cannot sample BC (WineProcessBridge.m); the committed
+                // d3d11.dll reads 2 as 1, so the rows give "2" from 681 and no MADEIRA_D3D11_SRC line (2026-11-20).
+                guard value == "0" || value == "1" || value == "2" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_MIP_CLAMP_AUTO is 0, 1 or 2")
                 }
             case "MADEIRA_AUDIO_LEAD_MS":
                 // The audio lead (build/ntdll-unix/audio_null_ios.c; build 652 in lists): 0 for the plain 10 ms beat, or a whole number of
                 // milliseconds from 10 to 500.
                 guard let ms = Int(value), String(ms) == value, ms == 0 || (10...500).contains(ms) else {
                     throw RecommendationsError.policy("\(path): MADEIRA_AUDIO_LEAD_MS is 0 or a whole number of milliseconds from 10 to 500")
+                }
+            case "MADEIRA_KK_OPAQUE_FD":
+                // Build 669 (X-Plane 12; build/mesa-ios/playport-patches/0032, build/win32u-unix/vulkan_surface_ios.c): only 1 does anything.
+                guard value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_KK_OPAQUE_FD is 1")
+                }
+            case "MADEIRA_KK_SNORM_BLEND":
+                // Build 673 (X-Plane 12; build/mesa-ios/playport-patches/0033): only 1 does anything.
+                guard value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_KK_SNORM_BLEND is 1")
+                }
+            case "MADEIRA_KK_MS_STORE_DROP":
+                // Build 675 (X-Plane 12; build/mesa-ios/playport-patches/0035): only 1 does anything.
+                guard value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_KK_MS_STORE_DROP is 1")
+                }
+            case "MADEIRA_ZINK_VULKAN":
+                // Build 669 (X-Plane 12; build/win32u-unix/opengl_ios.c zink_init): Zink on the session's KosmicKrisp; the only other driver is
+                // MoltenVK, which needs no line.
+                guard value == "kosmickrisp" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_ZINK_VULKAN is kosmickrisp")
+                }
+            case "MADEIRA_AUDIO_SPATIAL":
+                // Round 668 (G1, Days Gone): read since 2026-10-14, before build 576 (audio_null_ios.c ios_audio_spatial_off); only 0 does anything.
+                guard value == "0" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_AUDIO_SPATIAL is 0")
                 }
             case "MADEIRA_AUDIO_IO_MS":
                 // The audio IO buffer (WineProcessBridge.m madeira_audio_io_slice, build 625 in lists): a whole number of milliseconds, 1 to 100.
@@ -811,6 +988,11 @@ struct RecommendationsPolicy {
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): \(name) is 0 or 1")
                 }
+            case "MADEIRA_IMPORT_APPDIR":
+                // Round 669 (B S7): a missing import looked for in the program's own folder (build 669); Doki Doki Literature Club's list line.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): \(name) is 0 or 1")
+                }
             case "MADEIRA_KUSER_KEEP_REGS":
                 // The exception handler's KUSER register rebase skips what the sub-floor service handled (build 602, The Adventures of
                 // Elliot): only the exact value 1 turns it on, and only that game's list line does.
@@ -856,6 +1038,11 @@ struct RecommendationsPolicy {
                 guard value == "0" || value == "1" || value == "2" else {
                     throw RecommendationsError.policy("\(path): MADEIRA_WOW_PLACEHOLDER_SLOTS is 0, 1 or 2")
                 }
+            case "MADEIRA_WOW_HOLD_FOR_GAME":
+                // build 632: ios_wow_session_start keeps the held window for the game's folder (MADEIRA_STEAM_HOST_EXPECTED_INSTALL); off unless 1.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_WOW_HOLD_FOR_GAME is 0 or 1")
+                }
             case "MADEIRA_WG_64BIT":
                 // BCD's own media decoders for a 64-bit game (Resident Evil 2 and 7); only 0 or 1.
                 guard value == "0" || value == "1" else {
@@ -887,6 +1074,11 @@ struct RecommendationsPolicy {
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): MADEIRA_WOW_UNITY_PLAIN is 0 or 1")
                 }
+            case "MADEIRA_APC_DEFER_ISSUER":
+                // build 660: off unless a game's list says 1 (no list row sets it yet: no log shows a failure it cures).
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_APC_DEFER_ISSUER is 0 or 1")
+                }
             case "MADEIRA_DIRCACHE":
                 // build 632: off unless a game's list says 1 (Counter-Strike: Source, No More Room in Hell: their lookups of absent paths).
                 guard value == "0" || value == "1" else {
@@ -911,6 +1103,11 @@ struct RecommendationsPolicy {
                 // build 624: on by default (the owner's decision, 2026-10-30); a game's list may say 0 to turn it off.
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): DXMT_D9_IB_RANGE is 0 or 1")
+                }
+            case "DXMT_D9_VB_RANGE":
+                // Resident Evil 4: off unless 1; a game's list may say 1 to turn it on (the log says "[vb-range] madeira-bcd on").
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): DXMT_D9_VB_RANGE is 0 or 1")
                 }
             case "MADEIRA_MZ_VIEW_CHECK":
                 // Build 624 (round 624, R.E.P.O. and other Unity games on Mono): an executable request outside the Wine view of its
@@ -963,6 +1160,12 @@ struct RecommendationsPolicy {
                 // ml716). The garbage collector reads that report to find a stopped thread's registers and stack; 0 or 1.
                 guard value == "0" || value == "1" else {
                     throw RecommendationsError.policy("\(path): MADEIRA_CTX_FRAME is 0 or 1")
+                }
+            case "MADEIRA_WIN64_FRESH":
+                // Round 2026-11-15: the rebuilt 64-bit Wine set (tools/build-wine-fresh-dlls.sh; app/Madeira/WineProcessBridge.m links it, build/ntdll-unix/
+                // loader_ios.c maps ntdll-fresh.dll). Read as the exact value 1 and off otherwise; a game's own line turns it on after the owner's device test.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_WIN64_FRESH is 0 or 1")
                 }
             case "MADEIRA_NTDLL_XSEC", "MADEIRA_SHARED_SECTION_EXEC", "MADEIRA_NTDLL_DATA_SYNC_RANGE", "MADEIRA_FAULT_LOOP_GUEST_PROGRESS", "MADEIRA_D2R_PROBE_RECOVERY":
                 // Build 598 (round 2026-10-24, thebcd69/bcd-games#4 by mckenna654, Diablo II: Resurrected): five engine switches for a program
@@ -1021,6 +1224,27 @@ struct RecommendationsPolicy {
                 guard value.range(of: "^" + program + "=" + program + "(;" + program + "=" + program + ")*$", options: .regularExpression) != nil else {
                     throw RecommendationsError.policy("\(path): MADEIRA_SPAWN_SWAP is <from.exe>=<to.exe>, program names of one folder")
                 }
+            case "MADEIRA_WOW_JUMBO_INSIDE":
+                // Round 668 (K1 S7): build 666's 1 = refuse an outside reserve, 2 = ask again inside the window; 0 off.
+                guard value == "0" || value == "1" || value == "2" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_WOW_JUMBO_INSIDE is 0, 1 or 2")
+                }
+            case "MADEIRA_HLSL_FAIL_DUMP":
+                // Round 668 (G4 S2): log only (tools/patch-wine-vkd3d-hlsl-fail-dump.py, build 652); 0 or 1.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_HLSL_FAIL_DUMP is 0 or 1")
+                }
+            case "MADEIRA_FEX_ARENA_REAP":
+                // Round 668 (G2 S9): build 652's release of the emulator views a program left behind when it ended; 0 or 1.
+                guard value == "0" || value == "1" else {
+                    throw RecommendationsError.policy("\(path): MADEIRA_FEX_ARENA_REAP is 0 or 1")
+                }
+            case "DXMT_MAX_VRAM_MB":
+                // Round 668 (K1 S6): the ceiling DXMT's Direct3D 9 reports as available texture memory (d3d9_device.cpp; 1024 MB on the
+                // 32-bit build without it). A whole number from 512 to 3072: FINAL FANTASY XIII refused to start with less than it wanted.
+                guard value.range(of: #"^[0-9]{3,4}$"#, options: .regularExpression) != nil, let n = Int(value), n >= 512, n <= 3072 else {
+                    throw RecommendationsError.policy("\(path): DXMT_MAX_VRAM_MB is a whole number from 512 to 3072")
+                }
             case "MADEIRA_PRELOAD_DLLS", "MADEIRA_APP_DLL_SHADOW":
                 guard value.range(of: #"^[A-Za-z0-9_.-]+(;[A-Za-z0-9_.-]+)*$"#, options: .regularExpression) != nil else {
                     throw RecommendationsError.policy("\(path): \(name) takes DLL names only")
@@ -1040,9 +1264,16 @@ struct RecommendationsPolicy {
             }
             if key == "vulkan" {
                 // Windows Vulkan (build 646, WineProcessBridge.m bcd_vulkan_session_setup): a list turns Vulkan on, never off, and only on MoltenVK,
-                // the library every build bundles (kosmickrisp is not bundled; a library path is never a list's to choose).
-                guard value == "moltenvk" else {
-                    throw RecommendationsError.policy("\(path): \(key) is moltenvk")
+                // the library every build bundles (kosmickrisp only where the build made it and the device has iOS 26 and a Metal 4 GPU, so it
+                // stays the player's own choice; a library path is never a list's to choose).
+                // Round 668 (G2 S1; Enshrouded 7Q88YK, PNJPSK): kosmickrisp too, for a game MoltenVK cannot run (no drawIndirectCount).
+                // Where KosmicKrisp cannot run (bcd_kosmickrisp_unusable: not iOS 26, no Metal 4 GPU, not bundled) Vulkan stays off and the
+                // log says why; MoltenVK is not taken instead, so the line is a no-op there.
+                // Build 669 (bcd-games #57): moltenvk-patched too, the second, patched MoltenVK (gl/libMoltenVK_patched.dylib, build/moltenvk-ios/
+                // build-patched.sh). Its list lines carry minBuild 669, so an older build, whose policy refuses the word, never reads them. Where
+                // the build did not make that library Vulkan stays off and the log says why (WineProcessBridge.m); no other MoltenVK is taken.
+                guard value == "moltenvk" || value == "moltenvk-patched" || value == "kosmickrisp" else {
+                    throw RecommendationsError.policy("\(path): \(key) is moltenvk, moltenvk-patched or kosmickrisp")
                 }
             }
         }

@@ -48,6 +48,8 @@ struct BCDSessionLiveLayer: View {
     private var watchers = Set<AnyCancellable>()
     private var startingTimer: Timer?
     private var startingGame: BCDGame?
+    /// Round 669 (agent B S13): since when the Dock's Steam sign-in has been under way without an answer.
+    private var dockSignInSince: Date?
     private var hudLive: BCDHUDLive?
     private var logWatch: AnyCancellable?
     private var menuSource: BCDLibraryMenuSource?
@@ -75,6 +77,11 @@ struct BCDSessionLiveLayer: View {
         Publishers.MergeMany(changes)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.refresh() }
+            .store(in: &watchers)
+        // Round 707 (G1-S15): the menu's quit row becomes "End the game now" 45 s after a Close that did nothing; a menu that is open shows it at once.
+        model.$forceEnd.dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.hud.menu?.changed() }
             .store(in: &watchers)
     }
 
@@ -145,7 +152,8 @@ struct BCDSessionLiveLayer: View {
         } else if dock.active {
             let progress = DockInstallers.poll(drive: MadeiraDock.drive)
             let hostDue = DockInstallers.finishedAt ?? model.launchStartedAt
-            let read = BCDDockStart.read(MadeiraDock.pollReport().fields, installers: DockInstallers.script != nil,
+            let fields = MadeiraDock.pollReport().fields
+            let read = BCDDockStart.read(fields, installers: DockInstallers.script != nil,
                                          installerProgress: progress, installsFinished: DockInstallers.finishedAt != nil,
                                          waited: Date().timeIntervalSince(hostDue),
                                          restartHint: DockInstallers.installsOnly ? DockInstallers.closingCountdown() : nil)
@@ -153,6 +161,16 @@ struct BCDSessionLiveLayer: View {
             info.steps = BCDDockStart.steps
             info.notes = read.notes
             if let note = DockInstallers.note { info.notes.append(BCDStartNote(id: "installs-note", text: note)) }
+            // Round 669 (agent B S13; Dungeon Rampage BCPPC5, 12 of its 13 logs): Valve's client sent its sign-in and never got an answer (its
+            // connections to Steam's servers did not finish), and the screen said "Signing you in to Steam…" for minutes.
+            if BCDDockStart.signingIn(fields) {
+                if dockSignInSince == nil { dockSignInSince = Date() }
+            } else {
+                dockSignInSince = nil
+            }
+            if let since = dockSignInSince, Date().timeIntervalSince(since) >= BCDDockStart.signInSlowAfter {
+                info.notes.append(BCDStartNote(id: "signin-slow", text: BCDDockStart.signInSlowText, tone: .warm))
+            }
             if dock.attention {
                 info.notes.append(BCDStartNote(id: "attention", text: "A Steam window may need an answer. Show desktop to see it.",
                                                tone: .warm))
@@ -398,6 +416,7 @@ struct BCDSessionLiveLayer: View {
 
     func dispose() {
         BCDMenuMore.menuClosed()   // madeira-bcd (round 604): the Windows and Task Manager pages stop their timers
+        DockFriendsMenu.menuClosed()   // madeira-bcd (Steam Friends): the Friends page's timer stops
         pageShown(nil)
         watchers.removeAll()
     }
@@ -441,6 +460,9 @@ struct BCDSessionLiveLayer: View {
             out.append(BCDMenuSection(id: "home", rows: [BCDMenuRow(id: "desktop.home", title: "BCD Home", detail: "Keep Windows running in the background.", symbol: "house", kind: .action())]))
         }
         if let cloud = cloudSection { out.append(cloud) }
+        // madeira-bcd (Steam Friends, default off): a BCD Dock session started with a Friends status chosen in Settings › Accounts › Steam
+        // has a Friends page while Dock's list is current (DockFriendsMenu.swift); nil, and nothing read, in every other session.
+        if let friends = DockFriendsMenu.section() { out.append(friends) }
         if model.activeEntry?.desktop == true, !BCDDuoFeatures.active, MadeiraConfig.flag("MADEIRA_DESKTOP_CLOSE") {
             // night round 2026-11-11 (A4 S1): the Windows desktop has no game to quit; Close asks its programs to close and ends the session
             // (LibraryModel.watchDesktopClose). The words are DesktopExitRules' (Library.swift); the preview app keeps copies. The native Duo interface
@@ -452,6 +474,29 @@ struct BCDSessionLiveLayer: View {
                                                answers: [.init(id: "quit", title: DesktopExitRules.menuAnswer, destructive: true)])),
             ]))
             return out
+        }
+        // Round 707 (G1-S15; Hollow Knight DEQCHZ): a game that ignored Close for 45 s (LibraryModel.watchForceEnd, SessionForceEnd.swift).
+        switch model.forceEnd {
+        case .offered:
+            out.append(BCDMenuSection(id: "quit", rows: [
+                BCDMenuRow(id: "quit", title: SessionForceEnd.menuTitle, detail: SessionForceEnd.menuDetail, symbol: "xmark.octagon",
+                           kind: .action(destructive: true),
+                           confirm: BCDConfirm(title: SessionForceEnd.confirmTitle, message: SessionForceEnd.confirmMessage,
+                                               answers: [.init(id: "force", title: SessionForceEnd.answerTitle, destructive: true)])),
+            ]))
+            return out
+        case .ending:
+            out.append(BCDMenuSection(id: "quit", rows: [
+                BCDMenuRow(id: "quit.ending", title: SessionForceEnd.endingWords, symbol: "hourglass", kind: .note(.soft)),
+            ]))
+            return out
+        case .stuck:
+            out.append(BCDMenuSection(id: "quit", rows: [
+                BCDMenuRow(id: "quit.stuck", title: SessionForceEnd.stuckWords, symbol: "exclamationmark.triangle.fill", kind: .note(.warm)),
+            ]))
+            return out
+        case .none:
+            break
         }
         out.append(BCDMenuSection(id: "quit", rows: [
             BCDMenuRow(id: "quit", title: BCDDuoFeatures.active && model.activeEntry?.desktop == true ? "Close Windows" : "Quit game", detail: "Progress you haven't saved is lost.", symbol: "stop.circle",
@@ -632,6 +677,7 @@ struct BCDSessionLiveLayer: View {
 
     func page(_ id: String) -> BCDMenuPage? {
         if let own = BCDMenuMore.page(id) { return own }   // madeira-bcd (round 604)
+        if let friends = DockFriendsMenu.page(id) { return friends }   // madeira-bcd (Steam Friends)
         if BCDInputMenu.handles(id) { return BCDInputMenuLive.page(id, model.activeEntry) }   // madeira-bcd (2026-10-25, round 604)
         switch id {
         case "binds": return bindsPage
@@ -651,6 +697,7 @@ struct BCDSessionLiveLayer: View {
 
     func pageShown(_ id: String?) {
         BCDMenuMore.pageShown(id) { [weak self] in self?.menu?.changed() }   // madeira-bcd (round 604): the Windows and Task Manager pages keep themselves fresh while open
+        DockFriendsMenu.pageShown(id) { [weak self] in self?.menu?.changed() }   // madeira-bcd (Steam Friends): the Friends page follows Dock's list while open
         let wantLog = id == "log"
         guard wantLog != logShown else { return }
         logShown = wantLog
@@ -717,6 +764,7 @@ struct BCDSessionLiveLayer: View {
 
     func choose(_ row: String, _ value: String) {
         if BCDMenuMore.handles(row) { return BCDMenuMore.choose(row, value) { [weak self] in self?.menu?.changed() } }   // madeira-bcd (round 604)
+        if DockFriendsMenu.handles(row) { return DockFriendsMenu.choose(row, value) }   // madeira-bcd (Steam Friends): the status chips
         if BCDInputMenu.handles(row) { return BCDInputMenuLive.change(row, value, entry: model.activeEntry) }   // madeira-bcd (2026-10-25, round 604)
         if BCDHUDMenu.owns(row) { return applyHUD(BCDHUDMenu.choose(row, value, BCDHUDState.shared.setup, screen: hudScreen)) }
         switch row {
@@ -762,9 +810,11 @@ struct BCDSessionLiveLayer: View {
 
     func answer(_ row: String, _ answer: String) {
         if BCDMenuMore.handles(row) { return BCDMenuMore.answer(row, answer) { [weak self] in self?.menu?.changed() } }   // madeira-bcd (round 604)
+        if DockFriendsMenu.handles(row) { return DockFriendsMenu.answer(row, answer) }   // madeira-bcd (Steam Friends): Accept, Join, Invite
         if BCDHUDMenu.owns(row) { return applyHUD(BCDHUDMenu.answer(row, answer, BCDHUDState.shared.setup)) }
         switch (row, answer) {
         case ("quit", "quit"): model.requestQuit()
+        case ("quit", "force"): model.endGameNow()   // round 707 (G1-S15): offered only after a Close that did nothing for 45 s
         case ("cloud.replace", "replace"): uploadAndClose(replace: true)
         default: break
         }
