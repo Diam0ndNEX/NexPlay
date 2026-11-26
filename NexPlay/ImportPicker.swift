@@ -102,6 +102,7 @@ final class ImportPicker: NSObject, UIDocumentPickerDelegate {
 
     private static func present(types: [UTType], asCopy: Bool, multiple: Bool = true,
                                 onPick: @escaping ([URL]) -> Void) {
+        NexPickerFix.installIfNeeded()
         let delegate = ImportPicker(onPick: onPick)
         active = delegate
         AppLog.log("import: opening the Files picker (\(types.map(\.identifier).joined(separator: ", ")))")

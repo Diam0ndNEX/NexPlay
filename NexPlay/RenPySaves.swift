@@ -201,6 +201,7 @@ final class RenPySavesFeature: PlayerFeature {
     private func pickImport() {
         // 7.13.3: no .folder here: with folders allowed, "Open" on a ZIP opened it as a folder instead of picking it.
         let types: [UTType] = [.zip, .item]
+        NexPickerFix.installIfNeeded()
         let controller = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         controller.allowsMultipleSelection = true
         let delegate = PickerDelegate { [weak self] urls in self?.importSaves(urls) }

@@ -58,6 +58,7 @@ struct NexPlayApp: App {
         NexFont.setUp()
         AppDelegate.orientationMask = OrientationManager.outsideMode.mask
         AppLog.installCrashRecorder()
+        NexPickerFix.installIfNeeded()
         AppLog.noteLaunch()
         // 7.10.0: a game that was still starting when NexPlay last closed is marked "crashed at start".
         LaunchGuard.checkAtLaunch()

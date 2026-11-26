@@ -1536,6 +1536,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     private func pick(_ purpose: PickPurpose) {
         pickPurpose = purpose
         let types: [UTType] = purpose == .saveImport ? [.zip, .item] : [.json, .plainText]
+        NexPickerFix.installIfNeeded()
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         picker.allowsMultipleSelection = purpose == .saveImport
         picker.delegate = self
