@@ -841,7 +841,38 @@ enum PageScripts {
         function urlFor(p) {
             return origin + base + path.resolve(String(p)).split('/').map(encodeURIComponent).join('/');
         }
+        // 8.20.4: every fs call is a synchronous request to the app, and RPG Maker MV's title and load screens ask the
+        // same few questions hundreds of times in one frame (loadGlobalInfo checks every save slot with exists(), and
+        // the save list calls loadGlobalInfo again for each slot): the game froze for a moment after each click on the
+        // title menu. HEAD and GET answers are kept for 1.5 s; any write, delete, mkdir or rename forgets them all.
+        var answers = {}, answersAt = 0;
+        function forget() { answers = {}; answersAt = 0; }
+        function remembered(method, p, binary, list) {
+            var now = Date.now();
+            if (now - answersAt > 1500) { answers = {}; answersAt = now; }
+            var key = method + (binary ? 'b' : '') + (list ? 'l' : '') + ' ' + path.resolve(String(p));
+            var hit = answers[key];
+            if (hit) return hit;
+            var xhr = request(method, p, null, binary, list);
+            var headers = {};
+            ['X-Nex-Kind', 'X-Nex-Mtime', 'Content-Length'].forEach(function (name) { headers[name] = xhr.getResponseHeader(name); });
+            hit = {
+                status: xhr.status,
+                responseText: method === 'HEAD' ? '' : xhr.responseText,
+                getResponseHeader: function (name) { return headers[name] === undefined ? null : headers[name]; }
+            };
+            answers[key] = hit;
+            return hit;
+        }
         function send(method, p, body, binary, list) {
+            if (method === 'HEAD' || method === 'GET') return remembered(method, p, binary, list);
+            forget();
+            var xhr = request(method, p, body, binary, list);
+            forget();
+            return xhr;
+        }
+        window.__nexFsForget = forget;
+        function request(method, p, body, binary, list) {
             var xhr = new XMLHttpRequest();
             xhr.open(method, urlFor(p), false);
             if (binary) xhr.overrideMimeType('text/plain; charset=x-user-defined');
@@ -908,9 +939,11 @@ enum PageScripts {
             readdirSync: function (p) { return JSON.parse(ok(send('GET', p, null, false, true), 'scandir', p).responseText); },
             renameSync: function (from, to) {
                 var xhr = new XMLHttpRequest();
+                forget();
                 xhr.open('MOVE', urlFor(from), false);
                 xhr.setRequestHeader('Destination', urlFor(to));
                 xhr.send(null);
+                forget();
                 ok(xhr, 'rename', from);
             }
         };
