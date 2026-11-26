@@ -53,6 +53,9 @@ echo "::endgroup::"
 # Compiler cache (set up by the workflow): count this run's hits from zero.
 if command -v ccache >/dev/null 2>&1; then ccache -z >/dev/null 2>&1 || true; fi
 
+# 8.20.3: small fixes to BCD's build scripts (opengl32-optin.dll, dxcompiler); each one skips itself when BCD changed.
+python3 "$NX/fix_bcd.py" "$BCD"
+
 echo "::group::BCD's build steps (up to its app archive)"
 set -o pipefail
 python3 "$NX/run_bcd_ci.py" --root "$BCD" --until "Archive (unsigned)" 2>&1 | tee "$BCD/engine.log"

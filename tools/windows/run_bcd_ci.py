@@ -32,6 +32,11 @@ TOKEN = re.compile(
     r"|(?P<num>\d+(?:\.\d+)?)"
     r"|(?P<op>==|!=|<=|>=|&&|\|\||[!<>(),\[\]])"
     r"|(?P<id>[A-Za-z_][A-Za-z0-9_\-]*(?:\.[A-Za-z0-9_\-\*]+)*))")
+# 8.20.3: BCD steps that stop BCD's own build but only check optional extras. A failure here is a warning: the engine
+# still runs every game; only the games that ask for a missing opt-in DLL lose that option.
+SOFT_STEPS = {
+    "Verify the opt-in DLLs the lists and rules name": "a missing opt-in DLL only turns that option off for the games that list it",
+}
 STATUS_FUNCS = re.compile(r'\b(always|success|failure|cancelled)\s*\(', re.I)
 
 
@@ -471,7 +476,9 @@ class Runner:
                     self.state["outcomes"][sid] = "failure"
                     allowed = truthy(self.evaluate(to_str(step.get("continue-on-error", False)), env)) \
                         if isinstance(step.get("continue-on-error"), str) else bool(step.get("continue-on-error"))
-                    if allowed:
+                    if not allowed and name in SOFT_STEPS:
+                        print("::warning::%s failed (exit %d); NexPlay lets the build go on (%s)" % (name, rc, SOFT_STEPS[name]))
+                    elif allowed:
                         print("::warning::%s failed (exit %d); BCD lets the build go on" % (name, rc))
                     else:
                         print("::error::%s failed (exit %d)" % (name, rc))
