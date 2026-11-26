@@ -1184,23 +1184,34 @@ struct LibraryView: View {
         }
     }
 
+    // 8.20.5: the + menu is still closing when its buttons run; the pickers open a moment later.
+    private func afterMenu(_ action: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: action)
+    }
+
     private func importFiles() {
-        ImportPicker.pickFiles { urls in
-            Task { await store.importItems(urls) }
+        afterMenu {
+            ImportPicker.pickFiles { urls in
+                Task { await store.importItems(urls) }
+            }
         }
     }
 
     private func importBulk() {
-        ImportPicker.pickFolders { urls in
-            Task {
-                for parent in urls { await store.importFolderOfGames(parent) }
+        afterMenu {
+            ImportPicker.pickFolders { urls in
+                Task {
+                    for parent in urls { await store.importFolderOfGames(parent) }
+                }
             }
         }
     }
 
     private func importFolders() {
-        ImportPicker.pickFolders { urls in
-            Task { await store.importItems(urls) }
+        afterMenu {
+            ImportPicker.pickFolders { urls in
+                Task { await store.importItems(urls) }
+            }
         }
     }
 }

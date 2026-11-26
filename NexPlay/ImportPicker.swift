@@ -102,14 +102,35 @@ final class ImportPicker: NSObject, UIDocumentPickerDelegate {
 
     private static func present(types: [UTType], asCopy: Bool, multiple: Bool = true,
                                 onPick: @escaping ([URL]) -> Void) {
+        let delegate = ImportPicker(onPick: onPick)
+        active = delegate
+        AppLog.log("import: opening the Files picker (\(types.map(\.identifier).joined(separator: ", ")))")
+        show(types: types, asCopy: asCopy, multiple: multiple, delegate: delegate, attempt: 0)
+    }
+
+    /// 8.20.5: a picker asked for while a menu (the + menu) is still closing can be dropped by UIKit without an error,
+    /// and 8.20.2 never tried again, so nothing opened. 1.5 s later, if this pick is still wanted (not picked, not
+    /// cancelled) and the picker is in no window, a NEW picker is presented (never the same one twice: that crashed
+    /// in 8.20.1). Up to two more tries.
+    private static func show(types: [UTType], asCopy: Bool, multiple: Bool, delegate: ImportPicker, attempt: Int) {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: asCopy)
         picker.allowsMultipleSelection = multiple
         picker.shouldShowFileExtensions = true
-        let delegate = ImportPicker(onPick: onPick)
-        active = delegate
         picker.delegate = delegate
-        AppLog.log("import: opening the Files picker (\(types.map(\.identifier).joined(separator: ", ")))")
         TopController.present(picker)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            guard active === delegate else { return }
+            let onScreen = picker.viewIfLoaded?.window != nil || picker.presentingViewController != nil
+                || picker.isBeingPresented
+            if onScreen { return }
+            if attempt >= 2 {
+                AppLog.log("import: the Files picker did not open (3 tries)")
+                active = nil
+                return
+            }
+            AppLog.log("import: the Files picker did not open, opening a new one")
+            show(types: types, asCopy: asCopy, multiple: multiple, delegate: delegate, attempt: attempt + 1)
+        }
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
