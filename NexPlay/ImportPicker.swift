@@ -77,12 +77,14 @@ final class ImportPicker: NSObject, UIDocumentPickerDelegate {
     /// copied by iOS before NexPlay even sees it (that copy took minutes with no progress and could fill the
     /// storage). The caller gets security-scoped URLs; LibraryStore holds the access while importing.
     static func pickFiles(onPick: @escaping ([URL]) -> Void) {
-        present(types: [.item], asCopy: false, onPick: onPick)
+        // 8.20.7: copy mode. On this signing (App ID differs from the bundle id) iOS never answers an in-place pick
+        // (Open does nothing, logs 8.20.2-8.20.6); copy mode answers. LibraryStore.removeTemporary deletes the copy.
+        present(types: [.item], asCopy: true, onPick: onPick)
     }
 
     /// One or more folders, read in place (security-scoped).
     static func pickFolders(onPick: @escaping ([URL]) -> Void) {
-        present(types: [.folder], asCopy: false, onPick: onPick)
+        present(types: [.folder], asCopy: true, onPick: onPick)
     }
 
     /// 7.13.5: exactly one file of any type (pairing file). Single selection, so tapping the file picks it at once.
