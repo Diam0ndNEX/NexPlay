@@ -34,8 +34,11 @@ enum OrientationManager {
     }
 
     /// The orientation outside games: free with Auto-rotate Outside Games, else portrait.
+    /// 9.0.0: always free on iPad (keyboard cases hold it in landscape; Split View and Stage Manager windows have no
+    /// fixed orientation anyway).
     static var outsideMode: OrientationMode {
-        UserDefaults.standard.bool(forKey: SettingsKey.autoRotateOutside) ? .auto : .portrait
+        if UIDevice.current.userInterfaceIdiom == .pad { return .auto }
+        return UserDefaults.standard.bool(forKey: SettingsKey.autoRotateOutside) ? .auto : .portrait
     }
 
     @MainActor
@@ -105,6 +108,8 @@ struct NexPlayApp: App {
         SettingsKey.touchDirectionalType: "layout",
         SettingsKey.physicalControllerEnabled: true,
         SettingsKey.hidePadWithController: true,
+        SettingsKey.hidePadWithKeyboard: true,
+        SettingsKey.keyboardShortcutsInGames: true,
         SettingsKey.barWithController: false,
         SettingsKey.controllerRumble: true,
         SettingsKey.controllerKeysPlayerOne: false,

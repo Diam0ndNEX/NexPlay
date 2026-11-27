@@ -36,6 +36,12 @@ final class PlayerContext {
     /// 8.11.2: restart the game, show its log.
     var restartGame: () -> Void = {}
     var showGameLog: () -> Void = {}
+    /// 9.0.0 hardware keyboard (HardwareKeyboard.swift): a forwarded key, a control action (Game Panel, Quick
+    /// Save...), whether a sheet or the on-screen keyboard has the keys now, and keyboard connect/disconnect.
+    var sendHardwareKey: (PadKey, Bool) -> Void = { _, _ in }
+    var runAction: (ControlAction) -> Void = { _ in }
+    var inputBusy: () -> Bool = { false }
+    var keyboardChanged: (Bool) -> Void = { _ in }
 
     init(gameLog: GameLog) {
         self.gameLog = gameLog
@@ -84,7 +90,8 @@ enum PlayerFeatures {
         panel.translation = translation
         cheats.translation = translation
         return [panel, PluginsFeature(context: context), cheats, renpyCheats,
-                translation, RenPySavesFeature(context: context), RumbleFeature(context: context)]
+                translation, RenPySavesFeature(context: context), RumbleFeature(context: context),
+                HardwareKeyboardFeature(context: context)]
     }
 
     /// Replacement file contents the scheme handler serves for a game (relative path, lowercased), or nil.

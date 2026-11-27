@@ -129,6 +129,7 @@ struct GameDetailView: View {
         .fontDesign(.rounded)
         .foregroundStyle(NexColor.dark(.text))
         .environment(\.colorScheme, .dark)
+        .background { pageShortcuts }
         .task { await refresh() }
         .environment(\.nexMenuNavigator, navigator)
         .onPreferenceChange(NexMenuOrderKey.self) { ids in navigator.order = ids }
@@ -829,6 +830,21 @@ struct GameDetailView: View {
     private func play(_ game: Game) {
         NexHaptics.press()
         onPlay(game)
+    }
+
+    /// 9.0.0 hardware keyboard: ⌘↩ plays, Esc closes the open panel, then the page.
+    private var pageShortcuts: some View {
+        Group {
+            Button("Play") { if let game { play(game) } }
+                .keyboardShortcut(.return, modifiers: .command)
+            Button("Back") {
+                if panel != nil { closePanel() } else { dismiss() }
+            }
+            .keyboardShortcut(.escape, modifiers: [])
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
     }
 
     private func runInstaller(_ path: String) {

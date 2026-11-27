@@ -79,6 +79,14 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     /// 8.2.1: where the mouse is in Direct Touch mode once gyro aim or the aim zone moved it.
     private var virtualCursor: CGPoint?
     private var controllerConnected = false
+    /// 9.0.0: a hardware keyboard is connected (HardwareKeyboardFeature); the pad hides unless the gamepad button
+    /// asked for it this session.
+    private var keyboardConnected = false
+    private var padDespiteKeyboard = false
+    private var keyboardHidesPad: Bool {
+        keyboardConnected && !padDespiteKeyboard
+            && (UserDefaults.standard.object(forKey: SettingsKey.hidePadWithKeyboard) as? Bool ?? true)
+    }
     private var loadTask: Task<Void, Never>?
     private var pickPurpose: PickPurpose = .jsonRestore
     private var didWarnAboutMemory = false
@@ -207,6 +215,23 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
         context.setOrientation = { [weak self] mode in self?.setOrientation(mode) }
         context.restartGame = { [weak self] in self?.prepareAndLoad() }
         context.showGameLog = { [weak self] in self?.showLog() }
+        context.sendHardwareKey = { [weak self] key, down in
+            let name = PageScripts.jsString(key.key)
+            let code = PageScripts.jsString(key.code)
+            self?.webView?.evaluateJavaScript(
+                "(window.__nexHWKey || window.__nexKey) && (window.__nexHWKey || window.__nexKey)(\(key.keyCode),\(name),\(code),\(down))")
+        }
+        context.runAction = { [weak self] action in self?.handleAction(action, true) }
+        context.inputBusy = { [weak self] in
+            guard let self else { return true }
+            return self.presentedViewController != nil || self.keySender.isFirstResponder || self.isEditingControls
+        }
+        context.keyboardChanged = { [weak self] connected in
+            guard let self, self.keyboardConnected != connected else { return }
+            self.keyboardConnected = connected
+            if !connected { self.padDespiteKeyboard = false }
+            self.updateOverlays()
+        }
         features = PlayerFeatures.make(context: context)
         for feature in features {
             for script in feature.userScripts(for: game) { content.addUserScript(script) }
@@ -831,7 +856,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     /// On-screen controls and the control bar follow the game setting and connected controllers.
     private func updateOverlays() {
         guard !isEditingControls else { return }
-        let hidePad = controllerConnected && prefs.hidePadWithController
+        let hidePad = (controllerConnected && prefs.hidePadWithController) || keyboardHidesPad
         gamepad.isHidden = !game.gamepad || hidePad || usesPCControls
         if gamepad.isHidden {
             gamepad.releaseAll()
@@ -841,7 +866,7 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
             if pcControls.view.isHidden { pcControls.releaseAll() }
         }
         controlBar.update(controllerConnected: controllerConnected)
-        controlBar.setState(gamepadOn: game.gamepad, fastForwardOn: fastForwardOn)
+        controlBar.setState(gamepadOn: game.gamepad && !keyboardHidesPad, fastForwardOn: fastForwardOn)
     }
 
     @objc private func controllersChanged() {
@@ -1409,6 +1434,12 @@ final class PlayerViewController: GCEventViewController, WKNavigationDelegate, W
     }
 
     private func toggleGamepad() {
+        // 9.0.0: the keyboard hid the pad; the button shows it again for this session.
+        if game.gamepad && keyboardHidesPad {
+            padDespiteKeyboard = true
+            updateOverlays()
+            return
+        }
         update { $0.gamepad.toggle() }
         if !game.gamepad {
             gamepad.releaseAll()

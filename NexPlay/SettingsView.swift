@@ -86,7 +86,8 @@ enum NexSettingsPage: String, CaseIterable, Identifiable, Hashable {
                     "Glass Effect", "Auto-Hide Controls", "Show Fast Forward Button", "Show Screenshot Button",
                     "Show Keyboard Button", "Reset Control Bar Position", "Haptic Feedback", "Haptic Strength",
                     "Enable Physical Controller", "Auto-hide Virtual Gamepad", "Show Control Bar With Controller",
-                    "Controller Mode", "Controller Mapping", "Button Mapping"]
+                    "Controller Mode", "Controller Mapping", "Button Mapping", "Hardware Keyboard",
+                    "Hide Touch Controls With a Keyboard", "Keyboard Shortcuts"]
         case .gameplay:
             return ["Auto-rotate In Games", "Game Orientation", "Auto-rotate Outside Games", "Portrait Game Position",
                     "Play Sound in Silent Mode", "Keep Screen Awake", "Desktop Mode", "Sharp Pixels", "NW.js Mode",
@@ -122,6 +123,9 @@ struct SettingsView: View {
     @State private var search = ""
     @State private var confirmReset = false
     @State private var message: String?
+    /// 9.0.0 iPad: regular width shows the pages in a sidebar with the open page beside it.
+    @Environment(\.horizontalSizeClass) private var horizontal
+    @State private var splitSelection: SettingsSelection? = .page(.setupCenter)
 
     private var version: String {
         let info = Bundle.main.infoDictionary
@@ -145,6 +149,24 @@ struct SettingsView: View {
     }
 
     var body: some View {
+        Group {
+            if horizontal == .regular {
+                splitBody
+            } else {
+                stackBody
+            }
+        }
+        .confirmationDialog("Reset all settings?", isPresented: $confirmReset, titleVisibility: .visible) {
+            Button("Reset Settings", role: .destructive) { resetDefaults() }
+        } message: {
+            Text("Games, saves, layouts and collections stay.")
+        }
+        .alert("NexPlay", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(message ?? "") }
+    }
+
+    private var stackBody: some View {
         NavigationStack {
             // 8.1.1: custom glass rows instead of the stock List look.
             ScrollView {
@@ -172,15 +194,138 @@ struct SettingsView: View {
                     if !embedded { SheetCloseButton { dismiss() } }
                 }
             }
-            .confirmationDialog("Reset all settings?", isPresented: $confirmReset, titleVisibility: .visible) {
-                Button("Reset Settings", role: .destructive) { resetDefaults() }
-            } message: {
-                Text("Games, saves, layouts and collections stay.")
-            }
-            .alert("NexPlay", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-                Button("OK", role: .cancel) {}
-            } message: { Text(message ?? "") }
         }
+    }
+
+    // MARK: - iPad split view (9.0.0)
+
+    private var splitBody: some View {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if search.isEmpty {
+                        splitSections
+                    } else if hits.isEmpty {
+                        Text("No settings match \u{201C}\(search)\u{201D}.")
+                            .font(NexType.body)
+                            .foregroundStyle(NexColor.textSoft)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 30)
+                    } else {
+                        NexRowGroup {
+                            ForEach(Array(hits.enumerated()), id: \.offset) { index, hit in
+                                if index > 0 { NexRowDivider() }
+                                splitButton(.page(hit.page)) {
+                                    NexNavRow(title: hit.row, subtitle: hit.page.title, symbol: hit.page.symbol, tint: hit.page.color,
+                                              showsChevron: false)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                .padding(.bottom, 20)
+            }
+            .nexClearsTabBar()
+            .background(AppBackground().ignoresSafeArea())
+            .navigationTitle("Settings")
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search settings")
+            .navigationSplitViewColumnWidth(min: 300, ideal: 350, max: 420)
+            .toolbar(removing: .sidebarToggle)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if !embedded { SheetCloseButton { dismiss() } }
+                }
+            }
+        } detail: {
+            NavigationStack {
+                splitDetail
+            }
+            // A new page starts at its top (pages pushed inside the old one are closed).
+            .id(splitSelection)
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    @ViewBuilder private var splitDetail: some View {
+        switch splitSelection {
+        case .page(let page)?:
+            SettingsPageView(page: page)
+        case .credits?:
+            CreditsView()
+                .scrollContentBackground(.hidden)
+                .nexClearsTabBar()
+                .background(AppBackground().ignoresSafeArea())
+                .navigationTitle("Credits")
+                .navigationBarTitleDisplayMode(.inline)
+        case nil:
+            VStack(spacing: 12) {
+                Image(systemName: "gearshape.2.fill").font(.system(size: 44)).foregroundStyle(NexColor.accentSoft)
+                Text("Pick a page on the left").font(NexType.heading).foregroundStyle(NexColor.textSoft)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppBackground().ignoresSafeArea())
+        }
+    }
+
+    @ViewBuilder private var splitSections: some View {
+        NexSectionHeader(title: "Settings", symbol: "gearshape.fill", tint: NexColor.accent)
+        NexRowGroup {
+            ForEach(Array(NexSettingsPage.allCases.enumerated()), id: \.element) { index, page in
+                if index > 0 { NexRowDivider() }
+                splitButton(.page(page)) {
+                    NexNavRow(title: page.title, subtitle: page.subtitle, symbol: page.symbol, tint: page.color, showsChevron: false)
+                }
+            }
+        }
+        NexSectionHeader(title: "About", symbol: "info.circle.fill", tint: .teal)
+            .padding(.top, 10)
+        NexRowGroup {
+            HStack(spacing: 14) {
+                Image(systemName: "gamecontroller.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(NexColor.accentGradient, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("NexPlay").font(NexType.display(20)).foregroundStyle(NexColor.text)
+                    Text("\(version) · \(platform)").font(NexType.caption).foregroundStyle(NexColor.textSoft)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            NexRowDivider()
+            splitButton(.credits) {
+                NexNavRow(title: "Credits", symbol: "heart.text.square.fill", tint: .pink, showsChevron: false)
+            }
+        }
+        NexRowGroup {
+            Button { confirmReset = true } label: {
+                NexNavRow(title: "Reset to Defaults", symbol: "arrow.counterclockwise", tint: NexColor.danger, showsChevron: false)
+            }
+            .buttonStyle(.plain)
+            .hoverEffect(.highlight)
+        }
+        .padding(.top, 10)
+    }
+
+    /// A sidebar row: tapping it opens the page beside the list; the open page's row is highlighted.
+    private func splitButton<Label: View>(_ target: SettingsSelection, @ViewBuilder label: () -> Label) -> some View {
+        let active = splitSelection == target
+        return Button {
+            if !active { NexHaptics.selection() }
+            splitSelection = target
+        } label: {
+            label()
+                .background {
+                    if active { NexColor.accent.opacity(0.2) }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     @ViewBuilder private var mainSections: some View {
@@ -251,8 +396,9 @@ struct SettingsView: View {
 
     private func resetDefaults() {
         let defaults = UserDefaults.standard
-        let keys = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys + SettingsKey.powerKeys + SettingsKey.hudKeys + SettingsKey.controllerKeys
-            + [SettingsKey.translationEnabled, SettingsKey.machineTranslation, SettingsKey.cheatEnglish, SettingsKey.colorProfile, SettingsKey.colorProfileSeed]
+        var keys: [String] = SettingsKey.all + SettingsKey.playerKeys + SettingsKey.backgroundKeys + SettingsKey.jitKeys
+        keys += SettingsKey.powerKeys + SettingsKey.hudKeys + SettingsKey.controllerKeys + SettingsKey.keyboardKeys
+        keys += [SettingsKey.translationEnabled, SettingsKey.machineTranslation, SettingsKey.cheatEnglish, SettingsKey.colorProfile, SettingsKey.colorProfileSeed]
         for key in keys { defaults.removeObject(forKey: key) }
         OrientationManager.unlock()
         NexTheme.shared.reload()
@@ -260,6 +406,12 @@ struct SettingsView: View {
         // 8.19.0: shown once the confirmation has closed (an alert asked for while it closes can be dropped).
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { message = "Settings are back to their defaults." }
     }
+}
+
+/// 9.0.0: what the iPad settings sidebar has open.
+enum SettingsSelection: Hashable {
+    case page(NexSettingsPage)
+    case credits
 }
 
 /// A row on the main settings list: coloured tile, title and a short description.
@@ -539,6 +691,8 @@ struct ControlsSettings: View {
     @AppStorage(SettingsKey.hidePadWithController) private var hidePad = true
     @AppStorage(SettingsKey.barWithController) private var barWithController = false
     @AppStorage(SettingsKey.controllerMode) private var controllerMode = "keys"
+    @AppStorage(SettingsKey.hidePadWithKeyboard) private var hidePadWithKeyboard = true
+    @AppStorage(SettingsKey.keyboardShortcutsInGames) private var keyboardShortcuts = true
 
     @State private var showControllerMap = false
     @State private var message: String?
@@ -634,6 +788,20 @@ struct ControlsSettings: View {
             } header: {
                 SettingsHeader(title: "Physical Controller", symbol: "gamecontroller.fill", color: .green)
             }
+
+            // 9.0.0: hardware keyboards (iPad keyboard cases, Bluetooth keyboards).
+            Section {
+                Toggle(isOn: $hidePadWithKeyboard) {
+                    SettingLabel("Hide Touch Controls With a Keyboard", "While a hardware keyboard is connected. The control bar's gamepad button shows them again.")
+                }
+                Toggle(isOn: $keyboardShortcuts) {
+                    SettingLabel("Keyboard Shortcuts in Games", "Hold ⌘: G Game Panel, S Quick Save, L Quick Load, F Fast Forward, I Performance HUD, P Screenshot, E Edit Controls, W Exit.")
+                }
+            } header: {
+                SettingsHeader(title: "Hardware Keyboard", symbol: "keyboard.fill", color: .gray)
+            } footer: {
+                Text("Arrow keys, Z/X, Enter, Esc, Shift and every other key go to web games (RPG Maker MV/MZ, HTML5, Godot, Ren'Py...). In the library: ⌘1–3 switch tabs, ⌘F searches, ⌘O adds a game file, ⇧⌘O a game folder.")
+            }
         }
         .sheet(isPresented: $showControllerMap) { ControllerMapView(gameID: nil, gameName: nil) }
         .alert("Controls", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
@@ -678,8 +846,11 @@ struct GameplaySettings: View {
                 }
                 Button("Apply to All RPG Maker Games") { applyOrientationToAll() }
                 Toggle(isOn: $autoRotateOutside) {
-                    SettingLabel("Auto-rotate Outside Games", "Let the library and settings follow how you hold your phone.")
+                    SettingLabel("Auto-rotate Outside Games", UIDevice.current.userInterfaceIdiom == .pad
+                                 ? "Always on for iPad: the library and settings turn with the iPad."
+                                 : "Let the library and settings follow how you hold your phone.")
                 }
+                .disabled(UIDevice.current.userInterfaceIdiom == .pad)
                 .onChange(of: autoRotateOutside) { _ in OrientationManager.unlock() }
                 VStack(alignment: .leading, spacing: 6) {
                     SettingLabel("Screen Scaling", (ScreenScaling(rawValue: screenScaling) ?? .fit).detail + " Each game can change it live in the Game Panel (Display > Screen Size).")

@@ -405,9 +405,8 @@ final class GamepadOverlayView: UIView {
             let size = CGFloat(item.size)
             let transform = control.transform
             control.transform = .identity
-            control.frame = CGRect(x: rect.minX + CGFloat(item.x) * rect.width - size / 2,
-                                   y: rect.minY + CGFloat(item.y) * rect.height - size / 2,
-                                   width: size, height: size)
+            let center = PadPlacement.point(x: item.x, y: item.y, in: rect)
+            control.frame = CGRect(x: center.x - size / 2, y: center.y - size / 2, width: size, height: size)
             control.transform = transform
         }
         layoutEditChrome()
@@ -608,8 +607,9 @@ final class GamepadOverlayView: UIView {
         let rect = area
         guard rect.width > 0, rect.height > 0 else { return }
         let point = gesture.location(in: self)
-        var x = Double((point.x - rect.minX) / rect.width)
-        var y = Double((point.y - rect.minY) / rect.height)
+        let spot = PadPlacement.position(of: point, in: rect)
+        var x = spot.x
+        var y = spot.y
         if gesture.state == .ended || gesture.state == .cancelled {
             x = (x * 80).rounded() / 80
             y = (y * 80).rounded() / 80
@@ -736,5 +736,52 @@ final class GamepadOverlayView: UIView {
         setNeedsLayout()
         addButton.menu = addMenu()
         haptic?.impactOccurred()
+    }
+}
+
+/// 9.0.0: where a control's saved position (0...1 of the safe area) lands on screen. On a screen bigger than a
+/// phone (iPad) controls near an edge keep their distance from that edge as on a phone, so the D-pad and buttons
+/// stay under the thumbs; controls towards the middle move proportionally (the middle stays the middle).
+/// Positions are saved in the same 0...1 numbers, so one layout works on iPhone and iPad.
+enum PadPlacement {
+    /// The phone-sized area positions are kept to near the edges (landscape; swapped for portrait).
+    private static func reference(for rect: CGRect) -> CGSize {
+        rect.width >= rect.height ? CGSize(width: 880, height: 420) : CGSize(width: 420, height: 880)
+    }
+
+    static func point(x: Double, y: Double, in rect: CGRect) -> CGPoint {
+        let ref = reference(for: rect)
+        return CGPoint(x: rect.minX + map(x, length: Double(rect.width), reference: Double(ref.width)),
+                       y: rect.minY + map(y, length: Double(rect.height), reference: Double(ref.height)))
+    }
+
+    static func position(of point: CGPoint, in rect: CGRect) -> (x: Double, y: Double) {
+        let ref = reference(for: rect)
+        return (x: unmap(Double(point.x - rect.minX), length: Double(rect.width), reference: Double(ref.width)),
+                y: unmap(Double(point.y - rect.minY), length: Double(rect.height), reference: Double(ref.height)))
+    }
+
+    /// Distance along one axis. Plain proportion when the screen is not bigger than the reference.
+    private static func map(_ value: Double, length: Double, reference: Double) -> Double {
+        guard length > reference + 1, reference > 0 else { return value * length }
+        let v = min(max(value, 0), 1)
+        let edge = min(v, 1 - v)
+        let anchored = v <= 0.5 ? edge * reference : length - edge * reference
+        let t = edge / 0.5
+        let blend = t * t
+        return anchored * (1 - blend) + v * length * blend
+    }
+
+    /// The inverse of `map` (it rises steadily, so halving the interval finds it).
+    private static func unmap(_ distance: Double, length: Double, reference: Double) -> Double {
+        guard length > 0 else { return 0 }
+        guard length > reference + 1, reference > 0 else { return distance / length }
+        var low = 0.0
+        var high = 1.0
+        for _ in 0..<40 {
+            let mid = (low + high) / 2
+            if map(mid, length: length, reference: reference) < distance { low = mid } else { high = mid }
+        }
+        return (low + high) / 2
     }
 }

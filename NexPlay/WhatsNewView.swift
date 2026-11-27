@@ -11,7 +11,7 @@ struct WhatsNewView: View {
     let standalone: Bool
     @Environment(\.dismiss) private var dismiss
 
-    static let version = "8.7"
+    static let version = "9.0"
 
     private struct Item: Identifiable {
         let symbol: String
@@ -21,8 +21,16 @@ struct WhatsNewView: View {
         var id: String { title }
     }
 
-    // 8.7.0: NexPlay 8 (BCD merged into NexPlay).
+    // 9.0.0: iPad and hardware keyboards first; the NexPlay 8 items follow.
     private let items: [Item] = [
+        Item(symbol: "ipad.landscape", color: .indigo, title: "Made for iPad",
+             text: "A sidebar for the library's filters, engines and collections, bigger Home cards, Settings with its pages beside the list, and the library turns with your iPad."),
+        Item(symbol: "keyboard.fill", color: .gray, title: "Hardware Keyboards",
+             text: "Every key reaches web games, touch controls hide while a keyboard is connected, and ⌘ shortcuts: G Game Panel, S/L Quick Save/Load, F Fast Forward, I HUD, P Screenshot, W Exit. In the library ⌘1–3, ⌘F, ⌘O."),
+        Item(symbol: "cursorarrow.motionlines", color: .teal, title: "Pointer and Drag & Drop",
+             text: "Cards lift under the trackpad pointer, and games dragged in from Files (Split View, Stage Manager) are imported."),
+        Item(symbol: "dpad.fill", color: .green, title: "Touch Controls Fit Bigger Screens",
+             text: "On iPad the D-pad and buttons keep their phone distance from the edges, so they stay under your thumbs. One layout works on both."),
         Item(symbol: "pc", color: .blue, title: "One App for Windows Games",
              text: "BCD's Windows engine is part of NexPlay now: Windows games start from your library with NexPlay's loading screen, menu, HUD and game page. One JIT and one pairing file for everything."),
         Item(symbol: "paintpalette.fill", color: .indigo, title: "New Design",

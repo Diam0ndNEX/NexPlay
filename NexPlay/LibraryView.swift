@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum CoverCache {
     private static let cache = NSCache<NSString, UIImage>()
@@ -174,6 +175,9 @@ struct GameCard: View {
                     .foregroundStyle(NexColor.textSoft)
             }
         }
+        // 9.0.0: iPad pointer (trackpad, mouse): the card lifts under the pointer.
+        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .hoverEffect(.lift)
         .accessibilityElement(children: .combine)
     }
 }
@@ -207,6 +211,8 @@ struct GameRow: View {
         .background(NexColor.surface, in: RoundedRectangle(cornerRadius: NexMetrics.cornerM, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: NexMetrics.cornerM, style: .continuous).strokeBorder(NexColor.stroke, lineWidth: 1))
         .contentShape(Rectangle())
+        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: NexMetrics.cornerM, style: .continuous))
+        .hoverEffect(.highlight)
         .accessibilityElement(children: .combine)
     }
 }
@@ -289,6 +295,7 @@ struct NexTabBar: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .hoverEffect(.highlight)
                 .accessibilityLabel(item.title)
                 .accessibilityAddTraits(tab == item ? .isSelected : [])
             }
@@ -353,6 +360,14 @@ struct LibraryView: View {
     /// 8.7.2: the card a game page zooms out of (iOS 18 zoom transition; off with Reduce Motion).
     @Namespace private var cardSpace
     @ObservedObject private var jit = JITManager.shared
+    /// 9.0.0 iPad: regular width shows the library with a sidebar and bigger Home cards.
+    @Environment(\.horizontalSizeClass) private var horizontal
+    @FocusState private var searchFocused: Bool
+    @State private var dropTargeted = false
+
+    private var regular: Bool { horizontal == .regular }
+    private var gridMinimum: CGFloat { regular ? 172 : 150 }
+    private var shelfCover: CGFloat { regular ? 150 : 112 }
 
     private var sort: LibrarySortOrder { LibrarySortOrder(rawValue: sortRaw) ?? .playedRecent }
 
@@ -447,6 +462,17 @@ struct LibraryView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { startPendingPlay() }
     }
 
+    /// 9.0.0: every Play outside the game page (Resume, context menu, tap-to-play, controller X) starts the game as it
+    /// is now in the library, and a game that crashed at its last start opens its page instead (as play links do).
+    private func play(_ game: Game) {
+        let fresh = store.game(id: game.id) ?? game
+        if LaunchGuard.crashedRuntime(for: fresh.id) != nil {
+            detail = fresh
+            return
+        }
+        playing = fresh
+    }
+
     private func startPendingPlay() {
         guard let next = pendingPlay, detail == nil else { return }
         pendingPlay = nil
@@ -473,6 +499,7 @@ struct LibraryView: View {
                     .padding(.bottom, 4)
             }
         }
+        .background { shortcutButtons }
         .fullScreenCover(item: $playing) { game in
             GameScreen(game: game, store: store, onExit: {
                 playing = nil
@@ -614,9 +641,16 @@ struct LibraryView: View {
                     emptyState
                 } else if tab == .home {
                     homeContent
+                } else if regular {
+                    // 9.0.0 iPad: filters and collections in a sidebar instead of the chip row.
+                    HStack(spacing: 0) {
+                        librarySidebar
+                        content
+                    }
                 } else {
                     content
                 }
+                if dropTargeted { dropOverlay }
                 if selecting { selectionBar }
                 if !selecting {
                     HStack {
@@ -636,7 +670,12 @@ struct LibraryView: View {
             .navigationTitle(tab == .home ? "NexPlay" : "Library")
             // 7.13.5: under the title. The default placement on iOS 26+ is a bottom bar, which sat behind NexTabBar.
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search games")
+            .searchFocused($searchFocused)
             .toolbar { toolbar }
+            // 9.0.0: games dropped from Files (iPad Split View, Slide Over, Stage Manager) are imported.
+            .onDrop(of: [UTType.item], isTargeted: $dropTargeted) { providers in
+                acceptDrop(providers)
+            }
             .onChange(of: search) { text in
                 if !text.isEmpty && tab == .home { tab = .library }
             }
@@ -717,11 +756,11 @@ struct LibraryView: View {
             }
             .font(NexType.heading)
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
+                LazyHStack(spacing: regular ? 16 : 12) {
                     ForEach(games) { game in
                         VStack(alignment: .leading, spacing: 6) {
                             CoverView(game: game, compact: true)
-                                .frame(width: 112)
+                                .frame(width: shelfCover)
                                 .nexZoomSource(game.id, in: cardSpace)
                                 .focusRing(focusID == game.id)
                                 .overlay(alignment: .topTrailing) {
@@ -735,10 +774,12 @@ struct LibraryView: View {
                                 .font(NexType.captionStrong)
                                 .foregroundStyle(NexColor.text)
                                 .lineLimit(2)
-                                .frame(width: 112, height: 32, alignment: .topLeading)
+                                .frame(width: shelfCover, height: 32, alignment: .topLeading)
                         }
                         .id(game.id)
                         .contentShape(Rectangle())
+                        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .hoverEffect(.lift)
                         .onTapGesture { tap(game) }
                         .contextMenu { contextMenu(for: game) }
                     }
@@ -767,8 +808,167 @@ struct LibraryView: View {
                 .frame(width: 58, height: 58)
                 .background(NexColor.accentGradient, in: Circle())
                 .shadow(color: NexColor.accent.opacity(0.5), radius: 12, y: 5)
+                .contentShape(.hoverEffect, Circle())
+                .hoverEffect(.lift)
         }
         .accessibilityLabel("Add games")
+    }
+
+    // MARK: - iPad (9.0.0)
+
+    /// Library filters and collections as a sidebar (regular width).
+    private var librarySidebar: some View {
+        let all = store.games.filter(isVisible)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                NexSectionHeader(title: "Library", symbol: "square.grid.2x2.fill", tint: NexColor.accent)
+                    .padding(.bottom, 4)
+                sidebarRow("All Games", symbol: "square.grid.2x2", color: NexColor.accent, count: all.count, value: .all)
+                sidebarRow("Favorites", symbol: "heart.fill", color: .pink, count: all.filter { $0.isFavorite }.count,
+                           value: .favorites)
+                sidebarRow("Ready to Play", symbol: "checkmark.seal.fill", color: NexColor.success, count: nil, value: .ready)
+                if !engines.isEmpty {
+                    NexSectionHeader(title: "Engines", symbol: "cpu", tint: .orange)
+                        .padding(.top, 14).padding(.bottom, 4)
+                    ForEach(engines, id: \.self) { engine in
+                        sidebarRow(engine.title, symbol: engine.symbol, color: engine.accent, count: engineCount(engine),
+                                   value: .engine(engine))
+                    }
+                }
+                HStack {
+                    NexSectionHeader(title: "Collections", symbol: "folder.fill", tint: .teal)
+                    Button { showCollections = true } label: {
+                        Image(systemName: "plus.circle.fill").font(.body).foregroundStyle(NexColor.accentSoft)
+                    }
+                    .buttonStyle(.plain)
+                    .hoverEffect(.highlight)
+                    .accessibilityLabel("Manage collections")
+                }
+                .padding(.top, 14).padding(.bottom, 4)
+                if visibleCollections.isEmpty {
+                    Text("Group games into collections with the + button or a game's menu.")
+                        .font(NexType.caption)
+                        .foregroundStyle(NexColor.textSoft)
+                        .padding(.horizontal, 8)
+                }
+                ForEach(visibleCollections) { collection in
+                    sidebarRow(collection.name, symbol: collection.isHidden ? "lock.fill" : "folder.fill", color: collection.color,
+                               count: collection.gameIDs.count, value: .collection(collection.id))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, NexMetrics.tabBarClearance + 20)
+        }
+        .frame(width: 270)
+        .background(NexColor.surface.opacity(0.55).ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(NexColor.stroke).frame(width: 1).ignoresSafeArea(edges: .bottom)
+        }
+    }
+
+    private func sidebarRow(_ title: String, symbol: String, color: Color, count: Int?, value: LibraryFilter) -> some View {
+        let active = filter == value
+        return Button {
+            if !active { NexHaptics.selection() }
+            NexMotion.run(NexMotion.snappy) { filter = value }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(active ? Color.white : color)
+                    .frame(width: 28, height: 28)
+                    .background(active ? color.opacity(0.9) : color.opacity(0.16),
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text(title)
+                    .font(NexType.label)
+                    .foregroundStyle(NexColor.text)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if let count {
+                    Text("\(count)")
+                        .font(NexType.captionStrong.monospacedDigit())
+                        .foregroundStyle(NexColor.textSoft)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 42)
+            .background {
+                if active {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(NexColor.accent.opacity(0.18))
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityAddTraits(active ? .isSelected : [])
+    }
+
+    private var dropOverlay: some View {
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+            .strokeBorder(NexColor.accent, style: StrokeStyle(lineWidth: 3, dash: [10, 8]))
+            .background(NexColor.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay {
+                VStack(spacing: 10) {
+                    Image(systemName: "square.and.arrow.down.on.square.fill")
+                        .font(.system(size: 44, weight: .semibold))
+                        .foregroundStyle(NexColor.accentSoft)
+                    Text("Drop to Add Games").font(NexType.title(22)).foregroundStyle(NexColor.text)
+                    Text("Archives, folders, .exe, HTML and SWF files").font(NexType.caption).foregroundStyle(NexColor.textSoft)
+                }
+            }
+            .padding(16)
+            .allowsHitTesting(false)
+            .transition(.opacity)
+    }
+
+    /// Copies every dropped item into a temporary folder (the item provider's file is gone once its callback
+    /// returns) and imports them in one queue. The folder name starts with "LinkImport-", so the import queue
+    /// deletes the whole copy when it is done (`LibraryStore.removeTemporary`).
+    private func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard !providers.isEmpty else { return false }
+        Task { @MainActor in
+            var urls: [URL] = []
+            for provider in providers {
+                if let url = await LibraryDrop.copy(provider) { urls.append(url) }
+            }
+            AppLog.log("import: \(urls.count) of \(providers.count) dropped item(s) copied")
+            guard !urls.isEmpty else {
+                store.importMessage = "NexPlay couldn't read the dropped items. Try + > Game File instead."
+                return
+            }
+            if tab == .settings { tab = .library }
+            await store.importItems(urls)
+        }
+        return true
+    }
+
+    /// Hardware keyboard shortcuts (iPad keyboard cases): ⌘1–3 tabs, ⌘F search, ⌘O add files, ⇧⌘O add a folder,
+    /// ⌘⇧L download from a link. Invisible buttons; iPadOS lists them when ⌘ is held.
+    @ViewBuilder private var shortcutButtons: some View {
+        Group {
+            Button("Home") { tab = .home }.keyboardShortcut("1", modifiers: .command)
+            Button("Library") { tab = .library }.keyboardShortcut("2", modifiers: .command)
+            Button("Settings") { tab = .settings }.keyboardShortcut("3", modifiers: .command)
+            Button("Search Games") {
+                if tab == .settings { tab = .library }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { searchFocused = true }
+            }
+            .keyboardShortcut("f", modifiers: .command)
+            Button("Add Game File") { importFiles() }.keyboardShortcut("o", modifiers: .command)
+            Button("Add Game Folder") { importFolders() }.keyboardShortcut("o", modifiers: [.command, .shift])
+            Button("Download from Link") {
+                let pasted = UIPasteboard.general.string ?? ""
+                linkText = pasted.lowercased().hasPrefix("http") ? pasted : ""
+                askingLink = true
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+        }
+        .disabled(playing != nil || detail != nil)
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
     }
 
     // MARK: - Controller navigation (7.8.0)
@@ -788,7 +988,7 @@ struct LibraryView: View {
 
     private var navColumns: Int {
         guard tab == .library, layout != "list" else { return 1 }
-        return max(1, Int((gridWidth - 32 + 14) / 164))
+        return max(1, Int((gridWidth - 32 + 14) / (gridMinimum + 14)))
     }
 
     private var focusedGame: Game? {
@@ -827,7 +1027,7 @@ struct LibraryView: View {
             if let open = detail {
                 playFromPage(open)
             } else if tab != .settings, let game = focusedGame {
-                playing = game
+                play(game)
             }
         case .b:
             if detail != nil { detail = nil } else { focusID = nil }
@@ -854,13 +1054,15 @@ struct LibraryView: View {
     // MARK: - Content
 
     private var content: some View {
-        ScrollViewReader { proxy in
+        // 9.0.0: filtered and sorted once per update (was three times: empty check and both layouts).
+        let visible = self.visible
+        return ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if !store.games.isEmpty && search.isEmpty {
                     Text(summary).font(NexType.caption).foregroundStyle(NexColor.textSoft)
                 }
-                chips
+                if !regular { chips }
                 if visible.isEmpty {
                     Text(search.isEmpty ? "Nothing here yet." : "No games match \u{201C}\(search)\u{201D}.")
                         .font(NexType.body)
@@ -879,7 +1081,7 @@ struct LibraryView: View {
                         }
                     }
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 18) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: gridMinimum), spacing: 14)], spacing: 18) {
                         ForEach(visible) { game in
                             GameCard(game: game, titleUnder: titleUnder, selected: selecting ? selection.contains(game.id) : nil)
                                 .nexZoomSource(game.id, in: cardSpace)
@@ -970,19 +1172,19 @@ struct LibraryView: View {
                 .frame(maxWidth: .infinity)
                 .blur(radius: 28)
                 .opacity(0.7)
-                .frame(height: 176)
+                .frame(height: continueHeight)
                 .clipped()
                 .overlay(LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.65)], startPoint: .top, endPoint: .bottom))
             HStack(alignment: .center, spacing: 16) {
                 CoverView(game: game)
-                    .frame(width: 104)
+                    .frame(width: regular ? 150 : 104)
                     .shadow(color: .black.opacity(0.5), radius: 10, y: 6)
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Continue Playing", systemImage: "clock.arrow.circlepath")
                         .font(NexType.captionStrong)
                         .foregroundStyle(.white.opacity(0.75))
                     Text(game.name)
-                        .font(NexType.title(20))
+                        .font(NexType.title(regular ? 26 : 20))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .minimumScaleFactor(0.7)
@@ -993,7 +1195,7 @@ struct LibraryView: View {
                     HStack(spacing: 10) {
                         Button {
                             NexHaptics.press()
-                            playing = game
+                            play(game)
                         } label: {
                             Label("Resume", systemImage: "play.fill")
                                 .font(NexType.label.weight(.bold))
@@ -1017,9 +1219,9 @@ struct LibraryView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(16)
+            .padding(regular ? 22 : 16)
         }
-        .frame(height: 176)
+        .frame(height: continueHeight)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(game.tagColor ?? NexColor.stroke, lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -1028,6 +1230,8 @@ struct LibraryView: View {
         .onTapGesture { detail = game }
         .contextMenu { contextMenu(for: game) }
     }
+
+    private var continueHeight: CGFloat { regular ? 230 : 176 }
 
     private func continueLine(_ game: Game) -> String {
         var parts = [game.engine.badge, formatHours(game.playSeconds)]
@@ -1116,7 +1320,7 @@ struct LibraryView: View {
         } else if UserDefaults.standard.object(forKey: SettingsKey.tapOpensGamePage) as? Bool ?? true {
             detail = game
         } else {
-            playing = game
+            play(game)
         }
     }
 
@@ -1131,7 +1335,7 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func contextMenu(for game: Game) -> some View {
-        Button { playing = game } label: { Label(WindowsEngine.playTitle(for: game), systemImage: "play.fill") }
+        Button { play(game) } label: { Label(WindowsEngine.playTitle(for: game), systemImage: "play.fill") }
         Button { detail = game } label: { Label("Info & Settings", systemImage: "info.circle") }
         if let link = PlayLink.url(for: game) {
             Button {
@@ -1398,3 +1602,45 @@ extension View {
     }
 }
 
+/// 9.0.0: one dropped item copied out of its item provider.
+enum LibraryDrop {
+    static func copy(_ provider: NSItemProvider) async -> URL? {
+        let types = provider.registeredTypeIdentifiers
+        let type = types.first { UTType($0)?.conforms(to: .directory) == true }
+            ?? types.first { UTType($0)?.conforms(to: .data) == true }
+            ?? types.first
+        guard let type else { return nil }
+        let suggested = provider.suggestedName
+        return await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+            _ = provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
+                guard let url else {
+                    AppLog.log("import: a dropped item could not be read (\(error?.localizedDescription ?? "no file"))")
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: keep(url, suggestedName: suggested))
+            }
+        }
+    }
+
+    /// The file is deleted when the provider's callback returns, so it is copied first.
+    private static func keep(_ url: URL, suggestedName: String?) -> URL? {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LinkImport-drop-\(UUID().uuidString)", isDirectory: true)
+        var name = url.lastPathComponent
+        if let suggestedName, !suggestedName.isEmpty {
+            let ext = url.pathExtension
+            name = ext.isEmpty || suggestedName.lowercased().hasSuffix("." + ext.lowercased()) ? suggestedName : suggestedName + "." + ext
+        }
+        let target = folder.appendingPathComponent(name.replacingOccurrences(of: "/", with: "_"))
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: url, to: target)
+            return target
+        } catch {
+            AppLog.log("import: copying a dropped item failed: \(error.localizedDescription)")
+            try? FileManager.default.removeItem(at: folder)
+            return nil
+        }
+    }
+}
